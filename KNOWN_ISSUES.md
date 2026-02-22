@@ -9,9 +9,11 @@ This file tracks known bugs and limitations, some may be fixed, others may not. 
 
 ## Playback
 
-- **Shuffle + crossfade mismatch** — when shuffle is on, the crossfade pre-loader queues the wrong next track. Workaround: disable crossfade when using shuffle.
+- **Shuffle + crossfade mismatch** — when shuffle is on, the crossfade pre-loader could queue the wrong next track. Temporary workaround: disable crossfade when using shuffle.
 - **Going back while shuffle is on** — previous button may pick a random track instead of the actual previous one.
 - **Word mid-transition flash** — when the active lyric line changes mid-word animation, chars briefly flash to their initial (dim) state before catching up.
+- **Audible pop during crossfade** — because of the way we handled audio, we probably should've used the better system in which could've handled transition between audio easier (instead of having to use 2 audio sources)
+- **Issues when changing volume/pausing during crossfade** — crossfade will control volume and still play the next song, even if you have it paused (both are due to the system i made at the start, will probably fix during an overhaul) 
 
 ## Library
 
