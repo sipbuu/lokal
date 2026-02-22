@@ -16,6 +16,8 @@ Local-first music player built w/ Electron and React. Designed for people with l
 >Download the [latest up-to-date release.](https://github.com/sipbuu/lokal/releases/latest)
 
 >Read the [contribution guide](./CONTRIBUTING.md) if you'd want to help!
+
+>Read the [FAQ](./FAQ.md) for any questions you have.
 ---
 
 ## Major Features
