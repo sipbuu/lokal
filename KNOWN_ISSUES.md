@@ -4,6 +4,9 @@ This file tracks known bugs and limitations, some may be fixed, others may not. 
 
 ---
 
+## Scanning
+- **Videos (from mp3) detected as song** — Because of the detection we use, it can also understand a converted video to audio file as an song, if you come across one you can remove the song in settings.     
+
 ## Graphic Instability
 - **Transitions slow/laggy** — Electron is known for hardware acceleration, if you are playing a graphic intensive game, the program may lag/stutter, you can *try* and prevent this by promoting its priority order (for Windows)
 
@@ -28,8 +31,9 @@ This file tracks known bugs and limitations, some may be fixed, others may not. 
 
 ## Lyrics
 
+- **New lyrics aren't grabbed at all** — LRCLIB may be down, for the meantime, if you have any cached song lyrics they should still be fine (or any manual files).
 - **Wrong lyrics version fetched** — LRCLIB may return lyrics for a different version of the track (live, radio edit, etc.). Use the manual search in the lyrics fullscreen view to find the correct version.
-- **Lyrics are way off-sync** — this is likely because the song is unsynced, but due to my implementation it tries a *very rough* estimation of the lyrics so it can appear off sync.
+- **Lyrics are way off-sync** — this is likely because the song is unsynced, but due to my implementation it tries a *very rough* estimation of the lyrics so it can somewhat attempt a sync (*may replace w/ a simple static lyrics + a notifier of said issues).
 - **Caching unclear** — lyrics are cached in SQLite after first fetch, but if the cache isn't being hit correctly it will re-fetch on every open. Check the console for cache hit/miss logs.
 
 ## Web Mode
