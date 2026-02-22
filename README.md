@@ -59,6 +59,8 @@ Search and download from YouTube via yt-dlp. Auto-indexes the track immediately 
 
 Dedicated artist and album pages with artwork, bio, top tracks, and discography view.
 
+(*artists will use the most recent indexed song's image, however you can freely adjust their profile to match their spotify page if you'd like*) 
+
 ---
 
 **Mixes**
