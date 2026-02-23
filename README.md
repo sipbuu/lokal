@@ -1,5 +1,7 @@
 # Lokal
 ![lokal icon](https://i.ibb.co/pjrCyKNF/lokal-icon.png)
+![convient photo of toro](https://i.imgur.com/KgjwTvk.png)
+
 
 Local-first music player built w/ Electron and React. Designed for people with large local music libraries who'd like a modern listening experience w/o the burdens of streaming subscriptions.
 
