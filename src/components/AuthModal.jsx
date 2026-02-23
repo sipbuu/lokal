@@ -118,7 +118,10 @@ export default function AuthModal() {
             <button type="button" onClick={switchMode} className="text-accent hover:text-accent-dim transition-colors">
               {authMode === 'login' ? 'Create one' : 'Sign in'}
             </button>
+            .<br />
+            <span className="text-muted/70">Your account is stored locally and not sent anywhere.</span>
           </p>
+          
         </motion.form>
       </AnimatePresence>
     </Modal>
