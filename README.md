@@ -36,7 +36,7 @@ Your local music folder indexed and scanned for files that have metadata. Lokal 
 
 Line level (or word-level with a toggle) karaoke animation powered by LRCLIB. Supports manual search if the auto-fetch is wrong, and local import of `.lrc` and `.ttml` files for an Apple Music-style syllable sync.
 
-(*note: most word-level lyrics are estimation based on the time between lines, if it is a slow slong with many pauses, the word-sync will be off*)
+(*note: most word-level lyrics are estimation based on the time between lines, if it is a slow song with many pauses, the word-sync will be off*)
 
 ![synced lyrics gif](https://i.imgur.com/1tEycTU.gif)
 
@@ -116,13 +116,22 @@ npm install
 
 **Electron app (desktop):**
 ```bash
+# rebuild sqlite3 for electron
+npm run rebuild:electron 
+
 npm run dev
 ```
 
 **Web mode (access from another device):**
 ```bash
 # Copy .env.example to .env and set LOKAL_DATA_DIR to your Electron app's data folder
-cp .env.example .env
+# copy .env.example .env (for windows)
+cp .env.example .env 
+
+
+# rebuild sqlite 3 for web
+npm run rebuild:web 
+
 npm run dev:web
 # Open http://localhost:3421
 ```

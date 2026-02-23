@@ -9,7 +9,9 @@
     "dev:web": "concurrently \"vite\" \"node server/start.js\"",
     "build": "vite build && electron-builder",
     "server": "node server/start.js",
-    "rebuild": "electron-rebuild -f -w better-sqlite3"
+    "rebuild": "electron-rebuild -f -w better-sqlite3",
+    "rebuild:electron": "electron-rebuild",
+    "rebuild:web": "npm rebuild better-sqlite3"
   },
   "build": {
     "appId": "com.lokal.music",
