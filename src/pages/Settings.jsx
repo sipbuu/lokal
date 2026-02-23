@@ -396,6 +396,13 @@ export default function Settings() {
       <h1 className="font-display text-lg uppercase tracking-widest text-white">Settings</h1>
 
       <Section title="Library">
+        <Row label="Fetch Online Artwork" desc="Try iTunes/MusicBrainz if no embedded artwork found">
+          <button
+            onClick={() => { const v = settings.fetch_online_artwork !== '0'; set('fetch_online_artwork', v ? '1' : '0') }}
+            className={`px-4 py-1.5 rounded-lg text-xs font-display uppercase tracking-wider border transition-colors ${settings.fetch_online_artwork !== '0' ? 'bg-accent/20 border-accent/50 text-accent' : 'border-border text-muted hover:text-white'}`}>
+            {settings.fetch_online_artwork !== '0' ? 'On' : 'Off'}
+          </button>
+        </Row>
         <Row label="Music Folder">
           <div className="flex items-center gap-2">
             <input value={settings.music_folder || ''} onChange={e => set('music_folder', e.target.value)}
