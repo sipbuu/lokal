@@ -1,18 +1,8 @@
-
-
-
-
-
-
-
-
-
-
-
-
 const path = require('path')
 const fs = require('fs-extra')
 const crypto = require('crypto')
+const https = require('https')
+const http = require('http')
 const mm = require('music-metadata')
 const { getDB, getStorageDir } = require('./db')
 
@@ -430,7 +420,6 @@ module.exports = { registerScannerHandlers, scanFolder, DEFAULT_MUSIC_PATH, inde
 
 
 function registerExtraHandlers(ipcMain) {
-  const https = require('https')
   ipcMain.handle('artist:setImageUrl', async (_, artistId, url) => { const db = getDB(); const imgPath = path.join(getStorageDir(), 'artwork', `artist-${artistId}.jpg`); await downloadToFile(url, imgPath); db.prepare('UPDATE artists SET image_path = ? WHERE id = ?').run(imgPath, artistId); return imgPath })
   ipcMain.handle('album:setImageUrl', async (_, albumTitle, url) => { const db = getDB(); const safeTitle = albumTitle.replace(/[^a-z0-9]+/gi, '-'); const imgPath = path.join(getStorageDir(), 'artwork', `album-${safeTitle}.jpg`); await downloadToFile(url, imgPath); db.prepare('UPDATE tracks SET artwork_path = ? WHERE album = ?').run(imgPath, albumTitle); return imgPath })
   ipcMain.handle('artist:importPhotosDir', async (_, photosDir) => {
@@ -453,8 +442,6 @@ function registerExtraHandlers(ipcMain) {
 }
 
 function downloadToFile(url, dest) {
-  const https = require('https')
-  const http = require('http')
   const fs = require('fs-extra')
   return new Promise((resolve, reject) => {
     const client = url.startsWith('https') ? https : http
