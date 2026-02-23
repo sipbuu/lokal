@@ -420,7 +420,7 @@ async function fetchExternalArtwork(title, artist, trackId) {
     const mbQuery = `https://musicbrainz.org/ws/2/recording/?query=recording:"${title}" AND artist:"${artist}"&fmt=json&limit=3`
     const mbRes = await fetch(mbQuery, {
       signal: controller2.signal,
-      headers: { 'User-Agent': 'LokalMusic/4.0 (your@email.com)' }
+      headers: { 'User-Agent': 'Lokal/4.0 (lokalmusic@email.com)' }
     })
     const mbData = await mbRes.json()
 
