@@ -383,6 +383,95 @@ function registerScannerHandlers(ipcMain) {
   })
 }
 
+async function fetchExternalArtwork(title, artist, trackId) {
+  const db = getDB()
+  try {
+    const setting = db.prepare("SELECT value FROM settings WHERE key = 'fetch_online_artwork'").get()
+    if (setting?.value === '0') return null
+  } catch { return null }
+
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), 5000)
+
+  try {
+    const itunesUrl = `https://itunes.apple.com/search?term=${encodeURIComponent(title + ' ' + artist)}&entity=song&limit=5`
+    const itunesRes = await fetch(itunesUrl, { signal: controller.signal })
+    const itunesData = await itunesRes.json()
+
+    if (itunesData.results && itunesData.results.length > 0) {
+      let artworkUrl = itunesData.results[0].artworkUrl100
+      if (artworkUrl) {
+        artworkUrl = artworkUrl.replace('100x100bb', '600x600bb')
+        const artPath = path.join(getStorageDir(), 'artwork', `t-${trackId}.jpg`)
+        try {
+          await downloadImageWithTimeout(artworkUrl, artPath, 5000)
+          clearTimeout(timeout)
+          return artPath
+        } catch {}
+      }
+    }
+  } catch {}
+
+  clearTimeout(timeout)
+  const controller2 = new AbortController()
+  const timeout2 = setTimeout(() => controller2.abort(), 5000)
+
+  try {
+    const mbQuery = `https://musicbrainz.org/ws/2/recording/?query=recording:"${title}" AND artist:"${artist}"&fmt=json&limit=3`
+    const mbRes = await fetch(mbQuery, {
+      signal: controller2.signal,
+      headers: { 'User-Agent': 'LokalMusic/4.0 (your@email.com)' }
+    })
+    const mbData = await mbRes.json()
+
+    if (mbData.releases && mbData.releases[0]?.id) {
+      const releaseId = mbData.releases[0].id
+      const coverUrl = `https://coverartarchive.org/release/${releaseId}/front-500`
+      const artPath = path.join(getStorageDir(), 'artwork', `t-${trackId}.jpg`)
+      try {
+        await downloadImageWithTimeout(coverUrl, artPath, 5000)
+        clearTimeout(timeout2)
+        return artPath
+      } catch {}
+    }
+  } catch {}
+
+  clearTimeout(timeout2)
+  return null
+}
+
+function downloadImageWithTimeout(url, dest, timeoutMs) {
+  return new Promise((resolve, reject) => {
+    const client = url.startsWith('https') ? https : http
+    const timeout = setTimeout(() => { reject(new Error('Download timeout')) }, timeoutMs)
+    const file = fs.createWriteStream(dest)
+    client.get(url, (res) => {
+      if (res.statusCode === 301 || res.statusCode === 302) {
+        file.close()
+        clearTimeout(timeout)
+        return downloadImageWithTimeout(res.headers.location, dest, timeoutMs).then(resolve).catch(reject)
+      }
+      if (res.statusCode !== 200) {
+        file.close()
+        clearTimeout(timeout)
+        fs.unlink(dest, () => {})
+        reject(new Error('HTTP ' + res.statusCode))
+        return
+      }
+      res.pipe(file)
+      file.on('finish', () => {
+        file.close()
+        clearTimeout(timeout)
+        resolve(dest)
+      })
+    }).on('error', (err) => {
+      clearTimeout(timeout)
+      fs.unlink(dest, () => {})
+      reject(err)
+    })
+  })
+}
+
 async function indexSingleFile(filePath, opts = {}) {
   const db = getDB()
   const stat = fs.statSync(filePath)
@@ -402,7 +491,23 @@ async function indexSingleFile(filePath, opts = {}) {
   if (!title || !artist) return { error: 'Missing title/artist' }
   if (duration < MIN_DURATION_SECONDS) return { error: 'Too short' }
   if (isDrumKit(title, c.album, c.genre?.[0])) return { error: 'Filtered drumkit' }
-  const artwork = await extractArtwork(meta, trackId)
+  
+  let artwork = await extractArtwork(meta, trackId)
+  
+  const thumbnailUrl = opts.thumbnailUrl
+  if (!artwork && thumbnailUrl) {
+    try {
+      const artPath = path.join(getStorageDir(), 'artwork', `t-${trackId}.jpg`)
+      await downloadImageWithTimeout(thumbnailUrl, artPath, 5000)
+      artwork = artPath
+    } catch {}
+  }
+
+  if (!artwork) {
+    const externalArt = await fetchExternalArtwork(title, artist, trackId)
+    if (externalArt) artwork = externalArt
+  }
+
   const replaygain = c.replaygain_track_gain || null
   const dupe = db.prepare('SELECT * FROM tracks WHERE LOWER(title) = ? AND LOWER(artist) = ? AND (album IS NULL OR album = ? OR ? IS NULL OR album IS NULL) AND ABS(duration - ?) < 2').get(title.toLowerCase(), artist.toLowerCase(), c.album?.trim() || null, c.album?.trim() || null, duration)
   if (dupe) return { duplicate: true, id: dupe.id }
