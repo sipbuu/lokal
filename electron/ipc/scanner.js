@@ -511,13 +511,31 @@ async function indexSingleFile(filePath, opts = {}) {
   const replaygain = c.replaygain_track_gain || null
   const dupe = db.prepare('SELECT * FROM tracks WHERE LOWER(title) = ? AND LOWER(artist) = ? AND (album IS NULL OR album = ? OR ? IS NULL OR album IS NULL) AND ABS(duration - ?) < 2').get(title.toLowerCase(), artist.toLowerCase(), c.album?.trim() || null, c.album?.trim() || null, duration)
   if (dupe) return { duplicate: true, id: dupe.id }
-  const upsertArtist = db.prepare(`INSERT OR IGNORE INTO artists (id, name) VALUES (?, ?)`)
-  const linkArtist = db.prepare(`INSERT OR IGNORE INTO artist_track_links (artist_id, track_id) VALUES (?, ?)`)
-  try { db.exec("ALTER TABLE tracks ADD COLUMN replaygain TEXT") } catch {}
-  const upsertTrack = db.prepare(`INSERT OR REPLACE INTO tracks (id, file_path, file_hash, title, artist, album, album_artist, track_num, year, genre, duration, artwork_path, bitrate, last_modified, replaygain) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-  upsertTrack.run(trackId, filePath, trackId, title, artist, c.album?.trim() || null, c.albumartist?.trim() || null, c.track?.no || null, c.year || null, c.genre?.[0] || null, duration, artwork, meta.format.bitrate ? Math.round(meta.format.bitrate / 1000) : null, stat.mtimeMs, replaygain)
-  const artistNames = splitArtists(artist)
-  for (const name of artistNames) { const aid = 'a-' + slugify(name); upsertArtist.run(aid, name); linkArtist.run(aid, trackId) }
+  
+  const insertTransaction = db.transaction(() => {
+    const upsertArtist = db.prepare(`INSERT OR IGNORE INTO artists (id, name) VALUES (?, ?)`)
+    const linkArtist = db.prepare(`INSERT OR IGNORE INTO artist_track_links (artist_id, track_id) VALUES (?, ?)`)
+    try { db.exec("ALTER TABLE tracks ADD COLUMN replaygain TEXT") } catch {}
+    
+
+    const existingByPath = db.prepare('SELECT id FROM tracks WHERE file_path = ?').get(filePath)
+    if (existingByPath) {
+      db.prepare(`UPDATE tracks SET file_hash = ?, title = ?, artist = ?, album = ?, album_artist = ?, track_num = ?, year = ?, genre = ?, duration = ?, artwork_path = ?, bitrate = ?, last_modified = ?, replaygain = ? WHERE file_path = ?`)
+        .run(trackId, title, artist, c.album?.trim() || null, c.albumartist?.trim() || null, c.track?.no || null, c.year || null, c.genre?.[0] || null, duration, artwork, meta.format.bitrate ? Math.round(meta.format.bitrate / 1000) : null, stat.mtimeMs, replaygain, filePath)
+    } else {
+      db.prepare(`INSERT INTO tracks (id, file_path, file_hash, title, artist, album, album_artist, track_num, year, genre, duration, artwork_path, bitrate, last_modified, replaygain) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+        .run(trackId, filePath, trackId, title, artist, c.album?.trim() || null, c.albumartist?.trim() || null, c.track?.no || null, c.year || null, c.genre?.[0] || null, duration, artwork, meta.format.bitrate ? Math.round(meta.format.bitrate / 1000) : null, stat.mtimeMs, replaygain)
+    }
+    db.prepare('DELETE FROM artist_track_links WHERE track_id = ?').run(trackId)
+    const artistNames = splitArtists(artist)
+    for (const name of artistNames) { 
+      const aid = 'a-' + slugify(name); 
+      upsertArtist.run(aid, name); 
+      linkArtist.run(aid, trackId) 
+    }
+  })
+  
+  insertTransaction()
   return { success: true, id: trackId }
 }
 
