@@ -9,10 +9,45 @@ let mainWindow = null
 
 
 function getYouTubeId(url) {
-  const match = url.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/)([a-zA-Z0-9_-]{11})/)
+  const match = url.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/|music\.youtube\.com\/watch\?v=)([a-zA-Z0-9_-]{11})/)
   return match ? match[1] : null
 }
 
+
+async function cleanupLeftovers(filepaths, outputDir) {
+  const audioExts = new Set(['.mp3','.flac','.m4a','.ogg','.wav','.aac','.opus'])
+  const junkExts = new Set(['.webp','.ytdl','.part','.jpg.part','.temp'])
+
+  for (const fp of filepaths) {
+    const dir = path.dirname(fp)
+    const base = path.basename(fp, path.extname(fp))
+    try {
+      const siblings = fs.readdirSync(dir)
+      for (const f of siblings) {
+        const ext = path.extname(f).toLowerCase()
+        const fpath = path.join(dir, f)
+        if (!f.startsWith(base)) continue
+        if (audioExts.has(ext)) continue
+        if (junkExts.has(ext)) { try { fs.unlinkSync(fpath) } catch {} }
+        if (ext === '.jpg') {
+          try {
+            const stat = fs.statSync(fpath)
+            if (stat.size < 51200) fs.unlinkSync(fpath)
+          } catch {}
+        }
+      }
+    } catch {}
+  }
+
+  try {
+    const topLevel = fs.readdirSync(outputDir)
+    for (const f of topLevel) {
+      if (path.extname(f).toLowerCase() === '.webp') {
+        try { fs.unlinkSync(path.join(outputDir, f)) } catch {}
+      }
+    }
+  } catch {}
+}
 
 function getYouTubeThumbnail(videoId) {
   return `https://img.youtube.com/vi/${videoId}/maxresdefault.jpg`
@@ -82,6 +117,8 @@ function registerDownloaderHandlers(ipcMain) {
       }
     }
 
+    const isYouTube = !!getYouTubeId(url)
+
     const args = [
       url,
       '-x', '--audio-format', opts.format || 'mp3',
@@ -91,6 +128,13 @@ function registerDownloaderHandlers(ipcMain) {
       '--output', outputTemplate,
       '--newline', '--progress',
     ]
+
+    if (isYouTube) {
+      args.push(
+        '--convert-thumbnail', 'jpg',
+        '--ppa', 'EmbedThumbnail+ffmpeg_o:-c:v mjpeg -vf crop=if(gt(ih\\,iw)\\,iw\\,ih):if(gt(iw\\,ih)\\,ih\\,iw)'
+      )
+    }
 
     if (ffmpeg && (ffmpeg.includes('/') || ffmpeg.includes('\\'))) {
       args.push('--ffmpeg-location', path.dirname(ffmpeg));
