@@ -16,7 +16,7 @@ function getYouTubeId(url) {
 
 async function cleanupLeftovers(filepaths, outputDir) {
   const audioExts = new Set(['.mp3','.flac','.m4a','.ogg','.wav','.aac','.opus'])
-  const junkExts = new Set(['.webp','.ytdl','.part','.jpg.part','.temp'])
+  const junkExts = new Set(['.webp','.ytdl','.part','.jpg.part','.temp', '.mhtml', '.info.json'])
 
   for (const fp of filepaths) {
     const dir = path.dirname(fp)
@@ -132,8 +132,8 @@ function registerDownloaderHandlers(ipcMain) {
     if (isYouTube) {
       args.push(
         '--convert-thumbnail', 'jpg',
-        '--ppa', 'EmbedThumbnail+ffmpeg_o:-c:v mjpeg -vf crop=if(gt(ih\\,iw)\\,iw\\,ih):if(gt(iw\\,ih)\\,ih\\,iw)'
-      )
+        '--ppa', 'EmbedThumbnail+ffmpeg_o:-c:v mjpeg -vf "crop=min(iw\\,ih):min(iw\\,ih)"'
+      );
     }
 
     if (ffmpeg && (ffmpeg.includes('/') || ffmpeg.includes('\\'))) {
@@ -189,7 +189,8 @@ function registerDownloaderHandlers(ipcMain) {
         downloadQueue.delete(downloadId)
         if (code === 0) {
           
-          
+          await cleanupLeftovers(filepaths, outputDir);
+
           setImmediate(async () => {
             try {
               const { indexSingleFile } = require('./scanner')
@@ -422,6 +423,7 @@ function registerExtraDownloaderHandlers(ipcMain) {
         console.log(`[Playlist ${dlId}] Process closed with code ${code}`)
         if (code === 0) {
           
+          await cleanupLeftovers(filepaths, outputDir);
           
           setImmediate(async () => {
             try {
