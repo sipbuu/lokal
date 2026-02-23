@@ -75,6 +75,7 @@ Auto-generated mixes built from your listening history and liked tracks, as well
 
 ## Other Features
 
+- **Playlist Importer (beta/half-complete)** — import playlists from other platforms (once you have indexed your music) to a playlist.  
 - **Crossfade** — smooth transitions between tracks, configurable within **settings**
 - **Discord Rich Presence** — shows what you're listening to in real time. (use the one provided, or grab your custom id from discord's development panel)
 - **Duplicate detection** — smart merge that scores each copy by bitrate, artwork, and metadata completeness, then keeps the best one. (best for situations where you can contain duplicates of the same music)
