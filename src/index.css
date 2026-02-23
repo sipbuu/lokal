@@ -1,0 +1,69 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  background: #0a0a0a;
+  color: #e8e8e8;
+  font-family: 'DM Sans', sans-serif;
+  overflow: hidden;
+  user-select: none;
+  -webkit-app-region: no-drag;
+}
+
+::-webkit-scrollbar { width: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #2a2a2a; border-radius: 2px; }
+::-webkit-scrollbar-thumb:hover { background: #444; }
+
+.titlebar { -webkit-app-region: drag; }
+input, button, select, textarea { -webkit-app-region: no-drag; }
+
+/* Wave loading animation for lyrics fetch */
+.wave-loader {
+  display: flex;
+  align-items: flex-end;
+  gap: 4px;
+  height: 20px;
+}
+.wave-loader span {
+  display: block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #e8ff57;
+  animation: wave-bounce 1.2s ease-in-out infinite;
+}
+.wave-loader span:nth-child(2) { animation-delay: 0.15s; }
+.wave-loader span:nth-child(3) { animation-delay: 0.3s; }
+
+@keyframes wave-bounce {
+  0%, 60%, 100% { transform: translateY(0); opacity: 0.4; }
+  30% { transform: translateY(-10px); opacity: 1; }
+}
+
+/* Word-sync highlight */
+@keyframes word-rise {
+  from { transform: translateY(4px); opacity: 0.3; }
+  to { transform: translateY(0); opacity: 1; }
+}
+.word-active {
+  color: #e8ff57;
+  animation: word-rise 0.15s ease-out forwards;
+  display: inline;
+}
+.word-past { opacity: 0.35; }
+.word-future { opacity: 0.45; }
+
+/* EQ bar animation */
+@keyframes eq-bar {
+  0%, 100% { transform: scaleY(0.3); }
+  50% { transform: scaleY(1); }
+}
+
+@layer utilities {
+  .text-balance { text-wrap: balance; }
+}
+
