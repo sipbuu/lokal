@@ -38,6 +38,7 @@ let mainWindow
 
 function createWindow() {
   mainWindow = new BrowserWindow({
+    icon: path.join(__dirname, '../public/lokal-icon.png'),
     width: 1400, height: 860, minWidth: 960, minHeight: 640,
     frame: false, backgroundColor: '#0a0a0a',
     webPreferences: {

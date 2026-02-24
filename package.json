@@ -15,43 +15,21 @@
   },
   "build": {
     "appId": "com.lokal.music",
-    "productName": "Lokal Music",
+    "productName": "Lokal",
+    "icon": "public/lokal-icon.ico",
     "directories": {
       "output": "release"
     },
-    "asar": true,
-    "asarUnpack": [
-      "**/node_modules/better-sqlite3/**/*"
-    ],
-    "files": [
-      "dist/**/*",
-      "electron/**/*",
-      "server/**/*",
-      "package.json"
-    ],
-    "extraResources": [
-      {
-        "from": "bin/",
-        "to": "bin/",
-        "filter": [
-          "**/*"
-        ]
-      }
-    ],
     "win": {
-      "icon": "public/lokal-icon.png",
+      "icon": "public/lokal-icon.ico",
       "target": [
         {
           "target": "nsis",
-          "arch": [
-            "x64"
-          ]
+          "arch": ["x64"]
         },
         {
           "target": "portable",
-          "arch": [
-            "x64"
-          ]
+          "arch": ["x64"]
         }
       ]
     },
