@@ -22,11 +22,11 @@ import { usePlayerStore, useAppStore } from './store/player'
 import { api } from './api'
 
 export default function App() {
-  const audioRef = useRef(null)
-  const cfAudioRef = useRef(null)
-  const gainNodeRef = useRef(null)
+  const audioRefs = useRef([null, null])
+  const currentIndexRef = useRef(0)
+  const gainNodeRefs = useRef([null, null])
+  const masterGainRef = useRef(null)
   const audioCtxRef = useRef(null)
-  const cfIntervalRef = useRef(null)
   const cfActiveRef = useRef(false)
   const playSecsRef = useRef(0)
   const playTimerRef = useRef(null)
@@ -34,6 +34,7 @@ export default function App() {
   const currentTrackRef = useRef(null)
   const prevTrackIdRef = useRef(null)
   const artworkCacheRef = useRef({})
+  const eqNodesRef = useRef([])
 
   const [updateState, setUpdateState] = useState({
     status: 'idle',
@@ -58,6 +59,10 @@ export default function App() {
       console.error('Error reading artwork:', e)
       return null
     }
+  }, [])
+
+  const getActiveAudio = useCallback(() => {
+    return audioRefs.current[currentIndexRef.current]?.current
   }, [])
 
   const {
@@ -149,19 +154,21 @@ export default function App() {
     try {
       navigator.mediaSession.playbackState = isPlaying ? 'playing' : 'paused'
     } catch {}
-    if (audioRef.current && typeof navigator.mediaSession.setPositionState === 'function') {
+    const activeAudio = getActiveAudio()
+    if (activeAudio && typeof navigator.mediaSession.setPositionState === 'function') {
       try {
         navigator.mediaSession.setPositionState({
-          duration: audioRef.current.duration || 0,
-          playbackRate: audioRef.current.playbackRate || 1,
-          position: audioRef.current.currentTime || 0
+          duration: activeAudio.duration || 0,
+          playbackRate: activeAudio.playbackRate || 1,
+          position: activeAudio.currentTime || 0
         })
       } catch {}
     }
-    navigator.mediaSession.setActionHandler('play', () => { audioRef.current?.play() })
-    navigator.mediaSession.setActionHandler('pause', () => { audioRef.current?.pause() })
+    navigator.mediaSession.setActionHandler('play', () => { getActiveAudio()?.play() })
+    navigator.mediaSession.setActionHandler('pause', () => { getActiveAudio()?.pause() })
     navigator.mediaSession.setActionHandler('seekto', (details) => {
-      if (audioRef.current && typeof details.seekTime === 'number') audioRef.current.currentTime = details.seekTime
+      const activeAudio = getActiveAudio()
+      if (activeAudio && typeof details.seekTime === 'number') activeAudio.currentTime = details.seekTime
     })
     navigator.mediaSession.setActionHandler('previoustrack', () => {
       usePlayerStore.getState().prev()
@@ -169,25 +176,26 @@ export default function App() {
     navigator.mediaSession.setActionHandler('nexttrack', () => {
       usePlayerStore.getState().next()
     })
-  }, [currentTrack, isPlaying])
+  }, [currentTrack, isPlaying, getActiveAudio])
 
   useEffect(() => {
     if (!('mediaSession' in navigator)) return
-    if (!audioRef.current) return
+    const activeAudio = getActiveAudio()
+    if (!activeAudio) return
     const update = () => {
       if (typeof navigator.mediaSession.setPositionState === 'function') {
         try {
           navigator.mediaSession.setPositionState({
-            duration: audioRef.current.duration || 0,
-            playbackRate: audioRef.current.playbackRate || 1,
-            position: audioRef.current.currentTime || 0
+            duration: activeAudio.duration || 0,
+            playbackRate: activeAudio.playbackRate || 1,
+            position: activeAudio.currentTime || 0
           })
         } catch {}
       }
     }
-    audioRef.current.addEventListener('timeupdate', update)
-    return () => audioRef.current?.removeEventListener('timeupdate', update)
-  }, [audioRef.current])
+    activeAudio.addEventListener('timeupdate', update)
+    return () => activeAudio?.removeEventListener('timeupdate', update)
+  }, [getActiveAudio])
   useEffect(() => { userRef.current = user }, [user])
   useEffect(() => { currentTrackRef.current = currentTrack }, [currentTrack])
 
@@ -196,30 +204,55 @@ export default function App() {
   }, [user?.id])
 
   useEffect(() => {
-    setAudioRef(audioRef)
+    const updateAudioRef = () => {
+      const activeAudio = audioRefs.current[currentIndexRef.current]
+      setAudioRef({ current: activeAudio })
+    }
+    updateAudioRef()
     api.getSettings().then(s => {
       if (s?.crossfade_seconds) setCrossfade(parseFloat(s.crossfade_seconds) || 0)
     })
-  }, [])
+  }, [setAudioRef])
 
   const initAudioCtx = useCallback(() => {
-    if (audioCtxRef.current || !audioRef.current) return
+    if (audioCtxRef.current || !audioRefs.current[0] || !audioRefs.current[1]) return
     try {
       const ctx = new (window.AudioContext || window.webkitAudioContext)()
       audioCtxRef.current = ctx
-      const source = ctx.createMediaElementSource(audioRef.current)
+
       const bands = [60, 230, 910, 3600, 14000]
-      const nodes = bands.map(freq => {
+      const eqNodes = bands.map(freq => {
         const f = ctx.createBiquadFilter()
         f.type = 'peaking'; f.frequency.value = freq; f.Q.value = 1.4; f.gain.value = 0
         return f
       })
-      const gain = ctx.createGain(); gainNodeRef.current = gain; gain.gain.value = volume
-      let prev = source
-      for (const n of nodes) { prev.connect(n); prev = n }
-      prev.connect(gain); gain.connect(ctx.destination)
-      try { JSON.parse(localStorage.getItem('lokal-eq') || '[]').forEach((v, i) => nodes[i] && (nodes[i].gain.value = v)) } catch {}
-      window.__lokaleq = { setGain: (i, v) => nodes[i] && (nodes[i].gain.value = v) }
+      eqNodesRef.current = eqNodes
+
+      const masterGain = ctx.createGain()
+      masterGain.gain.value = volume
+      masterGainRef.current = masterGain
+
+      let prev = eqNodes[eqNodes.length - 1]
+      prev.connect(masterGain)
+      masterGain.connect(ctx.destination)
+
+      for (let i = 0; i < 2; i++) {
+        const source = ctx.createMediaElementSource(audioRefs.current[i])
+        const gainNode = ctx.createGain()
+        gainNode.gain.value = 1
+        gainNodeRefs.current[i] = gainNode
+
+        let node = source
+        for (const eq of eqNodes) {
+          node.connect(eq)
+          node = eq
+        }
+        node.connect(gainNode)
+        gainNode.connect(masterGain)
+      }
+
+      try { JSON.parse(localStorage.getItem('lokal-eq') || '[]').forEach((v, i) => eqNodes[i] && (eqNodes[i].gain.value = v)) } catch {}
+      window.__lokaleq = { setGain: (i, v) => eqNodes[i] && (eqNodes[i].gain.value = v) }
     } catch {}
   }, [volume])
 
@@ -238,13 +271,23 @@ export default function App() {
     if (secs >= 10 && trackId) api.incrementPlayTime(trackId, userRef.current?.id, secs)
   }, [])
 
-  const triggerCrossfade = useCallback((nextTrack) => {
+  const playTrackWithCrossfade = useCallback((nextTrack, isAutoAdvance = false) => {
     if (cfActiveRef.current) return
-    if (!cfAudioRef.current || !audioRef.current || !nextTrack) return
-    cfActiveRef.current = true
-    clearInterval(cfIntervalRef.current)
+    if (!audioRefs.current[0] || !audioRefs.current[1] || !nextTrack) return
+    
+    const ctx = audioCtxRef.current
+    if (!ctx) return
 
-    const cf = cfAudioRef.current
+    cfActiveRef.current = true
+    
+    const currentIndex = currentIndexRef.current
+    const nextIndex = 1 - currentIndex
+    
+    const currentAudio = audioRefs.current[currentIndex]
+    const nextAudio = audioRefs.current[nextIndex]
+    const currentGain = gainNodeRefs.current[currentIndex]
+    const nextGain = gainNodeRefs.current[nextIndex]
+    
     const encodedPath = nextTrack.file_path
       .replace(/\\/g, '/')
       .split('/')
@@ -253,50 +296,52 @@ export default function App() {
       .replace(/%3A/g, ':');
 
     const nextSrc = api.isElectron ? `file://${encodedPath}` : api.streamURL(nextTrack);
-    cf.src = nextSrc
-    cf.volume = 0
-    cf.play().catch(() => {})
+    
+    nextAudio.src = nextSrc
+    nextAudio.volume = 1
+    
+    const cfSeconds = usePlayerStore.getState().crossfadeSeconds || 3
+    const now = ctx.currentTime
+    
+    nextGain.gain.setValueAtTime(0, now)
+    nextGain.gain.linearRampToValueAtTime(1, now + cfSeconds)
+    currentGain.gain.setValueAtTime(1, now)
+    currentGain.gain.linearRampToValueAtTime(0, now + cfSeconds)
+    
+    nextAudio.play().then(() => {
+      setTimeout(() => {
+        currentAudio.pause()
+        currentAudio.src = ''
+        currentGain.gain.setValueAtTime(1, ctx.currentTime)
+        
+        currentIndexRef.current = nextIndex
+        setAudioRef({ current: nextAudio })
+        
+        if (isAutoAdvance) {
+          flushTime(currentTrackRef.current?.id)
+          autoNext()
+        }
+        
+        cfActiveRef.current = false
+      }, cfSeconds * 1000)
+    }).catch(() => {
+      cfActiveRef.current = false
+    })
+  }, [autoNext, flushTime, setAudioRef])
 
-    const totalMs = (usePlayerStore.getState().crossfadeSeconds || 3) * 1000
-    const stepMs = 50
-    const steps = totalMs / stepMs
-    let step = 0
-    const startVol = audioRef.current.volume || 1
-
-    cfIntervalRef.current = setInterval(() => {
-      step++
-      const ratio = Math.min(step / steps, 1)
-      try { cf.volume = ratio * volume } catch {}
-      try { if (audioRef.current) audioRef.current.volume = (1 - ratio) * startVol } catch {}
-
-      if (ratio >= 1) {
-        clearInterval(cfIntervalRef.current)
-        const cfEl = cfAudioRef.current
-        const main = audioRef.current
-        flushTime(currentTrackRef.current?.id)
-        autoNext()
-        setTimeout(() => {
-          if (!main || !cfEl) return
-          const position = cfEl.currentTime
-          main.src = cfEl.src
-          main.currentTime = position
-          main.volume = volume
-          main.play().catch(() => {})
-          cfEl.pause()
-          cfEl.src = ''
-          cfActiveRef.current = false
-        }, 50)
-      }
-    }, stepMs)
-  }, [volume, autoNext, flushTime])
+  const triggerCrossfade = useCallback((nextTrack) => {
+    if (cfActiveRef.current) return
+    if (!nextTrack) return
+    
+    playTrackWithCrossfade(nextTrack, true)
+  }, [playTrackWithCrossfade])
 
   useEffect(() => {
-    if (!audioRef.current || !currentTrack) return
+    const activeAudio = getActiveAudio()
+    if (!activeAudio || !currentTrack) return
     if (cfActiveRef.current) return
 
     stopTimer(); flushTime(currentTrackRef.current?.id); playSecsRef.current = 0
-    clearInterval(cfIntervalRef.current)
-    if (cfAudioRef.current) { try { cfAudioRef.current.pause(); cfAudioRef.current.src = '' } catch {} }
 
     const src = api.isElectron 
   ? `file://${currentTrack.file_path
@@ -307,22 +352,30 @@ export default function App() {
       .replace(/%3A/g, ':')      
     }` 
   : api.streamURL(currentTrack);
-    audioRef.current.src = src
-    audioRef.current.volume = volume
-    if (isPlaying) audioRef.current.play().catch(() => {})
+    
+    const currentIndex = currentIndexRef.current
+    activeAudio.src = src
+    
+    if (gainNodeRefs.current[currentIndex]) {
+      gainNodeRefs.current[currentIndex].gain.value = 1
+    }
+    
+    if (isPlaying) activeAudio.play().catch(() => {})
     if (api.isElectron) api.discordSetActivity(currentTrack, true).catch(() => {})
-  }, [currentTrack?.id])
+  }, [currentTrack?.id, getActiveAudio, isPlaying, stopTimer, flushTime])
 
   useEffect(() => {
-    if (!audioRef.current) return
-    if (isPlaying) { audioRef.current.play().catch(() => {}); startTimer() }
-    else { audioRef.current.pause(); stopTimer() }
+    const activeAudio = getActiveAudio()
+    if (!activeAudio) return
+    if (isPlaying) { activeAudio.play().catch(() => {}); startTimer() }
+    else { activeAudio.pause(); stopTimer() }
     if (api.isElectron && currentTrack) api.discordSetActivity(currentTrack, isPlaying).catch(() => {})
-  }, [isPlaying])
+  }, [isPlaying, getActiveAudio, currentTrack, startTimer, stopTimer])
 
   useEffect(() => {
-    if (audioRef.current) audioRef.current.volume = volume
-    if (gainNodeRef.current) gainNodeRef.current.gain.value = volume
+    if (masterGainRef.current) {
+      masterGainRef.current.gain.value = volume
+    }
   }, [volume])
 
 
@@ -418,6 +471,14 @@ export default function App() {
     )
   }
 
+  const handleAudioEnded = useCallback(() => {
+    stopTimer(); flushTime(currentTrackRef.current?.id)
+    if (cfActiveRef.current) return
+    const activeAudio = getActiveAudio()
+    if (repeat === 'one') { activeAudio.currentTime = 0; activeAudio.play() }
+    else autoNext()
+  }, [stopTimer, flushTime, getActiveAudio, repeat, autoNext])
+
   return (
     <Router>
       <div className="flex flex-col h-screen bg-base overflow-hidden" onClick={initAudioCtx}>
@@ -449,19 +510,14 @@ export default function App() {
         {renderUpdateToast()}
 
         <audio
-          ref={audioRef}
+          ref={el => audioRefs.current[0] = el}
           onTimeUpdate={handleTimeUpdate}
           onDurationChange={e => setDuration(e.target.duration)}
-          onEnded={() => {
-            stopTimer(); flushTime(currentTrackRef.current?.id)
-            if (cfActiveRef.current) return
-            if (repeat === 'one') { audioRef.current.currentTime = 0; audioRef.current.play() }
-            else autoNext()
-          }}
-          onPlay={() => { setIsPlaying(true);  startTimer() }}
+          onEnded={handleAudioEnded}
+          onPlay={() => { setIsPlaying(true); startTimer() }}
           onPause={() => { setIsPlaying(false); stopTimer() }}
         />
-        <audio ref={cfAudioRef} />
+        <audio ref={el => audioRefs.current[1] = el} />
       </div>
     </Router>
   )
