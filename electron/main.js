@@ -113,6 +113,29 @@ app.whenReady().then(() => {
     return r.filePaths[0] || null
   })
   ipcMain.handle('dialog:readFileBinary', async (_, fp) => require('fs').readFileSync(fp, 'utf8'))
+  ipcMain.handle('dialog:readFileAsDataURL', async (_, fp) => {
+  try {
+    const sharp = require('sharp');
+    const buffer = await sharp(fp)
+      .resize(512, 512, {
+        fit: 'cover',  
+        position: 'centre' 
+      })
+      .jpeg({ quality: 80 }) 
+      .toBuffer();
+
+    const base64 = buffer.toString('base64');
+    return `data:image/jpeg;base64,${base64}`;
+  } catch (e) {
+    console.error('Error processing artwork:', e);
+    try {
+      const fs = require('fs');
+      return `data:image/jpeg;base64,${fs.readFileSync(fp).toString('base64')}`;
+    } catch (err) {
+      return null;
+    }
+  }
+});
   ipcMain.handle('window:minimize', () => mainWindow.minimize())
   ipcMain.handle('window:maximize', () => mainWindow.isMaximized() ? mainWindow.unmaximize() : mainWindow.maximize())
   ipcMain.handle('window:close', () => mainWindow.close())
