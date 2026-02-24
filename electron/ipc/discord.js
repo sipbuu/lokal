@@ -1,4 +1,3 @@
-
 const http = require('http')
 const fs = require('fs')
 const path = require('path')
@@ -9,7 +8,6 @@ let artworkServer = null
 let artworkPort = null
 let artworkFile = null 
 
-
 function ensureArtworkServer() {
   return new Promise((resolve) => {
     if (artworkServer) return resolve(artworkPort)
@@ -18,7 +16,8 @@ function ensureArtworkServer() {
         res.writeHead(200, { 'Content-Type': 'image/jpeg', 'Cache-Control': 'no-cache' })
         fs.createReadStream(artworkFile).pipe(res)
       } else {
-        res.writeHead(404); res.end()
+        res.writeHead(404)
+        res.end()
       }
     })
     artworkServer.listen(0, '127.0.0.1', () => {
@@ -32,7 +31,10 @@ async function tryConnect(clientId) {
   if (!clientId) return false
   try {
     const DiscordRPC = require('discord-rpc')
-    if (rpcClient) { try { rpcClient.destroy() } catch {} rpcClient = null }
+    if (rpcClient) {
+      try { rpcClient.destroy() } catch {}
+      rpcClient = null
+    }
     rpcClient = new DiscordRPC.Client({ transport: 'ipc' })
     rpcClient.on('error', () => { rpcClient = null })
     await Promise.race([
@@ -41,26 +43,25 @@ async function tryConnect(clientId) {
     ])
     return true
   } catch (e) {
-    console.log('Discord RPC:', e.message); rpcClient = null; return false
+    rpcClient = null
+    return false
   }
 }
 
 async function setActivity(track, isPlaying) {
   if (!rpcClient) return
   try {
-    if (!track || !isPlaying) { await rpcClient.clearActivity().catch(() => {}); return }
-    if (isPlaying) startTimestamp = new Date()
+    if (!track || !isPlaying) {
+      await rpcClient.clearActivity().catch(() => {})
+      return
+    }
+    if (isPlaying && !startTimestamp) startTimestamp = new Date()
 
-    
     let largeImageKey = 'lokal_music'
     if (track.artwork_path && fs.existsSync(track.artwork_path)) {
       try {
         const port = await ensureArtworkServer()
         artworkFile = track.artwork_path
-        
-        
-        
-        largeImageKey = 'lokal_music' 
       } catch {}
     }
 
@@ -74,7 +75,9 @@ async function setActivity(track, isPlaying) {
       smallImageText: isPlaying ? '▶ Playing' : '⏸ Paused',
       instance: false,
     })
-  } catch { rpcClient = null }
+  } catch {
+    rpcClient = null
+  }
 }
 
 function registerDiscordHandlers(ipcMain) {
@@ -82,7 +85,11 @@ function registerDiscordHandlers(ipcMain) {
 
   ipcMain.handle('discord:connect', async (_, clientId) => {
     const id = clientId || (() => {
-      try { return getDB().prepare("SELECT value FROM settings WHERE key = 'discord_client_id'").get()?.value } catch { return null }
+      try {
+        return getDB().prepare("SELECT value FROM settings WHERE key = 'discord_client_id'").get()?.value
+      } catch {
+        return null
+      }
     })()
     return tryConnect(id)
   })
@@ -92,8 +99,19 @@ function registerDiscordHandlers(ipcMain) {
   })
 
   ipcMain.handle('discord:disconnect', async () => {
-    if (rpcClient) { try { await rpcClient.clearActivity(); rpcClient.destroy() } catch {} rpcClient = null }
-    if (artworkServer) { artworkServer.close(); artworkServer = null; artworkPort = null }
+    if (rpcClient) {
+      try {
+        await rpcClient.clearActivity()
+        rpcClient.destroy()
+      } catch {}
+      rpcClient = null
+    }
+    if (artworkServer) {
+      artworkServer.close()
+      artworkServer = null
+      artworkPort = null
+    }
+    startTimestamp = null
   })
 }
 
