@@ -115,7 +115,13 @@ getKeepCommaArtists: () => isE() ? el().getKeepCommaArtists() : apiFetch('/setti
   lastfmUpdateNowPlaying: (artist, track, album, duration) => isE() ? el().lastfmUpdateNowPlaying(artist, track, album, duration) : apiFetch('/lastfm/update-now-playing', { method:'POST', body:{artist, track, album, duration} }),
   onScanProgress: (fn) => { if (isE()) return el().onScanProgress(fn); return () => {} },
   onDownloadProgress: (fn) => { if (isE()) return el().onDownloadProgress(fn); return () => {} },
-
+  getAvatarSrc: (user) => {
+    if (!user) return 'fallback_nopfp.png';
+    if (user.avatar_path) {
+       return isE() ? `file://${user.avatar_path}` : `${BASE}/avatar/${user.id}`;
+    }
+    return 'fallback_nopfp.png';
+  },
   
   getPerfSettings: () => isE() ? el().getPerfSettings() : Promise.resolve({ hardwareAcceleration: true, performanceMode: false }),
   savePerfSettings: (s) => isE() ? el().savePerfSettings(s) : Promise.resolve({}),
