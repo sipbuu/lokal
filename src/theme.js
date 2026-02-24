@@ -147,10 +147,22 @@ export const ACCENT_COLORS = [
   { name: 'Cyan', value: '#57ffec', dim: '#4ae8d4' },
 ]
 
+function hexToRgbNumbers(hex) {
+  hex = hex.replace(/^#/, '');
+  let r = parseInt(hex.substring(0, 2), 16);
+  let g = parseInt(hex.substring(2, 4), 16);
+  let b = parseInt(hex.substring(4, 6), 16);
+  return `${r} ${g} ${b}`;
+}
+
 export function applyTheme(vars) {
-  const root = document.documentElement
+  const root = document.documentElement;
   for (const [k, v] of Object.entries(vars)) {
-    root.style.setProperty(k, v)
+    root.style.setProperty(k, v);
+    
+    if (v.startsWith('#')) {
+      root.style.setProperty(`${k}-rgb`, hexToRgbNumbers(v));
+    }
   }
 }
 

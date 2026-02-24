@@ -46,12 +46,13 @@ input, button, select, textarea { -webkit-app-region: no-drag; }
   height: 20px;
 }
 .wave-loader span {
-  display: block;
+  display: inline-block; 
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: var(--accent);
+  background-color: var(--accent); 
   animation: wave-bounce 1.2s ease-in-out infinite;
+  flex-shrink: 0; 
 }
 .wave-loader span:nth-child(2) { animation-delay: 0.15s; }
 .wave-loader span:nth-child(3) { animation-delay: 0.3s; }
