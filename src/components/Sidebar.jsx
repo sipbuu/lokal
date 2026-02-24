@@ -63,12 +63,14 @@ export default function Sidebar() {
       <div className="px-3 mb-2 flex-shrink-0">
         {user ? (
           <div className="flex items-center gap-2 px-2 py-2 rounded-lg">
-            {avatarSrc ? (
-              <img src={avatarSrc} alt="Profile" className="w-7 h-7 rounded-full flex-shrink-0 object-cover" />
-            ) : (
-              <img src="fallback_nopfp.png" alt="Profile" className="w-7 h-7 rounded-full flex-shrink-0 object-cover" />
-            )}
+            <img 
+              src={api.getAvatarSrc(user)} 
+              alt="Profile" 
+              className="w-7 h-7 rounded-full flex-shrink-0 object-cover" 
+            />
+            
             <p className="text-xs text-white truncate flex-1">{user.display_name || user.username}</p>
+            
             <div className="flex gap-1 flex-shrink-0">
               <button onClick={openProfile} title="Profile" className="text-muted hover:text-white transition-colors"><User size={13} /></button>
               <button onClick={openStats} title="Stats" className="text-muted hover:text-white transition-colors"><BarChart2 size={13} /></button>

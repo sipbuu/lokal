@@ -142,12 +142,12 @@ const fileInputRef = useRef(null)
 
       api.getToolsStatus().then(setToolsStatus)
 
-      api.getPerfSettings().then(s => {
+      /*api.getPerfSettings().then(s => {
 
-        if (s) setPerfSettings(s)
+        if (s) setPerfSettings(s)             comment out fo
 
       })
-
+      */
     }
 
   }, []) 
