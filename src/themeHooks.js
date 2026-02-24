@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
-import { api } from '../api'
-import { THEMES, applyTheme } from '../theme'
+import { api } from './api'
+import { THEMES, applyTheme } from './theme'
 
 export function useTheme() {
   const [themeName, setThemeName] = useState('dark')
