@@ -42,7 +42,6 @@ export default function App() {
   } = usePlayerStore()
   const { user } = useAppStore()
 
-  // Media Session API integration for OS/lockscreen controls
   useEffect(() => {
     if (!('mediaSession' in navigator)) return
     if (!currentTrack) return
@@ -87,7 +86,6 @@ export default function App() {
     })
   }, [currentTrack, isPlaying])
 
-  // Update position state on time update
   useEffect(() => {
     if (!('mediaSession' in navigator)) return
     if (!audioRef.current) return
@@ -155,7 +153,6 @@ export default function App() {
     if (secs >= 10 && trackId) api.incrementPlayTime(trackId, userRef.current?.id, secs)
   }, [])
 
-  // Crossfade
   const triggerCrossfade = useCallback((nextTrack) => {
     if (cfActiveRef.current) return
     if (!cfAudioRef.current || !audioRef.current || !nextTrack) return

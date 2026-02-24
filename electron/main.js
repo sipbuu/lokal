@@ -117,6 +117,7 @@ app.whenReady().then(() => {
   ipcMain.handle('window:close', () => mainWindow.close())
   ipcMain.handle('shell:openExternal', (_, url) => shell.openExternal(url))
   createWindow()
+  app.setAppUserModelId('com.lokal.music');
   app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow() })
 })
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit() })
