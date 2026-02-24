@@ -92,7 +92,7 @@ contextBridge.exposeInMainWorld('electron', {
   onPerfSettings: (fn) => on('perf-settings', fn),
 
   
-getSettings: () => invoke('settings:get'),
+  getSettings: () => invoke('settings:get'),
   saveSettings: (s) => invoke('settings:save', s),
   clearTracks: () => invoke('db:clearTracks'),
   getKeepCommaArtists: () => invoke('settings:getKeepCommaArtists'),
@@ -118,4 +118,19 @@ getSettings: () => invoke('settings:get'),
   lastfmGetSimilarArtists: (artist, limit) => invoke('lastfm:getSimilarArtists', artist, limit),
   lastfmScrobble: (artist, track, album, duration, timestamp) => invoke('lastfm:scrobble', artist, track, album, duration, timestamp),
   lastfmUpdateNowPlaying: (artist, track, album, duration) => invoke('lastfm:updateNowPlaying', artist, track, album, duration),
+  updaterInstall: () => invoke('updater:install'),
+  updaterCheck: () => invoke('updater:check'),
+  getVersion: () => invoke('app:getVersion'),
+  onUpdaterEvent: (cb) => {
+    ipcRenderer.on('updater:available', (_, info) => cb('available', info))
+    ipcRenderer.on('updater:progress', (_, p) => cb('progress', p))
+    ipcRenderer.on('updater:ready', () => cb('ready'))
+    ipcRenderer.on('updater:error', (_, msg) => cb('error', msg))
+    return () => {
+      ipcRenderer.removeAllListeners('updater:available')
+      ipcRenderer.removeAllListeners('updater:progress')
+      ipcRenderer.removeAllListeners('updater:ready')
+      ipcRenderer.removeAllListeners('updater:error')
+    }
+  },
 })

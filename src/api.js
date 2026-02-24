@@ -1,4 +1,3 @@
-
 const isE = () => {
   try {
     if (typeof window !== 'undefined' && window.electron?.isElectron === true) return true
@@ -76,7 +75,7 @@ export const api = {
   getSettings: () => isE() ? el().getSettings() : apiFetch('/settings'),
   saveSettings: (s) => isE() ? el().saveSettings(s) : apiFetch('/settings', { method:'PUT', body:s }),
   clearTracks: () => isE() ? el().clearTracks() : apiFetch('/settings/clear-tracks', { method:'POST' }),
-getKeepCommaArtists: () => isE() ? el().getKeepCommaArtists() : apiFetch('/settings/keep-comma-artists'),
+  getKeepCommaArtists: () => isE() ? el().getKeepCommaArtists() : apiFetch('/settings/keep-comma-artists'),
   setKeepCommaArtists: (artists) => isE() ? el().setKeepCommaArtists(artists) : apiFetch('/settings/keep-comma-artists', { method:'PUT', body:{artists} }),
   getTheme: () => isE() ? el().getTheme() : apiFetch('/settings/theme'),
   saveTheme: (theme, overrides) => isE() ? el().saveTheme(theme, overrides) : apiFetch('/settings/theme', { method:'PUT', body:{theme, overrides} }),
@@ -127,4 +126,8 @@ getKeepCommaArtists: () => isE() ? el().getKeepCommaArtists() : apiFetch('/setti
   savePerfSettings: (s) => isE() ? el().savePerfSettings(s) : Promise.resolve({}),
   relaunchApp: () => isE() ? el().relaunchApp() : Promise.resolve(),
   onPerfSettings: (fn) => { if (isE()) return el().onPerfSettings(fn); return () => {} },
+  updaterInstall: () => isE() ? el().updaterInstall() : Promise.resolve(),
+  updaterCheck: () => isE() ? el().updaterCheck() : Promise.resolve(),
+  getVersion: () => isE() ? el().getVersion() : Promise.resolve('1.0.0'),
+  onUpdaterEvent: (fn) => { if (isE()) return el().onUpdaterEvent(fn); return () => {} },
 }

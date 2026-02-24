@@ -1,6 +1,7 @@
 const { app, BrowserWindow, ipcMain, shell } = require('electron')
 const path = require('path')
 const fs = require('fs')
+const { autoUpdater } = require('electron-updater')
 const { initDB } = require('./ipc/db')
 const { registerScannerHandlers, registerExtraHandlers, registerV4Handlers } = require('./ipc/scanner')
 const { registerPlayerHandlers } = require('./ipc/player')
@@ -10,6 +11,32 @@ const { registerUserHandlers } = require('./ipc/users')
 const { registerDiscordHandlers } = require('./ipc/discord')
 const { registerLastFmHandlers } = require('./ipc/lastfm')
 const { registerToolsHandlers } = require('./ipc/tools')
+autoUpdater.autoDownload = true
+autoUpdater.autoInstallOnAppQuit = true
+
+autoUpdater.on('update-available', (info) => {
+  if (mainWindow) {
+    mainWindow.webContents.send('updater:available', info)
+  }
+})
+
+autoUpdater.on('download-progress', (progress) => {
+  if (mainWindow) {
+    mainWindow.webContents.send('updater:progress', progress)
+  }
+})
+
+autoUpdater.on('update-downloaded', () => {
+  if (mainWindow) {
+    mainWindow.webContents.send('updater:ready')
+  }
+})
+
+autoUpdater.on('error', (err) => {
+  if (mainWindow) {
+    mainWindow.webContents.send('updater:error', err.message)
+  }
+})
 
 
 const settingsPath = path.join(app.getPath('userData'), 'performance-settings.json')
@@ -101,6 +128,7 @@ app.whenReady().then(() => {
     return perfSettings
   })
 
+  
   ipcMain.handle('dialog:openFolder', async () => {
     const r = await require('electron').dialog.showOpenDialog(mainWindow, { properties: ['openDirectory'] })
     return r.filePaths[0] || null
@@ -140,8 +168,30 @@ app.whenReady().then(() => {
   ipcMain.handle('window:maximize', () => mainWindow.isMaximized() ? mainWindow.unmaximize() : mainWindow.maximize())
   ipcMain.handle('window:close', () => mainWindow.close())
   ipcMain.handle('shell:openExternal', (_, url) => shell.openExternal(url))
+
+  
+  ipcMain.handle('updater:install', () => {
+    autoUpdater.quitAndInstall()
+  })
+  ipcMain.handle('updater:check', () => {
+    autoUpdater.checkForUpdates()
+  })
+  ipcMain.handle('app:getVersion', () => {
+    return app.getVersion()
+  })
+
   createWindow()
   app.setAppUserModelId('com.lokal.music');
   app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow() })
+
+  if (!app.isPackaged) {
+    console.log('[updater] skipping in dev mode')
+  } else {
+    setTimeout(() => {
+      autoUpdater.checkForUpdates().catch(err => {
+        console.log('[updater] check failed:', err.message)
+      })
+    }, 3000)
+  }
 })
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit() })

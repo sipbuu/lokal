@@ -1,6 +1,6 @@
-  import React, { useEffect, useState, useRef } from 'react'
+import React, { useEffect, useState, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Save, FolderOpen, RefreshCw, Trash2, AlertTriangle, Link, CheckCircle, Disc3, Zap, Download, Music2, X, MoreHorizontal, ListMusic, Palette, ChevronDown, ChevronUp } from 'lucide-react'
+import { Save, FolderOpen, RefreshCw, Trash2, AlertTriangle, Link, CheckCircle, Disc3, Zap, Download, Music2, X, MoreHorizontal, ListMusic, Palette, ChevronDown, ChevronUp, RefreshCcw } from 'lucide-react'
 import { api } from '../api'
 import { useAppStore } from '../store/player'
 import Modal from '../components/Modal'
@@ -114,8 +114,12 @@ export default function Settings() {
   const [playlistImportResult, setPlaylistImportResult] = useState(null)
   const [perfSettings, setPerfSettings] = useState({ hardwareAcceleration: true, performanceMode: false })
   const [relaunchMsg, setRelaunchMsg] = useState('')
+  const [appVersion, setAppVersion] = useState('')
+  const [checkingUpdate, setCheckingUpdate] = useState(false)
+  const [updateCheckResult, setUpdateCheckResult] = useState('')
+  
   const { openAlbums, user } = useAppStore()
-const fileInputRef = useRef(null)
+  const fileInputRef = useRef(null)
   const { themeName, themeOverrides, showAdvanced, setShowAdvanced, selectTheme, setAccent, saveOverride, resetTheme } = useTheme()
 
   useEffect(() => {
@@ -141,6 +145,7 @@ const fileInputRef = useRef(null)
     if (api.isElectron) {
 
       api.getToolsStatus().then(setToolsStatus)
+      api.getVersion().then(v => setAppVersion(v || '1.0.0'))
 
       /*api.getPerfSettings().then(s => {
 
@@ -151,6 +156,23 @@ const fileInputRef = useRef(null)
     }
 
   }, []) 
+
+  const checkForUpdates = async () => {
+    if (!api.isElectron) return
+    setCheckingUpdate(true)
+    setUpdateCheckResult('')
+    try {
+      await api.updaterCheck()
+      setUpdateCheckResult('Checking for updates...')
+      setTimeout(() => {
+        setUpdateCheckResult('')
+        setCheckingUpdate(false)
+      }, 5000)
+    } catch (e) {
+      setUpdateCheckResult('Error checking for updates')
+      setCheckingUpdate(false)
+    }
+  }
 
   const savePerfSettings = async (newSettings) => {
     const changed = newSettings.hardwareAcceleration !== perfSettings.hardwareAcceleration
@@ -397,6 +419,29 @@ const fileInputRef = useRef(null)
   return (
     <div className="p-6 max-w-2xl space-y-6 pb-10">
       <h1 className="font-display text-lg uppercase tracking-widest text-white">Settings</h1>
+
+      {api.isElectron && (
+        <Section title="About">
+          <Row label="Version" desc="Current app version">
+            <span className="text-sm text-muted font-mono">{appVersion || '1.0.0'}</span>
+          </Row>
+          <Row label="Check for Updates" desc="Manually check for new versions">
+            <div className="flex items-center gap-3">
+              <button 
+                onClick={checkForUpdates}
+                disabled={checkingUpdate}
+                className="flex items-center gap-2 px-4 py-2 bg-card border border-border rounded-lg text-sm text-muted hover:text-white hover:border-accent/30 disabled:opacity-40 transition-colors"
+              >
+                <RefreshCcw size={13} className={checkingUpdate ? 'animate-spin' : ''} />
+                {checkingUpdate ? 'Checking...' : 'Check for updates'}
+              </button>
+              {updateCheckResult && (
+                <span className="text-xs text-muted">{updateCheckResult}</span>
+              )}
+            </div>
+          </Row>
+        </Section>
+      )}
 
       <Section title="Library">
         <Row label="Fetch Online Artwork" desc="Try iTunes/MusicBrainz if no embedded artwork found">

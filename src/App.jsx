@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useCallback } from 'react'
+import React, { useEffect, useRef, useCallback, useState } from 'react'
 import { MemoryRouter as Router, Routes, Route } from 'react-router-dom'
 import Sidebar from './components/Sidebar'
 import PlayerBar from './components/PlayerBar'
@@ -35,6 +35,13 @@ export default function App() {
   const prevTrackIdRef = useRef(null)
   const artworkCacheRef = useRef({})
 
+  const [updateState, setUpdateState] = useState({
+    status: 'idle',
+    info: null,
+    progress: 0,
+    error: null,
+  })
+
   const getArtworkDataURL = useCallback(async (artworkPath) => {
     if (!artworkPath) return null
     if (artworkCacheRef.current[artworkPath]) return artworkCacheRef.current[artworkPath]
@@ -60,6 +67,63 @@ export default function App() {
     shuffle, playNext, addToQueue, skipAhead,
   } = usePlayerStore()
   const { user } = useAppStore()
+
+  useEffect(() => {
+    if (!api.isElectron) return
+
+    const cleanup = api.onUpdaterEvent((event, data) => {
+      console.log('[updater] event:', event, data)
+      switch (event) {
+        case 'available':
+          setUpdateState({
+            status: 'available',
+            info: data,
+            progress: 0,
+            error: null,
+          })
+          break
+        case 'progress':
+          setUpdateState(prev => ({
+            ...prev,
+            status: 'downloading',
+            progress: data.percent || 0,
+          }))
+          break
+        case 'ready':
+          setUpdateState(prev => ({
+            ...prev,
+            status: 'ready',
+            progress: 100,
+          }))
+          break
+        case 'error':
+          console.error('[updater] error:', data)
+          setUpdateState(prev => ({
+            ...prev,
+            status: 'error',
+            error: data,
+          }))
+          break
+        default:
+          break
+      }
+    })
+
+    return cleanup
+  }, [])
+
+  const handleInstallUpdate = async () => {
+    await api.updaterInstall()
+  }
+
+  const handleDismissUpdate = () => {
+    setUpdateState({
+      status: 'idle',
+      info: null,
+      progress: 0,
+      error: null,
+    })
+  }
 
   useEffect(() => {
     if (!('mediaSession' in navigator)) return
@@ -297,6 +361,65 @@ export default function App() {
     }
   }, [triggerCrossfade])
 
+  const renderUpdateToast = () => {
+    if (updateState.status === 'idle') return null
+
+    const isReady = updateState.status === 'ready'
+    const isDownloading = updateState.status === 'downloading'
+    const isAvailable = updateState.status === 'available'
+
+    return (
+      <div className="fixed bottom-20 left-1/2 -translate-x-1/2 z-50 bg-elevated border border-accent/30 rounded-xl px-4 py-3 shadow-xl flex items-center gap-4 min-w-80">
+        {isDownloading && (
+          <div className="flex-1">
+            <div className="flex items-center justify-between mb-1">
+              <span className="text-sm text-white font-medium">
+                Update v{updateState.info?.version || ''} downloading…
+              </span>
+              <span className="text-xs text-accent">{Math.round(updateState.progress)}%</span>
+            </div>
+            <div className="h-1 bg-card rounded-full overflow-hidden">
+              <div 
+                className="h-full bg-accent transition-all duration-300"
+                style={{ width: `${updateState.progress}%` }}
+              />
+            </div>
+          </div>
+        )}
+        
+        {isAvailable && (
+          <span className="text-sm text-white">
+            Update v{updateState.info?.version || ''} available…
+          </span>
+        )}
+        
+        {isReady && (
+          <>
+            <span className="text-sm text-white flex-1">
+              Update ready — restart to install
+            </span>
+            <button
+              onClick={handleInstallUpdate}
+              className="px-3 py-1.5 bg-accent text-white text-xs font-medium rounded-lg hover:bg-accent/80 transition-colors"
+            >
+              Restart Now
+            </button>
+          </>
+        )}
+        
+        <button
+          onClick={handleDismissUpdate}
+          className="text-muted hover:text-white transition-colors"
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <line x1="18" y1="6" x2="6" y2="18"></line>
+            <line x1="6" y1="6" x2="18" y2="18"></line>
+          </svg>
+        </button>
+      </div>
+    )
+  }
+
   return (
     <Router>
       <div className="flex flex-col h-screen bg-base overflow-hidden" onClick={initAudioCtx}>
@@ -324,6 +447,8 @@ export default function App() {
         <ProfileModal />
         <StatsModal />
         <AddToPlaylistModal />
+        
+        {renderUpdateToast()}
 
         <audio
           ref={audioRef}
