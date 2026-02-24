@@ -132,6 +132,63 @@ export const THEMES = {
       '--orange': '#ff9f43',
     }
   },
+  cyberpunk: {
+    name: 'Cyberpunk',
+    vars: {
+      '--bg': '#0f0f1a',
+      '--surface': '#161625',
+      '--surface2': '#1c1c30',
+      '--surface3': '#252540',
+      '--border': '#2d2d4a',
+      '--border2': '#3a3a5e',
+      '--text': '#00ffcc', 
+      '--muted': '#7a7ab0',
+      '--muted2': '#4e4e7a',
+      '--accent': '#ff00ff', 
+      '--accent-dim': '#bc00bc',
+      '--red': '#ff3e3e',
+      '--purple': '#9d4edd',
+      '--orange': '#ff9100',
+    }
+  },
+  rosegold: {
+    name: 'Rose Gold',
+    vars: {
+      '--bg': '#1a1718',
+      '--surface': '#241e20',
+      '--surface2': '#2d2528',
+      '--surface3': '#382e32',
+      '--border': '#45383c',
+      '--border2': '#54454a',
+      '--text': '#f5edee',
+      '--muted': '#a69296',
+      '--muted2': '#7a686c',
+      '--accent': '#ffb7c5', 
+      '--accent-dim': '#e5a4b1',
+      '--red': '#ff6b6b',
+      '--purple': '#d4a5ff',
+      '--orange': '#ffb38a',
+    }
+  },
+  deepContrast: {
+    name: 'Deep Contrast',
+    vars: {
+      '--bg': '#000000',
+      '--surface': '#050505',
+      '--surface2': '#0a0a0a',
+      '--surface3': '#121212',
+      '--border': '#404040',   
+      '--border2': '#666666',
+      '--text': '#ffffff',
+      '--muted': '#999999',
+      '--muted2': '#777777',
+      '--accent': '#ffffff',   
+      '--accent-dim': '#cccccc',
+      '--red': '#ff0000',
+      '--purple': '#bf94ff',
+      '--orange': '#ffab40',
+    }
+  }
 }
 
 export const ACCENT_COLORS = [
@@ -145,6 +202,8 @@ export const ACCENT_COLORS = [
   { name: 'White', value: '#ffffff', dim: '#e0e0e0' },
   { name: 'Yellow', value: '#ffec57', dim: '#e8d44a' },
   { name: 'Cyan', value: '#57ffec', dim: '#4ae8d4' },
+  { name: 'Magenta', value: '#ff57ec', dim: '#e04ad4' },
+  { name: 'Gray', value: '#888888', dim: '#666666' },
 ]
 
 function hexToRgbNumbers(hex) {
