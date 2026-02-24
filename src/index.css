@@ -2,11 +2,29 @@
 @tailwind components;
 @tailwind utilities;
 
+:root {
+  --bg: #0a0a0a;
+  --surface: #111111;
+  --surface2: #181818;
+  --surface3: #202020;
+  --border: #2a2a2a;
+  --border2: #333333;
+  --text: #e8e8e8;
+  --muted: #888888;
+  --muted2: #555555;
+  --accent: #e8ff57;
+  --accent-dim: #c8df47;
+  --red: #ff5757;
+  --purple: #7c6aff;
+  --orange: #ff9f43;
+  --custom: #e8ff57;
+}
+
 * { box-sizing: border-box; margin: 0; padding: 0; }
 
 body {
-  background: #0a0a0a;
-  color: #e8e8e8;
+  background: var(--bg);
+  color: var(--text);
   font-family: 'DM Sans', sans-serif;
   overflow: hidden;
   user-select: none;
@@ -15,13 +33,12 @@ body {
 
 ::-webkit-scrollbar { width: 4px; }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: #2a2a2a; border-radius: 2px; }
-::-webkit-scrollbar-thumb:hover { background: #444; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+::-webkit-scrollbar-thumb:hover { background: var(--muted2); }
 
 .titlebar { -webkit-app-region: drag; }
 input, button, select, textarea { -webkit-app-region: no-drag; }
 
-/* Wave loading animation for lyrics fetch */
 .wave-loader {
   display: flex;
   align-items: flex-end;
@@ -33,7 +50,7 @@ input, button, select, textarea { -webkit-app-region: no-drag; }
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: #e8ff57;
+  background: var(--accent);
   animation: wave-bounce 1.2s ease-in-out infinite;
 }
 .wave-loader span:nth-child(2) { animation-delay: 0.15s; }
@@ -44,20 +61,18 @@ input, button, select, textarea { -webkit-app-region: no-drag; }
   30% { transform: translateY(-10px); opacity: 1; }
 }
 
-/* Word-sync highlight */
 @keyframes word-rise {
   from { transform: translateY(4px); opacity: 0.3; }
   to { transform: translateY(0); opacity: 1; }
 }
 .word-active {
-  color: #e8ff57;
+  color: var(--accent);
   animation: word-rise 0.15s ease-out forwards;
   display: inline;
 }
 .word-past { opacity: 0.35; }
 .word-future { opacity: 0.45; }
 
-/* EQ bar animation */
 @keyframes eq-bar {
   0%, 100% { transform: scaleY(0.3); }
   50% { transform: scaleY(1); }

@@ -91,11 +91,13 @@ contextBridge.exposeInMainWorld('electron', {
   onPerfSettings: (fn) => on('perf-settings', fn),
 
   
-  getSettings: () => invoke('settings:get'),
+getSettings: () => invoke('settings:get'),
   saveSettings: (s) => invoke('settings:save', s),
   clearTracks: () => invoke('db:clearTracks'),
   getKeepCommaArtists: () => invoke('settings:getKeepCommaArtists'),
   setKeepCommaArtists: (artists) => invoke('settings:setKeepCommaArtists', artists),
+  getTheme: () => invoke('settings:getTheme'),
+  saveTheme: (theme, overrides) => invoke('settings:saveTheme', { theme, overrides }),
 
   
   register: (d) => invoke('user:register', d),

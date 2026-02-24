@@ -264,7 +264,27 @@ function registerScannerHandlers(ipcMain) {
   ipcMain.handle('settings:get', () => { const rows = getDB().prepare('SELECT key, value FROM settings').all(); return Object.fromEntries(rows.map(r => [r.key, r.value])) })
   ipcMain.handle('settings:save', (_, s) => { const stmt = getDB().prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)'); for (const [k, v] of Object.entries(s)) stmt.run(k, String(v)) })
   ipcMain.handle('settings:getKeepCommaArtists', () => { try { const db = getDB(); const setting = db.prepare("SELECT value FROM settings WHERE key = 'keep_comma_artists'").get(); return setting?.value ? JSON.parse(setting.value) : [] } catch { return [] } })
-  ipcMain.handle('settings:setKeepCommaArtists', (_, artists) => getDB().prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('keep_comma_artists', ?)").run(JSON.stringify(artists)))
+ipcMain.handle('settings:setKeepCommaArtists', (_, artists) => getDB().prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('keep_comma_artists', ?)").run(JSON.stringify(artists)))
+
+  ipcMain.handle('settings:getTheme', () => {
+    const db = getDB()
+    const theme = db.prepare("SELECT value FROM settings WHERE key = 'theme'").get()
+    const overrides = db.prepare("SELECT value FROM settings WHERE key = 'theme_overrides'").get()
+    return {
+      theme: theme?.value || 'dark',
+      overrides: overrides?.value ? JSON.parse(overrides.value) : {}
+    }
+  })
+
+  ipcMain.handle('settings:saveTheme', (_, { theme, overrides }) => {
+    const db = getDB()
+    if (theme !== undefined) {
+      db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('theme', ?)").run(theme)
+    }
+    if (overrides !== undefined) {
+      db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('theme_overrides', ?)").run(JSON.stringify(overrides))
+    }
+  })
   
   function parseM3U(content) {
     const lines = content.split(/\r?\n/)
