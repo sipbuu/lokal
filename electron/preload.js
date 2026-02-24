@@ -11,6 +11,7 @@ contextBridge.exposeInMainWorld('electron', {
   openFolder: () => invoke('dialog:openFolder'),
   openFile: (f) => invoke('dialog:openFile', f),
   readFileBinary: (fp) => invoke('dialog:readFileBinary', fp),
+  readFileAsDataURL: (fp) => invoke('dialog:readFileAsDataURL', fp),
 
   
   scanFolder: (f) => invoke('scanner:scan', f),
@@ -33,7 +34,7 @@ contextBridge.exposeInMainWorld('electron', {
   incrementPlayTime: (id, uid, secs) => invoke('scanner:incrementPlayTime', id, uid, secs),
   getRandomTrack: () => invoke('scanner:getRandomTrack'),
   getTopGenres: () => invoke('scanner:getTopGenres'),
-
+  readFileAsDataURL: (path) => ipcRenderer.invoke('dialog:readFileAsDataURL', path),
   
   getPlaylists: (uid) => invoke('scanner:getPlaylists', uid),
   createPlaylist: (n, uid, d) => invoke('scanner:createPlaylist', n, uid, d),

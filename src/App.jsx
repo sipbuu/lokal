@@ -33,6 +33,25 @@ export default function App() {
   const userRef = useRef(null)
   const currentTrackRef = useRef(null)
   const prevTrackIdRef = useRef(null)
+  const artworkCacheRef = useRef({})
+
+  const getArtworkDataURL = useCallback(async (artworkPath) => {
+    if (!artworkPath) return null
+    if (artworkCacheRef.current[artworkPath]) return artworkCacheRef.current[artworkPath]
+    try {
+      let dataUrl = null
+      if (api.isElectron && window.electron?.readFileAsDataURL) {
+        dataUrl = await window.electron.readFileAsDataURL(artworkPath)
+      }
+      if (dataUrl) {
+        artworkCacheRef.current[artworkPath] = dataUrl
+      }
+      return dataUrl
+    } catch (e) {
+      console.error('Error reading artwork:', e)
+      return null
+    }
+  }, [])
 
   const {
     currentTrack, isPlaying, volume, repeat,
@@ -45,22 +64,26 @@ export default function App() {
   useEffect(() => {
     if (!('mediaSession' in navigator)) return
     if (!currentTrack) return
-    let artworkArr = []
-    if (currentTrack.artwork_path) {
-      artworkArr = [
-        { src: api.isElectron ? `file://${currentTrack.artwork_path}` : api.artworkURL(currentTrack.id), sizes: '512x512', type: 'image/jpeg' }
-      ]
-    } else {
-      artworkArr = [
-        { src: '/default-artwork.png', sizes: '512x512', type: 'image/png' }
-      ]
+
+    const updateMetadata = async () => {
+      let artworkSrc = '/fallback_nopfp.png'
+      console.log(currentTrack.artwork_path)
+      if (currentTrack.artwork_path) {
+        const dataUrl = await getArtworkDataURL(currentTrack.artwork_path)
+        console.log('Got artwork data URL:', dataUrl)
+        if (dataUrl) {
+          artworkSrc = dataUrl
+        }
+      }
+      navigator.mediaSession.metadata = new window.MediaMetadata({
+        title: currentTrack.title || '',
+        artist: currentTrack.artist || '',
+        album: currentTrack.album || '',
+        artwork: [{ src: artworkSrc, sizes: '512x512', type: 'image/png' }]
+      })
     }
-    navigator.mediaSession.metadata = new window.MediaMetadata({
-      title: currentTrack.title || '',
-      artist: currentTrack.artist || '',
-      album: currentTrack.album || '',
-      artwork: artworkArr
-    })
+
+    updateMetadata()
     try {
       navigator.mediaSession.playbackState = isPlaying ? 'playing' : 'paused'
     } catch {}
@@ -240,6 +263,7 @@ export default function App() {
     if (gainNodeRef.current) gainNodeRef.current.gain.value = volume
   }, [volume])
 
+
   const handleTimeUpdate = useCallback((e) => {
     const cur = e.target.currentTime
     const dur = e.target.duration
@@ -311,7 +335,7 @@ export default function App() {
             if (repeat === 'one') { audioRef.current.currentTime = 0; audioRef.current.play() }
             else autoNext()
           }}
-          onPlay={() => { setIsPlaying(true); startTimer() }}
+          onPlay={() => { setIsPlaying(true); updateMediaSession();  startTimer() }}
           onPause={() => { setIsPlaying(false); stopTimer() }}
         />
         <audio ref={cfAudioRef} />
