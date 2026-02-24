@@ -3,28 +3,24 @@ const fs = require('fs')
 const path = require('path')
 
 let rpcClient = null
-let startTimestamp = null
 let artworkServer = null
 let artworkPort = null
-let artworkFile = null 
+let artworkFile = null
 
-function ensureArtworkServer() {
-  return new Promise((resolve) => {
-    if (artworkServer) return resolve(artworkPort)
-    artworkServer = http.createServer((req, res) => {
-      if (artworkFile && fs.existsSync(artworkFile)) {
-        res.writeHead(200, { 'Content-Type': 'image/jpeg', 'Cache-Control': 'no-cache' })
-        fs.createReadStream(artworkFile).pipe(res)
-      } else {
-        res.writeHead(404)
-        res.end()
-      }
-    })
-    artworkServer.listen(0, '127.0.0.1', () => {
-      artworkPort = artworkServer.address().port
-      resolve(artworkPort)
-    })
-  })
+function msFromMaybeSeconds(value) {
+  if (!value) return 0
+  return value > 100000 ? Math.round(value) : Math.round(value * 1000)
+}
+
+function formatTimeMs(ms) {
+  if (!ms) return '0:00'
+  const totalSec = Math.floor(ms / 1000)
+  const s = totalSec % 60
+  const m = Math.floor(totalSec / 60) % 60
+  const h = Math.floor(totalSec / 3600)
+  return h > 0
+    ? `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
+    : `${m}:${String(s).padStart(2, '0')}`
 }
 
 async function tryConnect(clientId) {
@@ -51,28 +47,33 @@ async function tryConnect(clientId) {
 async function setActivity(track, isPlaying) {
   if (!rpcClient) return
   try {
-    if (!track || !isPlaying) {
+    if (!track) {
       await rpcClient.clearActivity().catch(() => {})
       return
     }
-    if (isPlaying && !startTimestamp) startTimestamp = new Date()
 
     let largeImageKey = 'lokal_music'
-    if (track.artwork_path && fs.existsSync(track.artwork_path)) {
-      try {
-        const port = await ensureArtworkServer()
-        artworkFile = track.artwork_path
-      } catch {}
+
+    const positionMs = msFromMaybeSeconds(track.position_ms ?? track.position)
+    const durationMs = msFromMaybeSeconds(track.duration_ms ?? track.duration)
+    const now = Date.now()
+    const timestamps = {}
+
+    if (isPlaying) {
+      timestamps.startTimestamp = new Date(now - positionMs)
+      if (durationMs > 0) timestamps.endTimestamp = new Date(now + (durationMs - positionMs))
     }
 
     await rpcClient.setActivity({
       details: (track.title || 'Unknown').slice(0, 128),
       state: `by ${(track.artist || 'Unknown').slice(0, 122)}`,
-      startTimestamp: isPlaying ? startTimestamp : undefined,
+      startTimestamp: timestamps.startTimestamp,
+      endTimestamp: timestamps.endTimestamp,
       largeImageKey,
       largeImageText: track.album?.slice(0, 128) || 'Lokal Music',
       smallImageKey: isPlaying ? 'playing' : 'paused',
-      smallImageText: isPlaying ? '▶ Playing' : '⏸ Paused',
+      smallImageText: (isPlaying ? '▶ Playing — ' : '⏸ Paused — ')
+        + `${formatTimeMs(positionMs)}${durationMs ? ' / ' + formatTimeMs(durationMs) : ''}`,
       instance: false,
     })
   } catch {
@@ -107,11 +108,10 @@ function registerDiscordHandlers(ipcMain) {
       rpcClient = null
     }
     if (artworkServer) {
-      artworkServer.close()
+      try { artworkServer.close() } catch {}
       artworkServer = null
       artworkPort = null
     }
-    startTimestamp = null
   })
 }
 
