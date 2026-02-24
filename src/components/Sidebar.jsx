@@ -22,6 +22,11 @@ export default function Sidebar() {
   const [newPlName, setNewPlName] = useState('')
   
   const { user, openAuth, logout, openProfile, openStats, openAlbums } = useAppStore()
+
+  const avatarSrc = user?.avatar_path
+    ? (api.isElectron ? `file://${user.avatar_path}` : api.avatarURL(user?.id))
+    : null
+    
   const { currentTrack } = usePlayerStore()
 
   const loadPlaylists = () => {
@@ -58,9 +63,11 @@ export default function Sidebar() {
       <div className="px-3 mb-2 flex-shrink-0">
         {user ? (
           <div className="flex items-center gap-2 px-2 py-2 rounded-lg">
-            <div className="w-7 h-7 rounded-full bg-accent/20 flex items-center justify-center text-accent text-xs font-bold flex-shrink-0">
-              {(user.display_name || user.username)?.[0]?.toUpperCase()}
-            </div>
+            {avatarSrc ? (
+              <img src={avatarSrc} alt="Profile" className="w-7 h-7 rounded-full flex-shrink-0 object-cover" />
+            ) : (
+              <img src="fallback_nopfp.png" alt="Profile" className="w-7 h-7 rounded-full flex-shrink-0 object-cover" />
+            )}
             <p className="text-xs text-white truncate flex-1">{user.display_name || user.username}</p>
             <div className="flex gap-1 flex-shrink-0">
               <button onClick={openProfile} title="Profile" className="text-muted hover:text-white transition-colors"><User size={13} /></button>
