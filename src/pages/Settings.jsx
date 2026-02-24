@@ -144,7 +144,7 @@ const fileInputRef = useRef(null)
 
       /*api.getPerfSettings().then(s => {
 
-        if (s) setPerfSettings(s)             comment out fo
+        if (s) setPerfSettings(s)             comment out for now, need to rethink how we handle perfomance settings eventually (original test failed)
 
       })
       */
