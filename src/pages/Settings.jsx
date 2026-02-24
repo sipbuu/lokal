@@ -702,6 +702,92 @@ const fileInputRef = useRef(null)
         </Row>
       </Section>
 
+      <Section title="Theme">
+        <div className="space-y-4">
+          <div>
+            <p className="text-sm text-white font-medium mb-3">Theme</p>
+            <div className="grid grid-cols-4 gap-2">
+              {Object.entries(THEMES).map(([key, theme]) => (
+                <button
+                  key={key}
+                  onClick={() => selectTheme(key)}
+                  className={`p-3 rounded-lg border transition-all ${
+                    themeName === key 
+                      ? 'bg-accent/20 border-accent/50' 
+                      : 'bg-card border-border hover:border-accent/30'
+                  }`}
+                >
+                  <div className="flex flex-col gap-1.5">
+                    <div className="flex gap-1">
+                      <div className="w-4 h-4 rounded" style={{ background: theme.vars['--bg'] }} />
+                      <div className="w-4 h-4 rounded" style={{ background: theme.vars['--surface'] }} />
+                      <div className="w-4 h-4 rounded" style={{ background: theme.vars['--surface2'] }} />
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <div className="w-2 h-2 rounded-full" style={{ background: theme.vars['--accent'] }} />
+                      <span className={`text-xs ${themeName === key ? 'text-accent' : 'text-muted'}`}>
+                        {theme.name}
+                      </span>
+                    </div>
+                  </div>
+                </button>
+              ))}
+            </div>
+          </div>
+          
+          <div>
+            <p className="text-sm text-white font-medium mb-3">Accent Color</p>
+            <div className="flex flex-wrap gap-2">
+              {ACCENT_COLORS.map((color) => (
+                <button
+                  key={color.value}
+                  onClick={() => setAccent(color)}
+                  className={`w-8 h-8 rounded-lg transition-all ${
+                    themeOverrides['--accent'] === color.value
+                      ? 'ring-2 ring-offset-2 ring-offset-elevated ring-white scale-110'
+                      : 'hover:scale-110'
+                  }`}
+                  style={{ background: color.value }}
+                  title={color.name}
+                />
+              ))}
+            </div>
+          </div>
+
+          <button
+            onClick={() => setShowAdvanced(!showAdvanced)}
+            className="flex items-center gap-2 text-xs text-muted hover:text-white transition-colors"
+          >
+            {showAdvanced ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+            Advanced Options
+          </button>
+
+          {showAdvanced && (
+            <div className="space-y-3 pt-2 border-t border-border">
+              <p className="text-xs text-muted">Override CSS variables</p>
+              {Object.keys(THEMES.dark.vars).filter(k => k !== '--accent' && k !== '--accent-dim').map((key) => (
+                <div key={key} className="flex items-center gap-3">
+                  <span className="text-xs text-muted w-24 truncate">{key}</span>
+                  <input
+                    type="text"
+                    value={themeOverrides[key] || THEMES[themeName]?.vars[key] || ''}
+                    onChange={(e) => saveOverride(key, e.target.value)}
+                    className="flex-1 bg-card border border-border rounded px-2 py-1 text-xs text-white outline-none focus:border-accent/50"
+                    placeholder={THEMES[themeName]?.vars[key]}
+                  />
+                </div>
+              ))}
+              <button
+                onClick={resetTheme}
+                className="text-xs text-muted hover:text-white transition-colors"
+              >
+                Reset Overrides
+              </button>
+            </div>
+          )}
+        </div>
+      </Section>
+
       <Section title="Artist Management">
         <input value={artistSearch} onChange={e => setArtistSearch(e.target.value)}
           placeholder="Search artists…"
