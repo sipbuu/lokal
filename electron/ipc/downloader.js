@@ -139,6 +139,12 @@ function registerDownloaderHandlers(ipcMain) {
     if (ffmpeg && (ffmpeg.includes('/') || ffmpeg.includes('\\'))) {
       args.push('--ffmpeg-location', path.dirname(ffmpeg));
     }
+
+    const useYtCookies = settings.yt_cookies === '1'
+    const ytCookieBrowser = settings.yt_cookie_browser || 'firefox'
+    if (useYtCookies) {
+      args.push('--cookies-from-browser', ytCookieBrowser);
+    }
     
     return new Promise((resolve) => {
       const proc = spawn(ytdlp, args)
@@ -278,8 +284,13 @@ function registerExtraDownloaderHandlers(ipcMain) {
       '--newline', 
       '--progress', 
       '--yes-playlist',
-      '--cookies-from-browser', 'firefox' 
     ]
+
+    const useYtCookies = settings.yt_cookies === '1'
+    const ytCookieBrowser = settings.yt_cookie_browser || 'firefox'
+    if (useYtCookies) {
+      args.push('--cookies-from-browser', ytCookieBrowser);
+    }
     const { spawn } = require('child_process')
     return new Promise((resolve) => {
       let lastSong = null

@@ -451,6 +451,27 @@ export default function Settings() {
             {settings.fetch_online_artwork !== '0' ? 'On' : 'Off'}
           </button>
         </Row>
+        <Row label="Use YouTube Cookies" desc="Pass cookies to yt-dlp to bypass rate limiting, access private playlists and liked music. Not shared elsewhere.">
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => set('yt_cookies', settings.yt_cookies === '0' ? '1' : '0')}
+              className={`px-4 py-1.5 rounded-lg text-xs font-display uppercase tracking-wider border transition-colors ${settings.yt_cookies === '1' ? 'bg-accent/20 border-accent/50 text-accent' : 'border-border text-muted hover:text-white'}`}>
+              {settings.yt_cookies === '1' ? 'On' : 'Off'}
+            </button>
+            {settings.yt_cookies === '1' && (
+              <select
+                value={settings.yt_cookie_browser || 'firefox'}
+                onChange={e => set('yt_cookie_browser', e.target.value)}
+                className="bg-card border border-border rounded-lg px-2 py-1.5 text-xs text-white outline-none focus:border-accent/50">
+                <option value="firefox">Firefox</option>
+                <option value="chrome">Chrome</option>
+                <option value="edge">Edge</option>
+                <option value="brave">Brave</option>
+                <option value="opera">Opera</option>
+              </select>
+            )}
+          </div>
+        </Row>
         <Row label="Music Folder">
           <div className="flex items-center gap-2">
             <input value={settings.music_folder || ''} onChange={e => set('music_folder', e.target.value)}
@@ -670,7 +691,7 @@ export default function Settings() {
       <Section title="Discord Rich Presence">
         <Row label="App Client ID" desc="Create at discord.com/developers/applications">
           <input value={settings.discord_client_id || ''} onChange={e => set('discord_client_id', e.target.value)}
-            placeholder="1466235541950566588"
+            placeholder="1473597925581131919"
             className="w-48 bg-card border border-border rounded-lg px-3 py-1.5 text-xs text-white outline-none focus:border-accent/50" />
         </Row>
         <Row label="Connect">
