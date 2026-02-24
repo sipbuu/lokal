@@ -1,10 +1,12 @@
   import React, { useEffect, useState, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Save, FolderOpen, RefreshCw, Trash2, AlertTriangle, Link, CheckCircle, Disc3, Zap, Download, Music2, X, MoreHorizontal, ListMusic } from 'lucide-react'
+import { Save, FolderOpen, RefreshCw, Trash2, AlertTriangle, Link, CheckCircle, Disc3, Zap, Download, Music2, X, MoreHorizontal, ListMusic, Palette, ChevronDown, ChevronUp } from 'lucide-react'
 import { api } from '../api'
 import { useAppStore } from '../store/player'
 import Modal from '../components/Modal'
 import ArtistManageModal from '../components/ArtistManageModal'
+import { THEMES, ACCENT_COLORS, applyTheme } from '../theme'
+import { useTheme } from '../themeHooks'
 
 const EQ_BANDS = ['60Hz', '230Hz', '910Hz', '3.6kHz', '14kHz']
 
@@ -113,7 +115,8 @@ export default function Settings() {
   const [perfSettings, setPerfSettings] = useState({ hardwareAcceleration: true, performanceMode: false })
   const [relaunchMsg, setRelaunchMsg] = useState('')
   const { openAlbums, user } = useAppStore()
-  const fileInputRef = useRef(null)
+const fileInputRef = useRef(null)
+  const { themeName, themeOverrides, showAdvanced, setShowAdvanced, selectTheme, setAccent, saveOverride, resetTheme } = useTheme()
 
   useEffect(() => {
 
