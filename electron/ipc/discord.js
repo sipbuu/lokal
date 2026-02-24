@@ -115,4 +115,28 @@ function registerDiscordHandlers(ipcMain) {
   })
 }
 
+async function cleanupAndExit(code = 0) {
+  try {
+    if (rpcClient) {
+      try { await rpcClient.clearActivity() } catch {}
+      try { rpcClient.destroy() } catch {}
+      rpcClient = null
+    }
+  } catch {}
+  process.exit(code)
+}
+
+process.on('SIGINT', () => cleanupAndExit(0))
+process.on('SIGTERM', () => cleanupAndExit(0))
+
+process.on('uncaughtException', async (err) => {
+  try { console.error(err) } catch {}
+  await cleanupAndExit(1)
+})
+
+process.on('unhandledRejection', async (err) => {
+  try { console.error(err) } catch {}
+  await cleanupAndExit(1)
+})
+
 module.exports = { registerDiscordHandlers }
