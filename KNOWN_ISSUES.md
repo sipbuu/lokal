@@ -1,6 +1,6 @@
 # Known Issues
 
-This file tracks known bugs and limitations, some may be fixed, others may not. *Last updated: 2/22/2026*
+This file tracks known bugs and limitations, some may be fixed, others may not. *Last updated: 2/24/2026*
 
 ---
 
@@ -13,8 +13,8 @@ This file tracks known bugs and limitations, some may be fixed, others may not. 
 ## Playback
 
 - **Shuffle + crossfade mismatch** — when shuffle is on, the crossfade pre-loader could queue the wrong next track. Temporary workaround: disable crossfade when using shuffle.
-- **Going back while shuffle is on** — previous button may pick a random track instead of the actual previous one.
-- **Word mid-transition flash** — when the active lyric line changes mid-word animation, chars briefly flash to their initial (dim) state before catching up.
+- ***Fixed as of [v1.1: ](https://github.com/sipbuu/lokal/releases/tag/v1.1)*** ~**Going back while shuffle is on** — previous button may pick a random track instead of the actual previous one~ .
+-  ***Slightly fixed as of [v1.1: ](https://github.com/sipbuu/lokal/releases/tag/v1.1)*** ~**Word mid-transition flash** — when the active lyric line changes mid-word animation, chars briefly flash to their initial (dim) state before catching up.~
 - **Audible pop during crossfade** — because of the way we handled audio, we probably should've used the better system in which could've handled transition between audio easier (instead of having to use 2 audio sources)
 - **Issues when changing volume/pausing during crossfade** — crossfade will control volume and still play the next song, even if you have it paused (both are due to the system i made at the start, will probably fix during an overhaul) 
 
@@ -25,9 +25,9 @@ This file tracks known bugs and limitations, some may be fixed, others may not. 
 
 ## Downloader
 
-- **Album art missing after download** — yt-dlp's `--embed-thumbnail` step occasionally fails silently. The app attempts to fetch the YouTube thumbnail as a fallback but this may not always succeed.
-- **Playlist art is slightly off** — due to how yt-dlp downloads thumbnails, this can appear as a rectangle, obviously i will attempt a fix at a later date to crop thumbnails (if it is downloaded via youtube) 
-- **Playlist download progress** — progress reporting for playlist downloads can be inconsistent depending on yt-dlp output format changes.
+-  ***Fixed as of [v1.1: ](https://github.com/sipbuu/lokal/releases/tag/v1.1)*** ~**Album art missing after download** — yt-dlp's `--embed-thumbnail` step occasionally fails silently. The app attempts to fetch the YouTube thumbnail as a fallback but this may not always succeed.~
+-  ***Fixed as of [v1.1: ](https://github.com/sipbuu/lokal/releases/tag/v1.1)*** ~**Playlist art is slightly off** — due to how yt-dlp downloads thumbnails, this can appear as a rectangle, obviously i will attempt a fix at a later date to crop thumbnails (if it is downloaded via youtube)~
+-  ***Slightly fixed as of [v1.1: ](https://github.com/sipbuu/lokal/releases/tag/v1.1)*** ~**Playlist download progress** — progress reporting for playlist downloads can be inconsistent depending on yt-dlp output format changes.~
 
 ## Lyrics
 
@@ -44,8 +44,8 @@ This file tracks known bugs and limitations, some may be fixed, others may not. 
 
 ## Discord
 
-- **Presence lingers after exit** — Discord rich presence may not clear immediately when the app closes, if it doesn't, it's best to kill/exit discord to remove it.
-- **Crash if Discord not running** — if Discord is not open when the app starts, presence setup may throw. Should be handled silently but may not be in all cases.
+-  ***Slightly fixed as of [v1.1: ](https://github.com/sipbuu/lokal/releases/tag/v1.1)*** **Presence lingers after exit** — Discord rich presence may not clear immediately when the app closes, if it doesn't, it's best to kill/exit discord to remove it.~
+-  ***Fixed as of [v1.1: ](https://github.com/sipbuu/lokal/releases/tag/v1.1)*** ~**Crash if Discord not running** — if Discord is not open when the app starts, presence setup may throw. Should be handled silently but may not be in all cases.~
 
 ## Queue
 - **Queue doesn't save after Electron reload** — with the way queue switching is handled, it only does it on the front-end, however the back-end is not updated (this is for certain reasons, but may be updated), so a reload will reset the queue to normal.
