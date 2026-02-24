@@ -17,6 +17,12 @@
     "appId": "com.lokal.music",
     "productName": "Lokal",
     "icon": "public/lokal-icon.ico",
+    "files": [
+      "dist/**/*",
+      "electron/**/*",
+      "package.json"
+    ],
+    "asar": true,
     "publish": {
       "provider": "github",
       "owner": "sipbuu",

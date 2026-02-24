@@ -131,10 +131,8 @@ export default function App() {
 
     const updateMetadata = async () => {
       let artworkSrc = '/fallback_nopfp.png'
-      console.log(currentTrack.artwork_path)
       if (currentTrack.artwork_path) {
         const dataUrl = await getArtworkDataURL(currentTrack.artwork_path)
-        console.log('Got artwork data URL:', dataUrl)
         if (dataUrl) {
           artworkSrc = dataUrl
         }
@@ -460,7 +458,7 @@ export default function App() {
             if (repeat === 'one') { audioRef.current.currentTime = 0; audioRef.current.play() }
             else autoNext()
           }}
-          onPlay={() => { setIsPlaying(true); updateMediaSession();  startTimer() }}
+          onPlay={() => { setIsPlaying(true);  startTimer() }}
           onPause={() => { setIsPlaying(false); stopTimer() }}
         />
         <audio ref={cfAudioRef} />
