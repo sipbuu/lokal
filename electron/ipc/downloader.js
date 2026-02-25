@@ -274,7 +274,6 @@ function registerExtraDownloaderHandlers(ipcMain) {
     const outputTemplate = require('path').join(outputDir, '%(playlist)s', '%(artist)s', '%(title)s.%(ext)s')
     const args = [
       url, 
-      '--ffmpeg-location', ffmpeg,
       '-x', 
       '--audio-format', opts.format || 'mp3', 
       '--audio-quality', '0', 
@@ -290,6 +289,9 @@ function registerExtraDownloaderHandlers(ipcMain) {
     const ytCookieBrowser = settings.yt_cookie_browser || 'firefox'
     if (useYtCookies) {
       args.push('--cookies-from-browser', ytCookieBrowser);
+    }
+    if (ffmpeg && (ffmpeg.includes('/') || ffmpeg.includes('\\'))) {
+      args.push('--ffmpeg-location', path.dirname(ffmpeg));
     }
     const { spawn } = require('child_process')
     return new Promise((resolve) => {
