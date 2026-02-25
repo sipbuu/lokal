@@ -175,6 +175,7 @@ export default function LyricsPanel({
   const [source, setSource] = useState(null)
   const [loading, setLoading] = useState(false)
   const [activeIdx, setActiveIdx] = useState(-1)
+  const [isOnline, setIsOnline] = useState(typeof navigator !== 'undefined' ? navigator.onLine : true)
   const containerRef = useRef(null)
   const lineRefs = useRef([])
 
@@ -197,11 +198,24 @@ export default function LyricsPanel({
     return () => cancelAnimationFrame(raf)
   }, [])
 
+useEffect(() => {
+    const handleOnline = () => setIsOnline(true)
+    const handleOffline = () => setIsOnline(false)
+    window.addEventListener('online', handleOnline)
+    window.addEventListener('offline', handleOffline)
+    return () => {
+      window.removeEventListener('online', handleOnline)
+      window.removeEventListener('offline', handleOffline)
+    }
+  }, [])
+
   useEffect(() => {
     if (!track?.id) return
     setLoading(true); setLines([]); setActiveIdx(-1); setLyricsType(null); setSource(null)
     api.getLyrics(track.id, track.title, track.artist, track.album, track.duration).then(r => {
       if (r?.lines) { setLines(r.lines); setLyricsType(r.type); setSource(r.source) }
+      setLoading(false)
+    }).catch(() => {
       setLoading(false)
     })
   }, [track?.id])
@@ -282,18 +296,26 @@ export default function LyricsPanel({
 
       {loading && <WaveLoader />}
 
-      {!loading && !processedLines.length && (
+{!loading && !processedLines.length && (
         <div className="flex flex-col items-center justify-center flex-1 gap-3 opacity-30 select-none">
           <Mic2 size={fullscreen ? 40 : 28} />
-          <p className={fullscreen ? 'text-sm' : 'text-xs'}>No lyrics found</p>
-          {onSearchRequest && (
-            <button 
-              onClick={onSearchRequest}
-              className="flex items-center gap-1 text-xs text-accent hover:text-accent/80 transition-colors"
-            >
-              <Search size={12} />
-              Search manually
-            </button>
+          {!isOnline ? (
+            <p className={fullscreen ? 'text-sm' : 'text-xs'}>
+              Hey. You're currently offline.. lyrics will pull once online.
+            </p>
+          ) : (
+            <>
+              <p className={fullscreen ? 'text-sm' : 'text-xs'}>No lyrics found</p>
+              {onSearchRequest && (
+                <button 
+                  onClick={onSearchRequest}
+                  className="flex items-center gap-1 text-xs text-accent hover:text-accent/80 transition-colors"
+                >
+                  <Search size={12} />
+                  Search manually
+                </button>
+              )}
+            </>
           )}
         </div>
       )}
