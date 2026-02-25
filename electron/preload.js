@@ -75,6 +75,7 @@ contextBridge.exposeInMainWorld('electron', {
   downloadYT: (url, opts) => invoke('downloader:download', url, opts),
   downloadPlaylist: (url, opts) => invoke('downloader:downloadPlaylist', url, opts),
   searchYT: (q) => invoke('downloader:search', q),
+  searchYTArtist: (q) => invoke('downloader:searchArtist', q),
   cancelDownload: (id) => invoke('downloader:cancel', id),
   getDownloadQueue: () => invoke('downloader:queue'),
   onDownloadProgress: (fn) => on('downloader:progress', fn),

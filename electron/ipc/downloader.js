@@ -56,15 +56,18 @@ function getYouTubeThumbnail(videoId) {
 function registerDownloaderHandlers(ipcMain) {
   const { BrowserWindow } = require('electron')
 
-  ipcMain.handle('downloader:search', async (e, query) => {
+  ipcMain.handle('downloader:search', async (e, query, page = 1) => {
     mainWindow = BrowserWindow.fromWebContents(e.sender)
     const ytdlp = findYtDlp()
     if (!ytdlp) return { error: 'yt-dlp not found. Go to Settings → External Tools to download it automatically or set a custom path.' }
 
+    const limit = 10
+    const offset = (page - 1) * limit
+
     return new Promise((resolve) => {
       const results = []
       const args = [
-        `ytsearch10:${query}`,
+        `ytsearch${limit}:${query}`,
         '--dump-json', '--no-playlist',
         '--flat-playlist', '--skip-download',
         '--quiet'
@@ -87,7 +90,93 @@ function registerDownloaderHandlers(ipcMain) {
             })
           } catch {}
         }
-        resolve(results)
+        // Apply offset for pagination (if page > 1, skip first N results)
+        const paginatedResults = offset > 0 ? results.slice(offset) : results
+        resolve({ results: paginatedResults, page, hasMore: results.length === limit })
+      })
+      proc.on('error', () => resolve({ error: 'Failed to run yt-dlp' }))
+    })
+  })
+
+  // Artist search - searches for artist channels/playlists on YouTube
+  ipcMain.handle('downloader:searchArtist', async (e, query) => {
+    mainWindow = BrowserWindow.fromWebContents(e.sender)
+    const ytdlp = findYtDlp()
+    if (!ytdlp) return { error: 'yt-dlp not found. Go to Settings → External Tools to download it automatically or set a custom path.' }
+
+    return new Promise((resolve) => {
+      const results = []
+      // Search for channels and playlists matching the artist name
+      const args = [
+        `ytsearch20:${query} artist channel`,
+        '--dump-json',
+        '--flat-playlist',
+        '--skip-download',
+        '--quiet',
+        '--default-search=ytsearch'
+      ]
+      const proc = spawn(ytdlp, args)
+      let buf = ''
+      proc.stdout.on('data', d => { buf += d.toString() })
+      proc.on('close', () => {
+        const lines = buf.trim().split('\n').filter(Boolean)
+        for (const line of lines) {
+          try {
+            const j = JSON.parse(line)
+            // Determine if it's a channel, playlist, or video
+            const entryType = j.entry_type || (j.playlist_id ? 'playlist' : 'video')
+            if (entryType === 'playlist' || entryType === 'channel' || j.channel_id) {
+              results.push({
+                id: j.id,
+                title: j.title,
+                channel: j.channel || j.uploader,
+                type: j.playlist_id ? 'playlist' : 'channel',
+                thumbnail: j.thumbnail,
+                url: j.url || j.webpage_url || (j.channel_id ? `https://www.youtube.com/channel/${j.channel_id}` : j.id),
+                playlistId: j.playlist_id || null,
+                videoCount: j.playlist_count || j.channel_item_count || null,
+              })
+            }
+          } catch {}
+        }
+        
+        // If no channels/playlists found, try a different search approach
+        if (results.length === 0) {
+          // Try searching for the artist's official channel
+          const fallbackArgs = [
+            `ytsearch5:${query} official channel`,
+            '--dump-json',
+            '--flat-playlist',
+            '--skip-download',
+            '--quiet'
+          ]
+          const fallbackProc = spawn(ytdlp, fallbackArgs)
+          let fallbackBuf = ''
+          fallbackProc.stdout.on('data', d => { fallbackBuf += d.toString() })
+          fallbackProc.on('close', () => {
+            const fallbackLines = fallbackBuf.trim().split('\n').filter(Boolean)
+            for (const line of fallbackLines) {
+              try {
+                const j = JSON.parse(line)
+                if (j.channel_id || j.playlist_id) {
+                  results.push({
+                    id: j.id,
+                    title: j.title,
+                    channel: j.channel || j.uploader,
+                    type: j.playlist_id ? 'playlist' : 'channel',
+                    thumbnail: j.thumbnail,
+                    url: j.channel_id ? `https://www.youtube.com/channel/${j.channel_id}` : j.webpage_url,
+                    playlistId: j.playlist_id || null,
+                  })
+                }
+              } catch {}
+            }
+            resolve(results)
+          })
+          fallbackProc.on('error', () => resolve(results))
+        } else {
+          resolve(results)
+        }
       })
       proc.on('error', () => resolve({ error: 'Failed to run yt-dlp' }))
     })

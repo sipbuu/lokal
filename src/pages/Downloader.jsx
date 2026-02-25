@@ -17,7 +17,6 @@ function DownloadItem({ d, onRemove }) {
         {d.song && <p className="text-xs text-accent mt-0.5 truncate">{d.song}</p>}
         {d.message && <p className="text-xs text-muted mt-0.5 truncate">{d.message}</p>}
         
-        {/* Show downloaded tracks for playlists */}
         {d.downloadedTracks && d.downloadedTracks.length > 0 && (
           <div className="mt-2">
             <button 
@@ -72,6 +71,12 @@ export default function Downloader() {
   const [query, setQuery] = useState('')
   const [results, setResults] = useState([])
   const [searching, setSearching] = useState(false)
+  const [searchPage, setSearchPage] = useState(1)
+  const [hasMore, setHasMore] = useState(false)
+  const [loadingMore, setLoadingMore] = useState(false)
+  const [artistQuery, setArtistQuery] = useState('')
+  const [artistResults, setArtistResults] = useState([])
+  const [searchingArtist, setSearchingArtist] = useState(false)
   const [playlistUrl, setPlaylistUrl] = useState('')
   const [format, setFormat] = useState('mp3')
   const [quality, setQuality] = useState('320')
@@ -162,9 +167,40 @@ export default function Downloader() {
   const search = async () => {
     if (!query.trim()) return
     setSearching(true)
-    const r = await api.searchYT(query)
-    setResults(Array.isArray(r) ? r : [])
+    setSearchPage(1)
+    const r = await api.searchYTPaginated(query, 1)
+    if (r && r.results) {
+      setResults(r.results)
+      setHasMore(r.hasMore || false)
+    } else if (Array.isArray(r)) {
+      setResults(r)
+      setHasMore(false)
+    } else {
+      setResults([])
+      setHasMore(false)
+    }
     setSearching(false)
+  }
+
+  const loadMore = async () => {
+    if (!query.trim() || loadingMore || !hasMore) return
+    setLoadingMore(true)
+    const nextPage = searchPage + 1
+    const r = await api.searchYTPaginated(query, nextPage)
+    if (r && r.results) {
+      setResults(prev => [...prev, ...r.results])
+      setSearchPage(nextPage)
+      setHasMore(r.hasMore || false)
+    }
+    setLoadingMore(false)
+  }
+
+  const searchArtist = async () => {
+    if (!artistQuery.trim()) return
+    setSearchingArtist(true)
+    const r = await api.searchYTArtist(artistQuery)
+    setArtistResults(Array.isArray(r) ? r : [])
+    setSearchingArtist(false)
   }
 
   const downloadSingle = async (item) => {
@@ -216,7 +252,7 @@ export default function Downloader() {
       <div className="flex items-center justify-between">
         <h1 className="font-display text-lg uppercase tracking-widest text-white">Downloader</h1>
         <div className="flex gap-1 p-0.5 bg-elevated border border-border rounded-xl">
-          {[['search','Search'],['playlist','Playlist / Album']].map(([id, label]) => (
+          {[['search','Search'],['artist','Artist'],['playlist','Playlist / Album']].map(([id, label]) => (
             <button key={id} onClick={() => setTab(id)}
               className={`px-3 py-1.5 text-xs font-display uppercase tracking-wider rounded-lg transition-colors ${tab === id ? 'bg-accent text-base' : 'text-muted hover:text-white'}`}>
               {label}
@@ -315,6 +351,58 @@ export default function Downloader() {
               <li>• Files are saved to your configured music folder</li>
               <li>• FLAC is lossless but much larger (yt-dlp re-encodes from best source)</li>
             </ul>
+          </div>
+        </div>
+      )}
+
+      {tab === 'artist' && (
+        <div className="space-y-4">
+          <div className="flex gap-2">
+            <input
+              value={artistQuery}
+              onChange={e => setArtistQuery(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && searchArtist()}
+              placeholder="Search for artist..."
+              className="flex-1 bg-elevated border border-border rounded-xl px-4 py-2.5 text-sm text-white outline-none focus:border-accent/50 placeholder:text-muted"
+            />
+            <button
+              onClick={searchArtist}
+              disabled={searchingArtist || !artistQuery.trim()}
+              className="px-4 py-2 bg-accent text-base rounded-xl text-sm font-medium disabled:opacity-40 hover:bg-accent/80 transition-colors"
+            >
+              {searchingArtist ? <RefreshCw size={14} className="animate-spin" /> : 'Search'}
+            </button>
+          </div>
+
+          <div className="space-y-2">
+            {artistResults.map(item => (
+              <motion.div
+                key={item.id}
+                initial={{ opacity: 0, y: 4 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="flex items-center gap-3 p-3 bg-elevated border border-border rounded-xl"
+              >
+                {item.thumbnail && (
+                  <img src={item.thumbnail} className="w-14 h-10 rounded-lg object-cover flex-shrink-0" />
+                )}
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm text-white truncate">{item.title}</p>
+                  <p className="text-xs text-muted">
+                    {item.type === 'channel' ? 'Channel' : 'Playlist'}
+                    {item.videoCount ? ` · ${item.videoCount} videos` : ''}
+                  </p>
+                </div>
+                <button
+                  onClick={() => downloadPlaylist(item.url)} 
+                  className="flex-shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium bg-accent/15 text-accent hover:bg-accent/25 transition-colors"
+                >
+                  <Download size={12} /> Download
+                </button>
+              </motion.div>
+            ))}
+            {!artistResults.length && artistQuery && !searchingArtist && (
+              <p className="text-center text-muted text-sm py-8">No channels or playlists found.</p>
+            )}
           </div>
         </div>
       )}
