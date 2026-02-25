@@ -5,6 +5,7 @@ const https = require('https')
 const http = require('http')
 const mm = require('music-metadata')
 const { getDB, getStorageDir } = require('./db')
+const { ipcMain } = require('electron')
 
 const DEFAULT_MUSIC_PATH = 'C:\\Users\\sipbuu\\Music'
 const AUDIO_EXTS = new Set(['.mp3', '.flac', '.m4a', '.ogg', '.wav', '.aac', '.opus', '.wma', '.alac', '.ape'])
@@ -264,7 +265,7 @@ function registerScannerHandlers(ipcMain) {
   ipcMain.handle('settings:get', () => { const rows = getDB().prepare('SELECT key, value FROM settings').all(); return Object.fromEntries(rows.map(r => [r.key, r.value])) })
   ipcMain.handle('settings:save', (_, s) => { const stmt = getDB().prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)'); for (const [k, v] of Object.entries(s)) stmt.run(k, String(v)) })
   ipcMain.handle('settings:getKeepCommaArtists', () => { try { const db = getDB(); const setting = db.prepare("SELECT value FROM settings WHERE key = 'keep_comma_artists'").get(); return setting?.value ? JSON.parse(setting.value) : [] } catch { return [] } })
-ipcMain.handle('settings:setKeepCommaArtists', (_, artists) => getDB().prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('keep_comma_artists', ?)").run(JSON.stringify(artists)))
+  ipcMain.handle('settings:setKeepCommaArtists', (_, artists) => getDB().prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('keep_comma_artists', ?)").run(JSON.stringify(artists)))
 
   ipcMain.handle('settings:getTheme', () => {
     const db = getDB()
@@ -403,7 +404,7 @@ ipcMain.handle('settings:setKeepCommaArtists', (_, artists) => getDB().prepare("
   })
 }
 
-async function fetchExternalArtwork(title, artist, trackId) {
+async function fetchExternalMetadata(title, artist, trackId) {
   const db = getDB()
   try {
     const setting = db.prepare("SELECT value FROM settings WHERE key = 'fetch_online_artwork'").get()
@@ -419,16 +420,22 @@ async function fetchExternalArtwork(title, artist, trackId) {
     const itunesData = await itunesRes.json()
 
     if (itunesData.results && itunesData.results.length > 0) {
-      let artworkUrl = itunesData.results[0].artworkUrl100
+      const result = itunesData.results[0]
+      let artworkUrl = result.artworkUrl100
+      const genre = result.primaryGenreName || null  
+
+      console.log(`[fetchExternalMetadata] iTunes result for "${title}" by "${artist}": genre = "${genre}"`)
+
       if (artworkUrl) {
         artworkUrl = artworkUrl.replace('100x100bb', '600x600bb')
         const artPath = path.join(getStorageDir(), 'artwork', `t-${trackId}.jpg`)
         try {
           await downloadImageWithTimeout(artworkUrl, artPath, 5000)
           clearTimeout(timeout)
-          return artPath
+          return { artPath, genre }
         } catch {}
       }
+      if (genre) { clearTimeout(timeout); return { artPath: null, genre } }
     }
   } catch {}
 
@@ -437,23 +444,31 @@ async function fetchExternalArtwork(title, artist, trackId) {
   const timeout2 = setTimeout(() => controller2.abort(), 5000)
 
   try {
-    const mbQuery = `https://musicbrainz.org/ws/2/recording/?query=recording:"${title}" AND artist:"${artist}"&fmt=json&limit=3`
+    const mbQuery = `https://musicbrainz.org/ws/2/recording/?query=recording:"${title}" AND artist:"${artist}"&fmt=json&limit=3&inc=tags`
     const mbRes = await fetch(mbQuery, {
       signal: controller2.signal,
       headers: { 'User-Agent': 'Lokal/4.0 (lokalmusic@email.com)' }
     })
     const mbData = await mbRes.json()
 
-    if (mbData.releases && mbData.releases[0]?.id) {
-      const releaseId = mbData.releases[0].id
+    const recording = mbData.recordings?.[0]
+    
+    const tags = recording?.tags?.sort((a, b) => b.count - a.count)
+    const genre = tags?.[0]?.name || null
+
+    console.log(`[fetchExternalMetadata] MusicBrainz result for "${title}" by "${artist}": genre = "${genre}"`)
+
+    if (recording?.releases?.[0]?.id) {
+      const releaseId = recording.releases[0].id
       const coverUrl = `https://coverartarchive.org/release/${releaseId}/front-500`
       const artPath = path.join(getStorageDir(), 'artwork', `t-${trackId}.jpg`)
       try {
         await downloadImageWithTimeout(coverUrl, artPath, 5000)
         clearTimeout(timeout2)
-        return artPath
+        return { artPath, genre }
       } catch {}
     }
+    if (genre) return { artPath: null, genre }
   } catch {}
 
   clearTimeout(timeout2)
@@ -523,9 +538,20 @@ async function indexSingleFile(filePath, opts = {}) {
     } catch {}
   }
 
-  if (!artwork) {
-    const externalArt = await fetchExternalArtwork(title, artist, trackId)
-    if (externalArt) artwork = externalArt
+  // Use embedded genre first, then try to fetch from external
+  let genre = c.genre?.[0] || null
+  
+  if (!artwork || !genre) {
+    const external = await fetchExternalMetadata(title, artist, trackId)
+    if (external) {
+      if (external.artPath && !artwork) {
+        artwork = external.artPath
+      }
+      if (external.genre && !genre) {
+        genre = external.genre
+        console.log(`[indexSingleFile] Fetched genre for "${title}": "${genre}"`)
+      }
+    }
   }
 
   const replaygain = c.replaygain_track_gain || null
@@ -541,10 +567,10 @@ async function indexSingleFile(filePath, opts = {}) {
     const existingByPath = db.prepare('SELECT id FROM tracks WHERE file_path = ?').get(filePath)
     if (existingByPath) {
       db.prepare(`UPDATE tracks SET file_hash = ?, title = ?, artist = ?, album = ?, album_artist = ?, track_num = ?, year = ?, genre = ?, duration = ?, artwork_path = ?, bitrate = ?, last_modified = ?, replaygain = ? WHERE file_path = ?`)
-        .run(trackId, title, artist, c.album?.trim() || null, c.albumartist?.trim() || null, c.track?.no || null, c.year || null, c.genre?.[0] || null, duration, artwork, meta.format.bitrate ? Math.round(meta.format.bitrate / 1000) : null, stat.mtimeMs, replaygain, filePath)
+        .run(trackId, title, artist, c.album?.trim() || null, c.albumartist?.trim() || null, c.track?.no || null, c.year || null, genre, duration, artwork, meta.format.bitrate ? Math.round(meta.format.bitrate / 1000) : null, stat.mtimeMs, replaygain, filePath)
     } else {
       db.prepare(`INSERT INTO tracks (id, file_path, file_hash, title, artist, album, album_artist, track_num, year, genre, duration, artwork_path, bitrate, last_modified, replaygain) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-        .run(trackId, filePath, trackId, title, artist, c.album?.trim() || null, c.albumartist?.trim() || null, c.track?.no || null, c.year || null, c.genre?.[0] || null, duration, artwork, meta.format.bitrate ? Math.round(meta.format.bitrate / 1000) : null, stat.mtimeMs, replaygain)
+        .run(trackId, filePath, trackId, title, artist, c.album?.trim() || null, c.albumartist?.trim() || null, c.track?.no || null, c.year || null, genre, duration, artwork, meta.format.bitrate ? Math.round(meta.format.bitrate / 1000) : null, stat.mtimeMs, replaygain)
     }
     db.prepare('DELETE FROM artist_track_links WHERE track_id = ?').run(trackId)
     const artistNames = splitArtists(artist)
@@ -623,6 +649,44 @@ function registerV4Handlers(ipcMain) {
       db.prepare('INSERT INTO play_history (user_id, track_id, seconds_played) VALUES (?, ?, ?)').run(uid, trackId, Math.round(seconds || 0))
     } catch(e) { console.warn('incrementPlayTime:', e.message) }
   })
+  ipcMain.handle('scanner:fetchMissingGenres', async () => {
+    const db = getDB()
+    const tracks = db.prepare("SELECT id, title, artist FROM tracks WHERE genre IS NULL OR genre = '' LIMIT 500").all()
+    let updated = 0
+    for (const track of tracks) {
+      console.log(`[fetchMissingGenres] Fetching genre for: "${track.title}" by "${track.artist}"`)
+      const result = await fetchExternalMetadata(track.title, track.artist, track.id)
+      if (result?.genre) {
+        db.prepare('UPDATE tracks SET genre = ? WHERE id = ?').run(result.genre, track.id)
+        console.log(`[fetchMissingGenres] Updated "${track.title}" with genre: "${result.genre}"`)
+        updated++
+      }
+      await new Promise(r => setTimeout(r, 200))
+    }
+    console.log(`[fetchMissingGenres] Done: updated ${updated} of ${tracks.length} tracks`)
+    return { updated, total: tracks.length }
+  })
+  ipcMain.handle('scanner:setManualGenre', async (_, { artist, track, album, genre }) => {
+    const db = getDB()
+    if (!artist || !genre) {
+      return { error: 'Artist and genre are required' }
+    }
+    
+    let query = 'UPDATE tracks SET genre = ? WHERE LOWER(artist) = LOWER(?)'
+    const params = [genre, artist]
+    
+    if (track) {
+      query += ' AND LOWER(title) = LOWER(?)'
+      params.push(track)
+    }
+    if (album) {
+      query += ' AND LOWER(album) = LOWER(?)'
+      params.push(album)
+    }
+    
+    const result = db.prepare(query).run(...params)
+    return { updated: result.changes }
+  })
   ipcMain.handle('scanner:getAllAlbums', () => getDB().prepare(`SELECT album as title, album_artist, year, artwork_path, COUNT(*) as track_count, GROUP_CONCAT(DISTINCT artist) as artists FROM tracks WHERE album IS NOT NULL GROUP BY LOWER(album) ORDER BY year DESC, album ASC`).all())
   ipcMain.handle('scanner:searchAlbums', (_, q) => { const term = `%${q}%`; return getDB().prepare(`SELECT album as title, album_artist, year, artwork_path, COUNT(*) as track_count, GROUP_CONCAT(DISTINCT artist) as artists FROM tracks WHERE album LIKE ? OR album_artist LIKE ? GROUP BY LOWER(album) ORDER BY album`).all(term, term) })
   ipcMain.handle('scanner:deleteTracks', (_, ids) => { const db = getDB(); const del = db.transaction((ids) => { for (const id of ids) { db.prepare('DELETE FROM artist_track_links WHERE track_id = ?').run(id); db.prepare('DELETE FROM playlist_tracks WHERE track_id = ?').run(id); db.prepare('DELETE FROM user_likes WHERE track_id = ?').run(id); db.prepare('DELETE FROM play_history WHERE track_id = ?').run(id); db.prepare('DELETE FROM lyrics_cache WHERE track_id = ?').run(id); db.prepare('DELETE FROM tracks WHERE id = ?').run(id) } }); del(ids) })
@@ -688,5 +752,7 @@ function registerV4Handlers(ipcMain) {
     return { totalPlays, totalMinutes: Math.round(totalSecs / 60), topArtists, topTracks, topGenres, likedCount, weeklyPlays }
   })
 }
+
+
 
 module.exports.registerV4Handlers = registerV4Handlers

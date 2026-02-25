@@ -130,4 +130,6 @@ export const api = {
   updaterCheck: () => isE() ? el().updaterCheck() : Promise.resolve(),
   getVersion: () => isE() ? el().getVersion() : Promise.resolve('1.0.0'),
   onUpdaterEvent: (fn) => { if (isE()) return el().onUpdaterEvent(fn); return () => {} },
+  fetchMissingGenres: () => isE() ? el().fetchMissingGenres() : apiFetch('/tracks/fetch-missing-genres', { method: 'POST' }),
+  setManualGenre: (data) => isE() ? el().setManualGenre(data) : apiFetch('/tracks/set-manual-genre', { method: 'POST', body: data }),
 }
