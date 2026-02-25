@@ -537,8 +537,6 @@ async function indexSingleFile(filePath, opts = {}) {
       artwork = artPath
     } catch {}
   }
-
-  // Use embedded genre first, then try to fetch from external
   let genre = c.genre?.[0] || null
   
   if (!artwork || !genre) {
