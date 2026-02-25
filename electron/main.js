@@ -171,9 +171,12 @@ app.whenReady().then(() => {
   ipcMain.handle('shell:openExternal', (_, url) => shell.openExternal(url))
 
   
-  ipcMain.handle('updater:install', () => {
-    autoUpdater.quitAndInstall()
-  })
+  let isUpdating = false;
+
+ipcMain.handle('updater:install', () => {
+  isUpdating = true; 
+  autoUpdater.quitAndInstall(false, true); 
+})
   ipcMain.handle('updater:check', () => {
     autoUpdater.checkForUpdates()
   })
@@ -195,4 +198,8 @@ app.whenReady().then(() => {
     }, 3000)
   }
 })
-app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit() })
+app.on('window-all-closed', () => {
+  if (process.platform !== 'darwin' && !isUpdating) {
+    app.quit()
+  }
+})
