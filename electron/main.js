@@ -11,6 +11,7 @@ const { registerUserHandlers } = require('./ipc/users')
 const { registerDiscordHandlers } = require('./ipc/discord')
 const { registerLastFmHandlers } = require('./ipc/lastfm')
 const { registerToolsHandlers } = require('./ipc/tools')
+const { registerPlaylistHandlers } = require('./ipc/playlists')
 autoUpdater.autoDownload = true
 autoUpdater.autoInstallOnAppQuit = true
 
@@ -102,7 +103,7 @@ app.whenReady().then(() => {
     registerScannerHandlers, registerPlayerHandlers, registerDownloaderHandlers,
     registerExtraDownloaderHandlers, registerLyricsHandlers, registerUserHandlers,
     registerDiscordHandlers, registerExtraHandlers, registerV4Handlers, registerLastFmHandlers,
-    registerToolsHandlers,
+    registerToolsHandlers, registerPlaylistHandlers
   ]) {
     try { fn(ipcMain) } catch (e) { console.error(fn.name + ':', e.message) }
   }
