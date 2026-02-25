@@ -108,8 +108,12 @@ async function scanFolder(folderPath) {
       const artistNames = splitArtists(item.artist)
       for (const name of artistNames) {
         const aid = 'a-' + slugify(name)
-        upsertArtist.run(aid, name)
-        linkArtist.run(aid, item.id)
+        db.prepare(`INSERT OR REPLACE INTO artists (id, name) VALUES (?, ?)`).run(aid, name)
+        try {
+          linkArtist.run(aid, item.id)
+        } catch (linkErr) {
+          console.warn(`[scanFolder] Failed to link artist ${aid} to track ${item.id}:`, linkErr.message)
+        }
       }
     }
   })
@@ -540,9 +544,14 @@ async function indexSingleFile(filePath, opts = {}) {
     db.prepare('DELETE FROM artist_track_links WHERE track_id = ?').run(trackId)
     const artistNames = splitArtists(artist)
     for (const name of artistNames) { 
-      const aid = 'a-' + slugify(name); 
-      upsertArtist.run(aid, name); 
-      linkArtist.run(aid, trackId) 
+      const aid = 'a-' + slugify(name)
+      // First ensure artist exists - use INSERT OR REPLACE to guarantee insertion
+      db.prepare(`INSERT OR REPLACE INTO artists (id, name) VALUES (?, ?)`).run(aid, name)
+      try {
+        linkArtist.run(aid, trackId)
+      } catch (linkErr) {
+        console.warn(`[indexSingleFile] Failed to link artist ${aid} to track ${trackId}:`, linkErr.message)
+      }
     }
   })
   
