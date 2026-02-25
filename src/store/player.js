@@ -21,9 +21,9 @@ export const usePlayerStore = create((set, get) => ({
   shuffle: false, repeat: 'none',
   showLyrics: false, showLyricsFullscreen: false,
   showRightSidebar: false, showFullscreen: false, showQueue: false,
-  audioRef: null, crossfadeSeconds: 0, _fetchingRelated: false,
+  audioRef: null, cfAudioRef: null, crossfadeSeconds: 0, _fetchingRelated: false,
+  activeAudioElement: 'primary',
 
-  // Shuffle queue system
   originalQueue: [], // Original order before shuffle
   shuffleQueue: [], // Shuffled order
   shuffleIndex: -1, // Current position in shuffle queue
@@ -32,6 +32,8 @@ export const usePlayerStore = create((set, get) => ({
   wasShuffled: false, // Track if shuffle was on when we started
 
   setAudioRef: (ref) => set({ audioRef: ref }),
+  setCfAudioRef: (ref) => set({ cfAudioRef: ref }),
+  setActiveAudioElement: (el) => set({ activeAudioElement: el }),
   setFetchingRelated: (v) => set({ _fetchingRelated: v }),
   appendRelated: (tracks) => {
     const { queue } = get()
@@ -40,12 +42,10 @@ export const usePlayerStore = create((set, get) => ({
     if (fresh.length) set({ queue: [...queue, ...fresh] })
   },
 
-  // Initialize shuffle queue when shuffle is toggled ON
   initShuffleQueue: (tracks, currentIndex) => {
     const currentTrack = tracks[currentIndex]
     const otherTracks = tracks.filter((_, i) => i !== currentIndex)
     const shuffled = shuffleArray(otherTracks)
-    // Put current track at the front
     const shuffleQueue = currentTrack ? [currentTrack, ...shuffled] : shuffled
     const shuffleIndex = 0
     
@@ -59,7 +59,6 @@ export const usePlayerStore = create((set, get) => ({
     })
   },
 
-  // Turn shuffle OFF - restore original queue order
   disableShuffle: () => {
     const { originalQueue, currentTrack, playHistory } = get()
     if (!originalQueue.length || !currentTrack) {
@@ -67,7 +66,6 @@ export const usePlayerStore = create((set, get) => ({
       return
     }
     
-    // Find current track in original queue
     const newIndex = originalQueue.findIndex(t => t.id === currentTrack.id)
     set({ 
       shuffle: false, 
@@ -79,7 +77,6 @@ export const usePlayerStore = create((set, get) => ({
     })
   },
 
-  // Turn shuffle ON - create shuffled queue
   enableShuffle: () => {
     const { queue, currentTrack, queueIndex } = get()
     if (!queue.length) {
@@ -105,7 +102,6 @@ export const usePlayerStore = create((set, get) => ({
     const q = queue || get().queue
     const idx = Math.max(q.findIndex(t => t.id === track.id), 0)
     
-    // If shuffle is on, also update shuffle queue
     if (get().shuffle) {
       get().initShuffleQueue(q, idx)
     }
@@ -125,7 +121,6 @@ export const usePlayerStore = create((set, get) => ({
     
     const startTrack = tracks[startIndex]
     
-    // If shuffle is on, create shuffle queue
     if (get().shuffle) {
       get().initShuffleQueue(tracks, startIndex)
     }
@@ -147,16 +142,14 @@ export const usePlayerStore = create((set, get) => ({
     set({ isPlaying: !isPlaying })
   },
 
-  // Go to next track
+
   next: () => {
     const { shuffle, shuffleQueue, shuffleIndex, queue, queueIndex, repeat, futureHistory, playHistory } = get()
     
     if (shuffle && shuffleQueue.length > 0) {
-      // SHUFFLE MODE
       let nextIdx = shuffleIndex + 1
       
       if (nextIdx < shuffleQueue.length) {
-        // Normal forward
         const nextTrack = shuffleQueue[nextIdx]
         const newHistory = [...playHistory, nextTrack.id]
         set({ 
@@ -168,7 +161,6 @@ export const usePlayerStore = create((set, get) => ({
           futureHistory: []
         })
       } else if (repeat === 'all') {
-        // Loop - reshuffle and restart
         const otherTracks = shuffleQueue.filter((_, i) => i !== shuffleIndex)
         const reshuffled = shuffleArray(otherTracks)
         const current = shuffleQueue[shuffleIndex]
@@ -205,7 +197,6 @@ export const usePlayerStore = create((set, get) => ({
     })
   },
 
-  // Auto-next (from track ending)
   autoNext: () => {
     const { shuffle, shuffleQueue, shuffleIndex, queue, queueIndex, repeat, playHistory } = get()
     
@@ -224,7 +215,6 @@ export const usePlayerStore = create((set, get) => ({
           futureHistory: []
         })
       } else if (repeat === 'all') {
-        // Loop - reshuffle
         const current = shuffleQueue[shuffleIndex]
         const otherTracks = shuffleQueue.filter((_, i) => i !== shuffleIndex)
         const reshuffled = shuffleArray(otherTracks)
@@ -243,7 +233,6 @@ export const usePlayerStore = create((set, get) => ({
       return
     }
     
-    // Normal mode
     if (!queue.length) return
     let idx
     if (queueIndex < queue.length - 1) idx = queueIndex + 1
@@ -261,24 +250,19 @@ export const usePlayerStore = create((set, get) => ({
     })
   },
 
-  // Go to previous track - reverse through playHistory
   prev: () => {
     const { shuffle, shuffleQueue, shuffleIndex, queue, queueIndex, progress, audioRef, playHistory, futureHistory } = get()
     
-    // If more than 3 seconds in, restart current track
     if (progress > 3 && audioRef?.current) {
       audioRef.current.currentTime = 0
       return
     }
     
-    // If we have history to go back to
     if (playHistory.length > 1) {
-      // Remove current track from history, go back to previous
       const newHistory = [...playHistory]
-      newHistory.pop() // Remove current
+      newHistory.pop() 
       const prevTrackId = newHistory[newHistory.length - 1]
       
-      // Find the track in queue or shuffleQueue
       let prevTrack = null
       let prevIndex = -1
       
@@ -293,12 +277,11 @@ export const usePlayerStore = create((set, get) => ({
       }
       
       if (prevTrack) {
-        // Add current track to futureHistory (for skip-ahead avoidance)
         const currentId = shuffle && shuffleQueue[shuffleIndex]?.id 
           ? shuffleQueue[shuffleIndex].id 
           : queue[queueIndex]?.id
         
-        const newFuture = [...futureHistory, currentId].slice(-20) // Keep last 20
+        const newFuture = [...futureHistory, currentId].slice(-20) 
         
         if (shuffle) {
           set({ 
@@ -321,8 +304,6 @@ export const usePlayerStore = create((set, get) => ({
         return
       }
     }
-    
-    // Fallback: if at start, just restart current
     if (queueIndex > 0) {
       const prevTrack = queue[queueIndex - 1]
       const newHistory = [...playHistory, prevTrack.id]
@@ -330,28 +311,23 @@ export const usePlayerStore = create((set, get) => ({
     }
   },
 
-  // Skip ahead - pick a random track NOT in playHistory or futureHistory
   skipAhead: () => {
     const { shuffle, shuffleQueue, shuffleIndex, queue, queueIndex, playHistory, futureHistory, repeat } = get()
     
-    // Combine history and future to get all played tracks
     const playedIds = new Set([...playHistory, ...futureHistory])
     
     let candidates = []
     
     if (shuffle && shuffleQueue.length > 0) {
-      // In shuffle mode, pick from shuffleQueue tracks we haven't played
       candidates = shuffleQueue.filter((t, i) => i !== shuffleIndex && !playedIds.has(t.id))
       
       if (candidates.length === 0 && repeat === 'all') {
-        // All tracks played, reshuffle remaining
         const current = shuffleQueue[shuffleIndex]
         const remaining = shuffleQueue.filter((t, i) => i !== shuffleIndex)
         const reshuffled = shuffleArray(remaining)
         candidates = reshuffled
       }
     } else {
-      // Normal mode - pick random from queue
       candidates = queue.filter((t, i) => i !== queueIndex && !playedIds.has(t.id))
       
       if (candidates.length === 0 && repeat === 'all') {
@@ -361,10 +337,8 @@ export const usePlayerStore = create((set, get) => ({
     
     if (candidates.length === 0) return
     
-    // Pick random from candidates
     const randomTrack = candidates[Math.floor(Math.random() * candidates.length)]
     
-    // Add current to futureHistory before skipping
     const currentId = shuffle && shuffleQueue[shuffleIndex]?.id 
       ? shuffleQueue[shuffleIndex].id 
       : queue[queueIndex]?.id
@@ -394,24 +368,20 @@ export const usePlayerStore = create((set, get) => ({
     }
   },
 
-  // Add track to play next (right after current)
   playNext: (track) => {
     const { shuffle, shuffleQueue, shuffleIndex, queue, queueIndex } = get()
     
     if (shuffle && shuffleQueue.length > 0) {
-      // Insert into shuffle queue right after current position
       const newShuffleQueue = [...shuffleQueue]
       newShuffleQueue.splice(shuffleIndex + 1, 0, track)
       set({ shuffleQueue: newShuffleQueue })
     } else {
-      // Insert into regular queue right after current position
       const newQueue = [...queue]
       newQueue.splice(queueIndex + 1, 0, track)
       set({ queue: newQueue })
     }
   },
 
-  // Add track to end of queue
   addToQueue: (track) => {
     const { shuffle, shuffleQueue, queue } = get()
     
@@ -422,16 +392,14 @@ export const usePlayerStore = create((set, get) => ({
     }
   },
 
-  // Reorder queue (only available when shuffle is OFF)
   reorderQueue: (fromIndex, toIndex) => {
     const { shuffle, queue, queueIndex } = get()
-    if (shuffle) return // Can't reorder in shuffle mode
+    if (shuffle) return
     
     const newQueue = [...queue]
     const [removed] = newQueue.splice(fromIndex, 1)
     newQueue.splice(toIndex, 0, removed)
     
-    // Update currentIndex if needed
     let newCurrentIndex = queueIndex
     if (fromIndex === queueIndex) {
       newCurrentIndex = toIndex
@@ -444,7 +412,6 @@ export const usePlayerStore = create((set, get) => ({
     set({ queue: newQueue, queueIndex: newCurrentIndex })
   },
 
-  // Remove track from queue
   removeFromQueue: (trackId) => {
     const { shuffle, shuffleQueue, shuffleIndex, queue, queueIndex, currentTrack } = get()
     

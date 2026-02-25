@@ -7,7 +7,6 @@ import { api } from '../api'
 
 function fmt(s) { return `${Math.floor((s||0)/60)}:${Math.floor((s||0)%60).toString().padStart(2,'0')}` }
 
-// Helper function to convert artist name to slug, respecting keep_comma_artists settings
 function artistToSlug(artistName, keepCommaArtists = []) {
   if (!artistName) return ''
   const lowerName = artistName.toLowerCase().trim()
@@ -29,7 +28,7 @@ export default function PlayerBar() {
     showRightSidebar, showQueue,
     togglePlay, next, prev, setProgress, setVolume, toggleShuffle, toggleRepeat,
     toggleLyricsFullscreen, toggleRightSidebar, toggleFullscreen, toggleQueue,
-    likedIds, setLiked, audioRef,
+    likedIds, setLiked, audioRef, cfAudioRef, activeAudioElement,
   } = usePlayerStore()
   const { user, openAddToPlaylist } = useAppStore()
   const [likeAnim, setLikeAnim] = useState(false)
@@ -50,13 +49,20 @@ export default function PlayerBar() {
     }).catch(() => {})
   }, [])
 
+  const getActiveEl = useCallback(() => {
+    return activeAudioElement === 'primary' ? audioRef?.current : cfAudioRef?.current
+  }, [activeAudioElement, audioRef, cfAudioRef])
+
   const handleScrub = useCallback((e) => {
     if (!duration) return
     const r = e.currentTarget.getBoundingClientRect()
     const t = Math.max(0, Math.min(1, (e.clientX - r.left) / r.width)) * duration
     setLocalProg(t)
-    if (scrubbing.current && audioRef?.current) { audioRef.current.currentTime = t; setProgress(t) }
-  }, [duration, audioRef])
+    if (scrubbing.current) { 
+      const activeEl = getActiveEl()
+      if (activeEl) { activeEl.currentTime = t; setProgress(t) }
+    }
+  }, [duration, getActiveEl, setProgress])
 
   const toggleLike = async () => {
     if (!currentTrack) return
