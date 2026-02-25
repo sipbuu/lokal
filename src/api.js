@@ -84,6 +84,8 @@ export const api = {
   openFile: (f) => isE() ? el().openFile(f) : Promise.resolve(null),
   readFileBinary: (fp) => isE() ? el().readFileBinary(fp) : Promise.resolve(null),
   searchYT: (q) => isE() ? el().searchYT(q) : apiFetch(`/download/search?q=${encodeURIComponent(q)}`),
+  searchYTPaginated: (q, page = 1) => isE() ? el().searchYT(q, page) : apiFetch(`/download/search?q=${encodeURIComponent(q)}&page=${page}`),
+  searchYTArtist: (artist) => isE() ? el().searchYTArtist(artist) : apiFetch(`/download/artist-search?q=${encodeURIComponent(artist)}`),
   downloadYT: (url, o) => isE() ? el().downloadYT(url, o) : apiFetch('/download', { method:'POST', body:{url,...o} }),
   downloadPlaylist: (url, o) => isE() ? el().downloadPlaylist(url, o) : apiFetch('/download/playlist', { method:'POST', body:{url,...o} }),
   cancelDownload: (id) => isE() ? el().cancelDownload(id) : Promise.resolve(),

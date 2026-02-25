@@ -9,9 +9,13 @@ const os = require('os')
 const activeDownloads = new Map()
 
 router.get('/search', async (req, res) => {
-  const { q } = req.query
-  if (!q) return res.json([])
-  const proc = spawn('yt-dlp', [`ytsearch10:${q}`, '--dump-json', '--no-playlist', '--flat-playlist', '--skip-download', '--quiet'])
+  const { q, page = 1 } = req.query
+  if (!q) return res.json({ results: [], page: 1, hasMore: false })
+  
+  const limit = 10
+  const offset = (parseInt(page) - 1) * limit
+  
+  const proc = spawn('yt-dlp', [`ytsearch${limit}:${q}`, '--dump-json', '--no-playlist', '--flat-playlist', '--skip-download', '--quiet'])
   let buf = ''
   proc.stdout.on('data', d => { buf += d.toString() })
   proc.on('close', () => {
@@ -21,7 +25,71 @@ router.get('/search', async (req, res) => {
         return { id: j.id, title: j.title, channel: j.channel || j.uploader, duration: j.duration, thumbnail: j.thumbnail, url: j.webpage_url || `https://www.youtube.com/watch?v=${j.id}` }
       } catch { return null }
     }).filter(Boolean)
-    res.json(results)
+    
+    const paginatedResults = offset > 0 ? results.slice(offset) : results
+    res.json({ results: paginatedResults, page: parseInt(page), hasMore: results.length === limit })
+  })
+  proc.on('error', () => res.status(500).json({ error: 'yt-dlp not found' }))
+})
+
+router.get('/artist-search', async (req, res) => {
+  const { q } = req.query
+  if (!q) return res.json([])
+  
+  const proc = spawn('yt-dlp', [`ytsearch20:${q} artist channel`, '--dump-json', '--flat-playlist', '--skip-download', '--quiet'])
+  let buf = ''
+  proc.stdout.on('data', d => { buf += d.toString() })
+  proc.on('close', () => {
+    const results = []
+    const lines = buf.trim().split('\n').filter(Boolean)
+    
+    for (const line of lines) {
+      try {
+        const j = JSON.parse(line)
+        const entryType = j.entry_type || (j.playlist_id ? 'playlist' : 'video')
+        if (entryType === 'playlist' || entryType === 'channel' || j.channel_id) {
+          results.push({
+            id: j.id,
+            title: j.title,
+            channel: j.channel || j.uploader,
+            type: j.playlist_id ? 'playlist' : 'channel',
+            thumbnail: j.thumbnail,
+            url: j.url || j.webpage_url || (j.channel_id ? `https://www.youtube.com/channel/${j.channel_id}` : j.id),
+            playlistId: j.playlist_id || null,
+            videoCount: j.playlist_count || j.channel_item_count || null,
+          })
+        }
+      } catch { }
+    }
+    
+    if (results.length === 0) {
+      const fallbackProc = spawn('yt-dlp', [`ytsearch5:${q} official channel`, '--dump-json', '--flat-playlist', '--skip-download', '--quiet'])
+      let fallbackBuf = ''
+      fallbackProc.stdout.on('data', d => { fallbackBuf += d.toString() })
+      fallbackProc.on('close', () => {
+        const fallbackLines = fallbackBuf.trim().split('\n').filter(Boolean)
+        for (const line of fallbackLines) {
+          try {
+            const j = JSON.parse(line)
+            if (j.channel_id || j.playlist_id) {
+              results.push({
+                id: j.id,
+                title: j.title,
+                channel: j.channel || j.uploader,
+                type: j.playlist_id ? 'playlist' : 'channel',
+                thumbnail: j.thumbnail,
+                url: j.channel_id ? `https://www.youtube.com/channel/${j.channel_id}` : j.webpage_url,
+                playlistId: j.playlist_id || null,
+              })
+            }
+          } catch { }
+        }
+        res.json(results)
+      })
+      fallbackProc.on('error', () => res.json(results))
+    } else {
+      res.json(results)
+    }
   })
   proc.on('error', () => res.status(500).json({ error: 'yt-dlp not found' }))
 })
