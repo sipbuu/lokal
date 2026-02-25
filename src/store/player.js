@@ -4,7 +4,7 @@ function loadUser() {
   try { return JSON.parse(localStorage.getItem('lokal-user') || 'null') } catch { return null }
 }
 
-// Fisher-Yates shuffle algorithm
+
 function shuffleArray(array) {
   const arr = [...array]
   for (let i = arr.length - 1; i > 0; i--) {
@@ -24,12 +24,12 @@ export const usePlayerStore = create((set, get) => ({
   audioRef: null, cfAudioRef: null, crossfadeSeconds: 0, _fetchingRelated: false,
   activeAudioElement: 'primary',
 
-  originalQueue: [], // Original order before shuffle
-  shuffleQueue: [], // Shuffled order
-  shuffleIndex: -1, // Current position in shuffle queue
-  playHistory: [], // Stack of track IDs in order played (for backward navigation)
-  futureHistory: [], // Tracks we skipped forward from (for skip-ahead to avoid)
-  wasShuffled: false, // Track if shuffle was on when we started
+  originalQueue: [], 
+  shuffleQueue: [], 
+  shuffleIndex: -1, 
+  playHistory: [], 
+  futureHistory: [], 
+  wasShuffled: false, 
 
   setAudioRef: (ref) => set({ audioRef: ref }),
   setCfAudioRef: (ref) => set({ cfAudioRef: ref }),
@@ -179,7 +179,7 @@ export const usePlayerStore = create((set, get) => ({
       return
     }
     
-    // NORMAL MODE (no shuffle)
+    
     if (!queue.length) return
     let idx
     if (queueIndex < queue.length - 1) idx = queueIndex + 1
@@ -417,13 +417,13 @@ export const usePlayerStore = create((set, get) => ({
     
     if (shuffle && shuffleQueue.length > 0) {
       const idx = shuffleQueue.findIndex(t => t.id === trackId)
-      if (idx === shuffleIndex) return // Can't remove current track
+      if (idx === shuffleIndex) return 
       const newShuffleQueue = shuffleQueue.filter(t => t.id !== trackId)
       const newShuffleIndex = idx < shuffleIndex ? shuffleIndex - 1 : shuffleIndex
       set({ shuffleQueue: newShuffleQueue, shuffleIndex: newShuffleIndex })
     } else {
       const idx = queue.findIndex(t => t.id === trackId)
-      if (idx === queueIndex) return // Can't remove current track
+      if (idx === queueIndex) return 
       const newQueue = queue.filter(t => t.id !== trackId)
       const newQueueIndex = idx < queueIndex ? queueIndex - 1 : queueIndex
       set({ queue: newQueue, queueIndex: newQueueIndex })

@@ -15,7 +15,7 @@ export default function FullscreenPlayer() {
     showFullscreen, toggleFullscreen, currentTrack, isPlaying,
     progress, duration, volume, shuffle, repeat, showQueue,
     togglePlay, next, prev, setProgress, toggleShuffle, toggleRepeat,
-    likedIds, setLiked, audioRef, toggleQueue,
+    likedIds, setLiked, audioRef, cfAudioRef, activeAudioElement, toggleQueue,
   } = usePlayerStore()
   const { user, openAddToPlaylist } = useAppStore()
   const wordSync = localStorage.getItem('word-sync') === '1'
@@ -49,7 +49,9 @@ export default function FullscreenPlayer() {
     if (!duration) return
     const r = e.currentTarget.getBoundingClientRect()
     const t = Math.max(0, Math.min(1, (e.clientX - r.left) / r.width)) * duration
-    if (audioRef?.current) audioRef.current.currentTime = t
+    const { audioRef, cfAudioRef, activeAudioElement } = usePlayerStore.getState()
+    const activeEl = activeAudioElement === 'primary' ? audioRef?.current : cfAudioRef?.current
+    if (activeEl) activeEl.currentTime = t
     setProgress(t)
   }
 

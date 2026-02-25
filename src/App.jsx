@@ -36,6 +36,8 @@ export default function App() {
   const prevTrackIdRef = useRef(null)
   const artworkCacheRef = useRef({})
   const eqFiltersRef = useRef([])
+  const justCrossfadedRef = useRef(false)
+  const activeElementRef = useRef('primary')
 
   const [updateState, setUpdateState] = useState({
     status: 'idle',
@@ -339,6 +341,15 @@ export default function App() {
         
         setActiveAudioElement(isPrimaryActive ? 'cf' : 'primary')
 
+        justCrossfadedRef.current = true
+        isCrossfadingRef.current = false
+
+        try { fadeOutEl.pause() } catch {}
+        try { fadeOutEl.src = '' } catch {}
+        try { fadeOutEl.currentTime = 0 } catch {}
+
+        activeElementRef.current = isPrimaryActive ? 'cf' : 'primary'
+
         const state = usePlayerStore.getState()
         const nextIdx = state.shuffle ? state.shuffleIndex + 1 : state.queueIndex + 1
         usePlayerStore.setState({
@@ -347,11 +358,6 @@ export default function App() {
           shuffleIndex: state.shuffle ? nextIdx : state.shuffleIndex,
         })
 
-        isCrossfadingRef.current = false
-
-        try { fadeOutEl.pause() } catch {}
-        try { fadeOutEl.src = '' } catch {}
-
         if (api.isElectron) api.discordSetActivity(nextTrack, true).catch(() => {})
       }, cfDuration * 1000)
     })
@@ -359,6 +365,17 @@ export default function App() {
 
   useEffect(() => {
     if (isCrossfadingRef.current) return
+
+    if (justCrossfadedRef.current) {
+      justCrossfadedRef.current = false
+      const activeSide = usePlayerStore.getState().activeAudioElement
+      const inactiveGain = activeSide === 'primary' ? cfGainNodeRef.current : gainNodeRef.current
+      if (inactiveGain && audioCtxRef.current) {
+        inactiveGain.gain.setValueAtTime(0, audioCtxRef.current.currentTime)
+      }
+      return
+    }
+
     if (!audioRef.current || !currentTrack) return
 
     if (cfAudioRef.current) { 
@@ -588,7 +605,7 @@ export default function App() {
           onDurationChange={handlePrimaryDurationChange}
           onEnded={handlePrimaryEnded}
           onPlay={() => { setIsPlaying(true); if (usePlayerStore.getState().activeAudioElement === 'primary') startTimer() }}
-          onPause={() => { setIsPlaying(false); stopTimer() }}
+          onPause={() => { if (usePlayerStore.getState().activeAudioElement === 'primary') { setIsPlaying(false); stopTimer() } }}
         />
         <audio 
           ref={cfAudioRef}
@@ -596,7 +613,7 @@ export default function App() {
           onDurationChange={handleCfDurationChange}
           onEnded={handleCfEnded}
           onPlay={() => { setIsPlaying(true); if (usePlayerStore.getState().activeAudioElement === 'cf') startTimer() }}
-          onPause={() => { setIsPlaying(false); stopTimer() }}
+          onPause={() => { if (usePlayerStore.getState().activeAudioElement === 'cf') { setIsPlaying(false); stopTimer() } }}
         />
       </div>
     </Router>
