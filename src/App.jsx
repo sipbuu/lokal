@@ -38,6 +38,7 @@ export default function App() {
   const eqFiltersRef = useRef([])
   const justCrossfadedRef = useRef(false)
   const activeElementRef = useRef('primary')
+  const pauseSuppressRef = useRef(false)
 
   const [updateState, setUpdateState] = useState({
     status: 'idle',
@@ -150,7 +151,15 @@ export default function App() {
         f.type = 'peaking'; f.frequency.value = freq; f.Q.value = 1.4; f.gain.value = 0
         return f
       })
-      eqFiltersRef.current = nodes
+      
+      const cfNodes = bands.map((freq, i) => {
+        const f = ctx.createBiquadFilter()
+        f.type = 'peaking'; f.frequency.value = freq; f.Q.value = 1.4
+        f.gain.value = nodes[i].gain.value
+        return f
+      })
+      
+      eqFiltersRef.current = { primary: nodes, cf: cfNodes }
       
       const primarySource = ctx.createMediaElementSource(audioRef.current)
       const cfSource = ctx.createMediaElementSource(cfAudioRef.current)
@@ -168,11 +177,24 @@ export default function App() {
       prev.connect(primaryGain)
       primaryGain.connect(ctx.destination)
       
-      cfSource.connect(cfGain)
+      let cfPrev = cfSource
+      for (const n of cfNodes) { cfPrev.connect(n); cfPrev = n }
+      cfPrev.connect(cfGain)
       cfGain.connect(ctx.destination)
       
-      try { JSON.parse(localStorage.getItem('lokal-eq') || '[]').forEach((v, i) => nodes[i] && (nodes[i].gain.value = v)) } catch {}
-      window.__lokaleq = { setGain: (i, v) => nodes[i] && (nodes[i].gain.value = v) }
+      try { 
+        JSON.parse(localStorage.getItem('lokal-eq') || '[]').forEach((v, i) => {
+          if (nodes[i]) nodes[i].gain.value = v
+          if (cfNodes[i]) cfNodes[i].gain.value = v
+        }) 
+      } catch {}
+      
+      window.__lokaleq = { 
+        setGain: (i, v) => {
+          if (nodes[i]) nodes[i].gain.value = v
+          if (cfNodes[i]) cfNodes[i].gain.value = v
+        }
+      }
       
       audioSourcesInitializedRef.current = true
     } catch (e) {
@@ -344,9 +366,11 @@ export default function App() {
         justCrossfadedRef.current = true
         isCrossfadingRef.current = false
 
+        pauseSuppressRef.current = true
         try { fadeOutEl.pause() } catch {}
         try { fadeOutEl.src = '' } catch {}
         try { fadeOutEl.currentTime = 0 } catch {}
+        setTimeout(() => { pauseSuppressRef.current = false }, 200)
 
         activeElementRef.current = isPrimaryActive ? 'cf' : 'primary'
 
@@ -605,7 +629,7 @@ export default function App() {
           onDurationChange={handlePrimaryDurationChange}
           onEnded={handlePrimaryEnded}
           onPlay={() => { setIsPlaying(true); if (usePlayerStore.getState().activeAudioElement === 'primary') startTimer() }}
-          onPause={() => { if (usePlayerStore.getState().activeAudioElement === 'primary') { setIsPlaying(false); stopTimer() } }}
+          onPause={() => { if (pauseSuppressRef.current) return; if (usePlayerStore.getState().activeAudioElement === 'primary') { setIsPlaying(false); stopTimer() } }}
         />
         <audio 
           ref={cfAudioRef}
@@ -613,7 +637,7 @@ export default function App() {
           onDurationChange={handleCfDurationChange}
           onEnded={handleCfEnded}
           onPlay={() => { setIsPlaying(true); if (usePlayerStore.getState().activeAudioElement === 'cf') startTimer() }}
-          onPause={() => { if (usePlayerStore.getState().activeAudioElement === 'cf') { setIsPlaying(false); stopTimer() } }}
+          onPause={() => { if (pauseSuppressRef.current) return; if (usePlayerStore.getState().activeAudioElement === 'cf') { setIsPlaying(false); stopTimer() } }}
         />
       </div>
     </Router>
