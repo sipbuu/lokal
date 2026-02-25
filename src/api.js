@@ -60,12 +60,12 @@ export const api = {
     for (const tid of trackIds) {
       await (isE() ? el().addToPlaylist(pl, tid) : apiFetch(`/playlists/${pl}/tracks`, { method:'POST', body:{trackId:tid} }))
     }
-  },
+  }, 
   removeFromPlaylist: (pl, tid) => isE() ? el().removeFromPlaylist(pl, tid) : apiFetch(`/playlists/${pl}/tracks/${tid}`, { method:'DELETE' }),
   getPlaylistTracks: (pl) => isE() ? el().getPlaylistTracks(pl) : apiFetch(`/playlists/${pl}/tracks`),
   deletePlaylist: (pl) => isE() ? el().deletePlaylist(pl) : apiFetch(`/playlists/${pl}`, { method:'DELETE' }),
-  playlistImport: (name, entries) => isE() ? el().invoke('playlist:import', name, entries) : apiFetch('/playlists/import', { method:'POST', body:{name, entries} }),
-  playlistImportFile: (name, fileContent, fileType, userId) => isE() ? el().invoke('playlist:importFile', name, fileContent, fileType, userId || 'guest') : apiFetch('/playlists/import-file', { method:'POST', body:{name, fileContent, fileType, userId:userId||'guest'} }),
+  playlistImport: (name, entries, userId) => isE() ? el().playlistImport(name, entries, userId || 'guest') : apiFetch('/playlists/import', { method: 'POST', body: { name, entries, userId: userId || 'guest' }}),
+  playlistImportFile: (name, fileContent, fileType, userId) => isE() ? el().playlistImportFile(name, fileContent, fileType, userId || 'guest') : apiFetch('/playlists/import-file', { method:'POST', body:{name, fileContent, fileType, userId:userId||'guest'} }),
   reorderPlaylist: (pl, trackIds) => isE() ? el().reorderPlaylist(pl, trackIds) : apiFetch(`/playlists/${pl}/reorder`, { method:'PUT', body:{trackIds} }),
   getMixes: (uid) => isE() ? el().getMixes(uid) : apiFetch(`/mixes?userId=${uid||'guest'}`),
   getLyrics: (tid, ti, ar, al, dur) => isE() ? el().getLyrics(tid, ti, ar, al, dur) : apiFetch(`/lyrics/${tid}?${new URLSearchParams({title:ti||'',artist:ar||'',album:al||'',duration:dur||''})}`),
