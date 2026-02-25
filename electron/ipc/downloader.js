@@ -16,7 +16,7 @@ function getYouTubeId(url) {
 
 async function cleanupLeftovers(filepaths, outputDir) {
   const audioExts = new Set(['.mp3','.flac','.m4a','.ogg','.wav','.aac','.opus'])
-  const junkExts = new Set(['.webp','.ytdl','.part','.jpg.part','.temp', '.mhtml', '.info.json'])
+  const junkExts = new Set(['.webp','.webm','.ytdl','.part','.jpg.part','.temp', '.mhtml', '.info.json'])
 
   for (const fp of filepaths) {
     const dir = path.dirname(fp)
@@ -90,7 +90,6 @@ function registerDownloaderHandlers(ipcMain) {
             })
           } catch {}
         }
-        // Apply offset for pagination (if page > 1, skip first N results)
         const paginatedResults = offset > 0 ? results.slice(offset) : results
         resolve({ results: paginatedResults, page, hasMore: results.length === limit })
       })
@@ -98,7 +97,6 @@ function registerDownloaderHandlers(ipcMain) {
     })
   })
 
-  // Artist search - searches for artist channels/playlists on YouTube
   ipcMain.handle('downloader:searchArtist', async (e, query) => {
     mainWindow = BrowserWindow.fromWebContents(e.sender)
     const ytdlp = findYtDlp()
@@ -106,7 +104,6 @@ function registerDownloaderHandlers(ipcMain) {
 
     return new Promise((resolve) => {
       const results = []
-      // Search for channels and playlists matching the artist name
       const args = [
         `ytsearch20:${query} artist channel`,
         '--dump-json',
@@ -123,7 +120,6 @@ function registerDownloaderHandlers(ipcMain) {
         for (const line of lines) {
           try {
             const j = JSON.parse(line)
-            // Determine if it's a channel, playlist, or video
             const entryType = j.entry_type || (j.playlist_id ? 'playlist' : 'video')
             if (entryType === 'playlist' || entryType === 'channel' || j.channel_id) {
               results.push({
@@ -140,9 +136,7 @@ function registerDownloaderHandlers(ipcMain) {
           } catch {}
         }
         
-        // If no channels/playlists found, try a different search approach
         if (results.length === 0) {
-          // Try searching for the artist's official channel
           const fallbackArgs = [
             `ytsearch5:${query} official channel`,
             '--dump-json',
