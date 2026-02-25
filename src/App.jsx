@@ -46,6 +46,8 @@ export default function App() {
     progress: 0,
     error: null,
   })
+  const [changelog, setChangelog] = useState('')
+  const [loadingChangelog, setLoadingChangelog] = useState(false)
 
   const getArtworkDataURL = useCallback(async (artworkPath) => {
     if (!artworkPath) return null
@@ -80,6 +82,29 @@ export default function App() {
     return (activeSide === 'primary' && isPrimary) || (activeSide === 'cf' && !isPrimary)
   }, [])
 
+  // Fetch changelog from GitHub
+  const fetchChangelog = useCallback(async () => {
+    if (!api.isElectron) return
+    setLoadingChangelog(true)
+    try {
+      const response = await fetch('https://api.github.com/repos/sipbuu/lokal/releases/latest')
+      if (!response.ok) throw new Error('Failed to fetch release info')
+      const data = await response.json()
+      const fullBody = data.body || ''
+      
+      // Extract just the changelog section between ## Changelog and ## Setup or ---
+      const match = fullBody.match(/## Changelog([\s\S]*?)(?=## Setup|## |---|$)/)
+      const extracted = match ? match[1].trim() : fullBody.slice(0, 200) + '...'
+      
+      setChangelog(extracted)
+    } catch (err) {
+      console.error('[updater] Failed to fetch changelog:', err)
+      setChangelog('New features and bug fixes await!')
+    } finally {
+      setLoadingChangelog(false)
+    }
+  }, [])
+
   useEffect(() => {
     if (!api.isElectron) return
 
@@ -93,6 +118,8 @@ export default function App() {
             progress: 0,
             error: null,
           })
+          // Fetch changelog when update is available
+          fetchChangelog()
           break
         case 'progress':
           setUpdateState(prev => ({
@@ -122,7 +149,7 @@ export default function App() {
     })
 
     return cleanup
-  }, [])
+  }, [fetchChangelog])
 
   const handleInstallUpdate = async () => {
     await api.updaterInstall()
@@ -135,6 +162,7 @@ export default function App() {
       progress: 0,
       error: null,
     })
+    setChangelog('')
   }
 
   const initAudioCtx = useCallback(() => {
@@ -542,53 +570,79 @@ export default function App() {
     const isAvailable = updateState.status === 'available'
 
     return (
-      <div className="fixed bottom-20 left-1/2 -translate-x-1/2 z-50 bg-elevated border border-accent/30 rounded-xl px-4 py-3 shadow-xl flex items-center gap-4 min-w-80">
-        {isDownloading && (
-          <div className="flex-1">
-            <div className="flex items-center justify-between mb-1">
-              <span className="text-sm text-white font-medium">
-                Update v{updateState.info?.version || ''} downloading…
-              </span>
-              <span className="text-xs text-accent">{Math.round(updateState.progress)}%</span>
+      <div className="fixed bottom-20 left-1/2 -translate-x-1/2 z-50 bg-elevated border border-accent/30 rounded-xl shadow-xl min-w-96 max-w-lg">
+        {/* Header */}
+        <div className="flex items-center gap-4 p-4 border-b border-white/5">
+          {isDownloading && (
+            <div className="flex-1">
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-sm text-white font-medium">
+                  Update v{updateState.info?.version || ''} downloading…
+                </span>
+                <span className="text-xs text-accent">{Math.round(updateState.progress)}%</span>
+              </div>
+              <div className="h-1 bg-card rounded-full overflow-hidden">
+                <div 
+                  className="h-full bg-accent transition-all duration-300"
+                  style={{ width: `${updateState.progress}%` }}
+                />
+              </div>
             </div>
-            <div className="h-1 bg-card rounded-full overflow-hidden">
-              <div 
-                className="h-full bg-accent transition-all duration-300"
-                style={{ width: `${updateState.progress}%` }}
-              />
-            </div>
+          )}
+          
+          {(isAvailable || isReady) && (
+            <>
+              <div className="flex-1">
+                <span className="text-sm text-white font-bold">
+                  {isReady ? 'Update Ready!' : `v${updateState.info?.version || ''} Available`}
+                </span>
+                {isReady && (
+                  <p className="text-xs text-muted mt-0.5">Restart to install the update</p>
+                )}
+              </div>
+              <button
+                onClick={handleInstallUpdate}
+                disabled={!isReady}
+                className="px-3 py-1.5 bg-accent text-white text-xs font-medium rounded-lg hover:bg-accent/80 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                Restart Now
+              </button>
+            </>
+          )}
+          
+          <button
+            onClick={handleDismissUpdate}
+            className="text-muted hover:text-white transition-colors"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <line x1="18" y1="6" x2="6" y2="18"></line>
+              <line x1="6" y1="6" x2="18" y2="18"></line>
+            </svg>
+          </button>
+        </div>
+
+        {/* Changelog Section */}
+        {(isAvailable || isReady) && (
+          <div className="p-4 max-h-48 overflow-y-auto">
+            {loadingChangelog ? (
+              <div className="flex items-center justify-center py-4">
+                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-accent"></div>
+                <span className="text-xs text-muted ml-2">Loading changelog...</span>
+              </div>
+            ) : changelog ? (
+              <div className="bg-card/50 rounded-lg p-3 border border-white/5">
+                <p className="text-xs font-medium text-accent mb-2">What's New</p>
+                <pre className="text-xs text-muted leading-relaxed whitespace-pre-wrap font-sans">
+                  {changelog}
+                </pre>
+              </div>
+            ) : (
+              <p className="text-xs text-muted text-center py-2">
+                New features and bug fixes await!
+              </p>
+            )}
           </div>
         )}
-        
-        {isAvailable && (
-          <span className="text-sm text-white">
-            Update v{updateState.info?.version || ''} available…
-          </span>
-        )}
-        
-        {isReady && (
-          <>
-            <span className="text-sm text-white flex-1">
-              Update ready — restart to install
-            </span>
-            <button
-              onClick={handleInstallUpdate}
-              className="px-3 py-1.5 bg-accent text-white text-xs font-medium rounded-lg hover:bg-accent/80 transition-colors"
-            >
-              Restart Now
-            </button>
-          </>
-        )}
-        
-        <button
-          onClick={handleDismissUpdate}
-          className="text-muted hover:text-white transition-colors"
-        >
-          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <line x1="18" y1="6" x2="6" y2="18"></line>
-            <line x1="6" y1="6" x2="18" y2="18"></line>
-          </svg>
-        </button>
       </div>
     )
   }
