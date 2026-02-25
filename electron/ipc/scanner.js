@@ -355,40 +355,7 @@ function registerScannerHandlers(ipcMain) {
   }
 
   
-  ipcMain.handle('playlist:importFile', async (_, name, fileContent, fileType, userId = 'guest') => {
-    const db = getDB()
-    const playlistId = 'pl-' + Date.now()
-    const uid = userId || 'guest'
-    db.prepare('INSERT INTO playlists (id, name, user_id) VALUES (?, ?, ?)').run(playlistId, name, uid)
-    let entries = []
-    if (fileType === 'm3u' || fileType === 'm3u8') entries = parseM3U(fileContent)
-    else if (fileType === 'csv') entries = parseCSV(fileContent)
-    else if (fileType === 'json') { try { const json = JSON.parse(fileContent); if (json.tracks) entries = json.tracks.map(t => ({ title: t.title, artist: t.artist, file_path: t.file_path })) } catch {} }
-    let matched = 0, unmatched = []
-    for (const entry of entries) {
-      const track = findTrack(db, entry)
-      if (track) { const max = db.prepare('SELECT MAX(position) as m FROM playlist_tracks WHERE playlist_id = ?').get(playlistId); db.prepare('INSERT INTO playlist_tracks (playlist_id, track_id, position, added_by, added_at) VALUES (?, ?, ?, ?, ?)').run(playlistId, track.id, (max?.m || 0) + 1, uid, Date.now()); matched++ }
-      else unmatched.push({ title: entry.title, artist: entry.artist })
-    }
-    return { created: name, matched, total: entries.length, unmatched, playlistId }
-  })
 
-  
-  ipcMain.handle('playlist:import', async (_, name, entries, userId = 'guest') => {
-    const db = getDB()
-    const playlistId = 'pl-' + Date.now()
-    const uid = userId || 'guest'
-    db.prepare('INSERT INTO playlists (id, name, user_id) VALUES (?, ?, ?)').run(playlistId, name, uid)
-    let matched = 0
-    for (const entry of entries) {
-      let track = null
-      if (entry.file_path) track = db.prepare('SELECT id FROM tracks WHERE file_path = ?').get(entry.file_path)
-      if (!track && entry.title && entry.artist) track = db.prepare(`SELECT id FROM tracks WHERE LOWER(title) = ? AND LOWER(artist) = ? LIMIT 1`).get(entry.title.toLowerCase(), entry.artist.toLowerCase())
-      if (!track && entry.title) track = db.prepare(`SELECT id FROM tracks WHERE LOWER(title) = ? LIMIT 1`).get(entry.title.toLowerCase())
-      if (track) { const max = db.prepare('SELECT MAX(position) as m FROM playlist_tracks WHERE playlist_id = ?').get(playlistId); db.prepare('INSERT INTO playlist_tracks (playlist_id, track_id, position, added_by, added_at) VALUES (?, ?, ?, ?, ?)').run(playlistId, track.id, (max?.m || 0) + 1, uid, Date.now()); matched++ }
-    }
-    return { playlistId, name, matched, total: entries.length }
-  })
   ipcMain.handle('history:export', async (_, userId, format) => {
     const db = getDB()
     const uid = userId || 'guest'
@@ -735,7 +702,7 @@ function registerV4Handlers(ipcMain) {
       patch(); mergedCount += losers.length
     }
     return { merged: mergedCount, groups: groups.length }
-  })
+  }),
   ipcMain.handle('user:getStats', (_, userId) => {
     const db = getDB()
     const uid = userId || 'guest'
