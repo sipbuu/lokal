@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Save, FolderOpen, RefreshCw, Trash2, AlertTriangle, Link, CheckCircle, Disc3, Zap, Download, Music2, X, MoreHorizontal, ListMusic, Palette, ChevronDown, ChevronUp, RefreshCcw } from 'lucide-react'
+import { Save, Tags, FolderOpen, RefreshCw, Trash2, AlertTriangle, Link, CheckCircle, Disc3, Zap, Download, Music2, X, MoreHorizontal, ListMusic, Palette, ChevronDown, ChevronUp, RefreshCcw } from 'lucide-react'
 import { api } from '../api'
 import { useAppStore } from '../store/player'
 import Modal from '../components/Modal'
@@ -84,6 +84,7 @@ export default function Settings() {
   const [settings, setSettings] = useState({})
   const [saved, setSaved] = useState(false)
   const [scanning, setScanning] = useState(false)
+  const [showGenreModal, setShowGenreModal] = useState(false)
   const [eqGains, setEqGains] = useState([0, 0, 0, 0, 0])
   const [showClearModal, setShowClearModal] = useState(false)
   const [artists, setArtists] = useState([])
@@ -117,6 +118,12 @@ export default function Settings() {
   const [appVersion, setAppVersion] = useState('')
   const [checkingUpdate, setCheckingUpdate] = useState(false)
   const [updateCheckResult, setUpdateCheckResult] = useState('')
+  const [statusMessage, setStatusMessage] = useState('')
+  const [manualGenreArtist, setManualGenreArtist] = useState('')
+  const [manualGenreTrack, setManualGenreTrack] = useState('')
+  const [manualGenreAlbum, setManualGenreAlbum] = useState('')
+  const [manualGenreValue, setManualGenreValue] = useState('')
+
   
   const { openAlbums, user } = useAppStore()
   const fileInputRef = useRef(null)
@@ -274,7 +281,6 @@ export default function Settings() {
     setShowExportMenu(false);
 
     try {
-        // Use the actual user ID if available, otherwise 'guest'
         const uid = user?.id || 'guest';
         const data = await api.historyExport(uid, format);
         
@@ -286,7 +292,6 @@ export default function Settings() {
             return;
         }
 
-        // If data has an 'error' property from your apiFetch helper
         if (data.error) {
             throw new Error(data.error);
         }
@@ -302,7 +307,6 @@ export default function Settings() {
         a.href = url;
         a.download = `lokal-history-${new Date().toISOString().split('T')[0]}.${ext}`;
         
-        // Some browsers require the element to be in the DOM to click it
         document.body.appendChild(a);
         a.click();
         document.body.removeChild(a);
@@ -354,10 +358,8 @@ export default function Settings() {
     try {
       let result
       if (fileContent && fileType) {
-        // Import from file (m3u, m3u8, csv, json)
         result = await api.playlistImportFile(playlistImportName.trim(), fileContent, fileType)
       } else {
-        // Fallback: parse entries from textarea
         const entries = playlistImportEntries.split('\n')
           .map(line => line.trim())
           .filter(Boolean)
@@ -451,6 +453,21 @@ export default function Settings() {
             {settings.fetch_online_artwork !== '0' ? 'On' : 'Off'}
           </button>
         </Row>
+        <Row label="Auto-fetch Genres" desc="Fill in missing genres from iTunes for tracks without one">
+          <button onClick={async () => { const result = await api.fetchMissingGenres(); setStatusMessage(`Updated ${result?.updated || 0} of ${result?.total || 0} tracks`) }}
+            className="px-4 py-2 bg-card border border-border rounded-lg text-sm text-muted hover:text-white transition-colors">
+            Fetch Missing
+          </button>
+        </Row>
+        <Row label="Manual Genre Assignment" desc="Set specific genre overrides for artists, tracks, or albums">
+          <button 
+            onClick={() => setShowGenreModal(true)}
+            className="px-4 py-2 bg-card border border-border rounded-lg text-sm text-muted hover:text-white hover:border-accent/30 transition-colors flex items-center gap-2"
+          >
+            <Tags size={14} /> Configure Overrides
+          </button>
+        </Row>
+        {statusMessage && <p className="text-xs text-accent ml-2">{statusMessage}</p>}
         <Row label="Use YouTube Cookies" desc="Pass cookies to yt-dlp to bypass rate limiting, access private playlists and liked music. Not shared elsewhere.">
           <div className="flex items-center gap-2">
             <button
@@ -904,7 +921,103 @@ export default function Settings() {
           </div>
         </div>
       </Modal>
+      <Modal 
+        open={showGenreModal} 
+        onClose={() => { setShowGenreModal(false); setStatusMessage(''); }} 
+        title="Manual Genre Assignment" 
+        width="max-w-md"
+      >
+        <div className="space-y-4">
+          <p className="text-xs text-muted leading-relaxed">
+            Overrides take priority over online fetching. Use this if iTunes or MusicBrainz can't find it.
+          </p>
 
+          <div className="space-y-3">
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="text-[10px] font-display text-muted uppercase tracking-widest block mb-1.5">Artist (Required)</label>
+                <input 
+                  value={manualGenreArtist} 
+                  onChange={e => setManualGenreArtist(e.target.value)}
+                  placeholder="e.g. KENTENSHI"
+                  className="w-full bg-card border border-border rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-accent/50" 
+                />
+              </div>
+              <div>
+                <label className="text-[10px] font-display text-muted uppercase tracking-widest block mb-1.5">Genre (Required)</label>
+                <input 
+                  value={manualGenreValue} 
+                  onChange={e => setManualGenreValue(e.target.value)}
+                  placeholder="e.g. Breakcore"
+                  className="w-full bg-card border border-border rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-accent/50" 
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3 pt-2 border-t border-border/50">
+              <div>
+                <label className="text-[10px] font-display text-muted/60 uppercase tracking-widest block mb-1.5">Track (Optional)</label>
+                <input 
+                  value={manualGenreTrack} 
+                  onChange={e => setManualGenreTrack(e.target.value)}
+                  placeholder="Song name"
+                  className="w-full bg-card/40 border border-border rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-accent/30" 
+                />
+              </div>
+              <div>
+                <label className="text-[10px] font-display text-muted/60 uppercase tracking-widest block mb-1.5">Album (Optional)</label>
+                <input 
+                  value={manualGenreAlbum} 
+                  onChange={e => setManualGenreAlbum(e.target.value)}
+                  placeholder="Album title"
+                  className="w-full bg-card/40 border border-border rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-accent/30" 
+                />
+              </div>
+            </div>
+          </div>
+
+          {statusMessage && (
+            <div className={`p-2.5 rounded-lg border text-center text-xs font-medium ${statusMessage.includes('Error') || statusMessage.includes('required') ? 'bg-red-500/10 border-red-500/20 text-red-400' : 'bg-accent/10 border-accent/20 text-accent'}`}>
+              {statusMessage}
+            </div>
+          )}
+
+          <div className="flex gap-2 pt-2">
+            <button 
+              onClick={() => { setShowGenreModal(false); setStatusMessage(''); }} 
+              className="flex-1 py-2.5 bg-card border border-border rounded-xl text-sm text-muted hover:text-white transition-colors"
+            >
+              Cancel
+            </button>
+            <button 
+              onClick={async () => {
+                if (!manualGenreArtist || !manualGenreValue) {
+                  setStatusMessage('Artist and Genre are required');
+                  return;
+                }
+                const result = await api.setManualGenre({ 
+                  artist: manualGenreArtist, 
+                  track: manualGenreTrack || null,
+                  album: manualGenreAlbum || null,
+                  genre: manualGenreValue 
+                });
+                setStatusMessage(result?.error || `✓ Updated ${result?.updated || 0} track(s)`);
+                
+                if (!result?.error) {
+                  setManualGenreArtist('');
+                  setManualGenreTrack('');
+                  setManualGenreAlbum('');
+                  setManualGenreValue('');
+                  setTimeout(() => setShowGenreModal(false), 1500);
+                }
+              }} 
+              className="flex-1 py-2.5 bg-accent text-white rounded-xl text-sm font-medium hover:opacity-90 transition-opacity"
+            >
+              Apply Mapping
+            </button>
+          </div>
+        </div>
+      </Modal>
 
       <Modal open={showUrlModal} onClose={() => setShowUrlModal(false)} title="Set Image from URL" width="max-w-md">
         <div className="space-y-4">
