@@ -37,15 +37,40 @@ export default function Playlist() {
   useEffect(() => { load() }, [load])
 
   useEffect(() => {
-    const handlePlaylistUpdated = (e) => {
-      const updatedPlaylistId = e.detail?.playlistId
-      if (updatedPlaylistId && String(updatedPlaylistId) === String(id)) {
-        load()
+    const handleChange = (e) => {
+      const playlistId = e?.detail?.playlistId;
+      if (playlistId) {
+        if (String(playlistId) === String(id)) {
+          load();
+        }
+      } else {
+        load();
       }
-    }
-    window.addEventListener('lokal:playlist-updated', handlePlaylistUpdated)
-    return () => window.removeEventListener('lokal:playlist-updated', handlePlaylistUpdated)
-  }, [id, load])
+    };
+
+    const handleDeleted = (e) => {
+      const playlistId = e?.detail?.playlistId;
+      if (playlistId && String(playlistId) === String(id)) {
+        nav('/');
+      } else {
+        load();
+      }
+    };
+
+    window.addEventListener('lokal:playlist-updated', handleChange);
+    window.addEventListener('lokal:playlist-created', handleChange);
+    window.addEventListener('lokal:playlists-changed', handleChange);
+    window.addEventListener('lokal:playlist-deleted', handleDeleted);
+    window.addEventListener('lokal:refresh', handleChange);
+
+    return () => {
+      window.removeEventListener('lokal:playlist-updated', handleChange);
+      window.removeEventListener('lokal:playlist-created', handleChange);
+      window.removeEventListener('lokal:playlists-changed', handleChange);
+      window.removeEventListener('lokal:playlist-deleted', handleDeleted);
+      window.removeEventListener('lokal:refresh', handleChange);
+    };
+  }, [id, load, nav]);
 
   const removeTrack = async (track) => {
     await api.removeFromPlaylist(id, track.playlist_track_id)
@@ -63,8 +88,15 @@ export default function Playlist() {
 
   const deletePlaylist = async () => {
     if (!confirm('Delete this playlist?')) return
+
     await api.deletePlaylist(id)
-    window.dispatchEvent(new CustomEvent('lokal:playlist-deleted', { detail: { playlistId: id } }))
+
+    window.dispatchEvent(
+      new CustomEvent('lokal:playlists-changed', {
+        detail: { playlistId: id, action: 'deleted' }
+      })
+    )
+
     nav('/')
   }
 

@@ -36,19 +36,45 @@ export default function Sidebar() {
   useEffect(() => { loadPlaylists() }, [user?.id])
 
   useEffect(() => {
-    const handler = () => loadPlaylists()
-    window.addEventListener('lokal:playlist-created', handler)
-    return () => window.removeEventListener('lokal:playlist-created', handler)
-  }, [user?.id])
+    const handler = () => loadPlaylists();
+    const createdHandler = (e) => {
+      loadPlaylists();
+      const pl = e?.detail?.playlistId;
+      if (pl) nav(`/playlist/${pl}`);
+    };
+
+    window.addEventListener('lokal:playlist-created', createdHandler);
+    window.addEventListener('lokal:playlists-changed', handler);
+    window.addEventListener('lokal:playlist-deleted', handler);
+    window.addEventListener('lokal:playlist-updated', handler);
+    window.addEventListener('lokal:refresh', handler);
+
+    return () => {
+      window.removeEventListener('lokal:playlist-created', createdHandler);
+      window.removeEventListener('lokal:playlists-changed', handler);
+      window.removeEventListener('lokal:playlist-deleted', handler);
+      window.removeEventListener('lokal:playlist-updated', handler);
+      window.removeEventListener('lokal:refresh', handler);
+    };
+  }, [user?.id]);
 
   const createPlaylist = async () => {
     if (!newPlName.trim()) return
+
     const pl = await api.createPlaylist(newPlName.trim(), user?.id)
+
     if (pl?.id) {
-      setPlaylists(prev => [...prev, pl])
+      window.dispatchEvent(
+        new CustomEvent('lokal:playlists-changed', {
+          detail: { playlistId: pl.id, action: 'created' }
+        })
+      )
+
       nav(`/playlist/${pl.id}`)
     }
-    setNewPlName(''); setShowNewPlaylist(false)
+
+    setNewPlName('')
+    setShowNewPlaylist(false)
   }
 
   return (
