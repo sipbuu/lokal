@@ -1,4 +1,4 @@
-# Known Issues
+# ![KNOWN ISSUES](https://i.imgur.com/7O8qpvQ.png)
 
 This file tracks known bugs and limitations, some may be fixed, others may not. *Last updated: 2/24/2026*
 
