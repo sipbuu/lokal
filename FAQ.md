@@ -1,4 +1,4 @@
-# FAQ
+# ![FAQ](https://i.imgur.com/Xk73NTy.png)
 
 **Why is there a user account/login system if this is a local app?**
 
