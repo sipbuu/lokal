@@ -346,6 +346,7 @@ export default function Settings() {
   }
 
   const handlePlaylistImport = async (fileContent, fileType) => {
+    const uid = user?.id
     if (!playlistImportName.trim()) {
       setPlaylistImportStatus('Please enter a playlist name')
       return
@@ -358,7 +359,7 @@ export default function Settings() {
     try {
       let result
       if (fileContent && fileType) {
-        result = await api.playlistImportFile(playlistImportName.trim(), fileContent, fileType)
+        result = await api.playlistImportFile(playlistImportName.trim(), fileContent, fileType, uid)
       } else {
         const entries = playlistImportEntries.split('\n')
           .map(line => line.trim())
@@ -373,7 +374,7 @@ export default function Settings() {
             }
             return { title: line }
           })
-        result = await api.playlistImport(playlistImportName.trim(), entries)
+        result = await api.playlistImport(playlistImportName.trim(), entries, uid)
       }
       if (result.error) {
         setPlaylistImportStatus('Error: ' + result.error)
@@ -391,6 +392,13 @@ export default function Settings() {
             setPlaylistImportResult(null)
           }, 2000)
         }
+
+        window.dispatchEvent(
+          new CustomEvent('lokal:playlists-changed', {
+            detail: { playlistId: result.playlistId, action: 'imported' }
+          })
+        )
+
       }
     } catch (e) {
       setPlaylistImportStatus('Error: ' + e.message)
