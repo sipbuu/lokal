@@ -17,19 +17,44 @@ function DownloadItem({ d, onRemove }) {
         {d.song && <p className="text-xs text-accent mt-0.5 truncate">{d.song}</p>}
         {d.message && <p className="text-xs text-muted mt-0.5 truncate">{d.message}</p>}
         
-        {d.downloadedTracks && d.downloadedTracks.length > 0 && (
+        {d.downloadedTracks && d.downloadedTracks.filter(track => !track.toLowerCase().endsWith('.webm')).length > 0 && (
           <div className="mt-2">
             <button 
               onClick={() => setShowDetails(!showDetails)}
               className="text-xs text-accent hover:text-accent/70 flex items-center gap-1"
             >
               <ListMusic size={12} />
-              {showDetails ? 'Hide' : 'Show'} downloaded tracks ({d.downloadedTracks.length})
+              {showDetails ? 'Hide' : 'Show'} downloaded tracks ({d.downloadedTracks.filter(track => !track.toLowerCase().endsWith('.webm')).length})
             </button>
             {showDetails && (
-              <div className="mt-1.5 max-h-32 overflow-y-auto bg-elevated rounded-lg p-2 space-y-0.5">
-                {d.downloadedTracks.map((track, i) => (
-                  <p key={i} className="text-xs text-muted truncate">{track}</p>
+              <div className="mt-1.5 max-h-64 overflow-y-auto bg-elevated rounded-lg p-2 space-y-0.5">
+                {d.downloadedTracks
+                  .filter(track => !track.toLowerCase().endsWith('.webm'))
+                  .map((track, i) => (
+                    <p key={i} className="text-xs text-muted truncate">
+                      <span className="text-accent/60 mr-1">{i + 1}.</span>{track}
+                    </p>
+                  ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {d.indexedTracks && d.indexedTracks.length > 0 && (
+          <div className="mt-2">
+            <button 
+              onClick={() => setShowDetails(!showDetails)}
+              className="text-xs text-green-400 hover:text-green-300 flex items-center gap-1"
+            >
+              <CheckCircle size={12} />
+              {showDetails ? 'Hide' : 'Show'} indexed tracks ({d.indexedTracks.length})
+            </button>
+            {showDetails && (
+              <div className="mt-1.5 max-h-64 overflow-y-auto bg-elevated rounded-lg p-2 space-y-0.5">
+                {d.indexedTracks.map((track, i) => (
+                  <p key={i} className="text-xs text-green-500/80 truncate">
+                    <span className="text-green-400 mr-1">{i + 1}.</span>{track.title || track.filepath?.split(/[/\\]/).pop()}
+                  </p>
                 ))}
               </div>
             )}
