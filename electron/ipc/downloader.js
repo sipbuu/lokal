@@ -56,22 +56,33 @@ function getYouTubeThumbnail(videoId) {
 function registerDownloaderHandlers(ipcMain) {
   const { BrowserWindow } = require('electron')
 
-  ipcMain.handle('downloader:search', async (e, query, page = 1) => {
+  ipcMain.handle('downloader:search', async (e, query, page = 1, continuationToken = null) => {
     mainWindow = BrowserWindow.fromWebContents(e.sender)
     const ytdlp = findYtDlp()
     if (!ytdlp) return { error: 'yt-dlp not found. Go to Settings → External Tools to download it automatically or set a custom path.' }
 
     const limit = 10
-    const offset = (page - 1) * limit
 
     return new Promise((resolve) => {
       const results = []
+      let searchQuery = ''
+      
+      
+      
+      if (page === 1 || !continuationToken) {
+        searchQuery = `ytsearch${limit}:${query}`
+      } else {
+        
+        searchQuery = `ytsearch${limit}:${query}+${continuationToken}`
+      }
+      
       const args = [
-        `ytsearch${limit}:${query}`,
-        '--dump-json', '--no-playlist',
+        searchQuery,
+        '--dump-json',
         '--flat-playlist', '--skip-download',
         '--quiet'
       ]
+      
       const proc = spawn(ytdlp, args)
       let buf = ''
       proc.stdout.on('data', d => { buf += d.toString() })
@@ -90,27 +101,37 @@ function registerDownloaderHandlers(ipcMain) {
             })
           } catch {}
         }
-        const paginatedResults = offset > 0 ? results.slice(offset) : results
-        resolve({ results: paginatedResults, page, hasMore: results.length === limit })
+        
+        
+        const lastVideoId = results.length > 0 ? results[results.length - 1].id : null
+        
+        resolve({ 
+          results, 
+          page, 
+          hasMore: results.length === limit && lastVideoId !== null,
+          continuationToken: lastVideoId
+        })
       })
       proc.on('error', () => resolve({ error: 'Failed to run yt-dlp' }))
     })
   })
 
-  ipcMain.handle('downloader:searchArtist', async (e, query) => {
+  ipcMain.handle('downloader:searchArtist', async (e, query, page = 1) => {
     mainWindow = BrowserWindow.fromWebContents(e.sender)
     const ytdlp = findYtDlp()
     if (!ytdlp) return { error: 'yt-dlp not found. Go to Settings → External Tools to download it automatically or set a custom path.' }
 
+    const limit = 20
+    const offset = (page - 1) * limit
+
     return new Promise((resolve) => {
       const results = []
       const args = [
-        `ytsearch20:${query} artist channel`,
+        `ytsearch${limit}:${query} official artist channel`,
         '--dump-json',
         '--flat-playlist',
         '--skip-download',
-        '--quiet',
-        '--default-search=ytsearch'
+        '--quiet'
       ]
       const proc = spawn(ytdlp, args)
       let buf = ''
@@ -120,15 +141,18 @@ function registerDownloaderHandlers(ipcMain) {
         for (const line of lines) {
           try {
             const j = JSON.parse(line)
-            const entryType = j.entry_type || (j.playlist_id ? 'playlist' : 'video')
-            if (entryType === 'playlist' || entryType === 'channel' || j.channel_id) {
+            
+            const isChannel = j._type === 'playlist' || (j.url && j.url.includes('/@')) || j.channel_id
+            const channelId = j.channel_id || j.id
+            
+            if (isChannel || j.playlist_id) {
               results.push({
-                id: j.id,
-                title: j.title,
-                channel: j.channel || j.uploader,
+                id: channelId,
+                title: j.title || j.uploader,
+                channel: j.uploader || j.channel,
                 type: j.playlist_id ? 'playlist' : 'channel',
                 thumbnail: j.thumbnail,
-                url: j.url || j.webpage_url || (j.channel_id ? `https://www.youtube.com/channel/${j.channel_id}` : j.id),
+                url: j.channel_url || (channelId ? `https://www.youtube.com/channel/${channelId}` : j.webpage_url),
                 playlistId: j.playlist_id || null,
                 videoCount: j.playlist_count || j.channel_item_count || null,
               })
@@ -136,9 +160,11 @@ function registerDownloaderHandlers(ipcMain) {
           } catch {}
         }
         
-        if (results.length === 0) {
+        const uniqueResults = Array.from(new Map(results.map(item => [item.id, item])).values())
+        
+        if (uniqueResults.length === 0) {
           const fallbackArgs = [
-            `ytsearch5:${query} official channel`,
+            `ytsearch10:${query} @artist profile`,
             '--dump-json',
             '--flat-playlist',
             '--skip-download',
@@ -152,24 +178,28 @@ function registerDownloaderHandlers(ipcMain) {
             for (const line of fallbackLines) {
               try {
                 const j = JSON.parse(line)
-                if (j.channel_id || j.playlist_id) {
+                const channelId = j.channel_id || j.id
+                const isChannel = j._type === 'playlist' || (j.url && j.url.includes('/@')) || j.channel_id
+                
+                if (isChannel || j.playlist_id) {
                   results.push({
-                    id: j.id,
-                    title: j.title,
-                    channel: j.channel || j.uploader,
+                    id: channelId,
+                    title: j.title || j.uploader,
+                    channel: j.uploader || j.channel,
                     type: j.playlist_id ? 'playlist' : 'channel',
                     thumbnail: j.thumbnail,
-                    url: j.channel_id ? `https://www.youtube.com/channel/${j.channel_id}` : j.webpage_url,
+                    url: j.channel_url || (channelId ? `https://www.youtube.com/channel/${channelId}` : j.webpage_url),
                     playlistId: j.playlist_id || null,
                   })
                 }
               } catch {}
             }
-            resolve(results)
+            const fallbackUnique = Array.from(new Map(results.map(item => [item.id, item])).values())
+            resolve(fallbackUnique)
           })
-          fallbackProc.on('error', () => resolve(results))
+          fallbackProc.on('error', () => resolve(uniqueResults))
         } else {
-          resolve(results)
+          resolve(uniqueResults)
         }
       })
       proc.on('error', () => resolve({ error: 'Failed to run yt-dlp' }))

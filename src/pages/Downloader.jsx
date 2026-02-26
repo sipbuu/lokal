@@ -99,9 +99,15 @@ export default function Downloader() {
   const [searchPage, setSearchPage] = useState(1)
   const [hasMore, setHasMore] = useState(false)
   const [loadingMore, setLoadingMore] = useState(false)
+  const [currentPage, setCurrentPage] = useState(1)
+  const [continuationToken, setContinuationToken] = useState(null)
   const [artistQuery, setArtistQuery] = useState('')
   const [artistResults, setArtistResults] = useState([])
   const [searchingArtist, setSearchingArtist] = useState(false)
+  const [artistPage, setArtistPage] = useState(1)
+  const [artistHasMore, setArtistHasMore] = useState(false)
+  const [loadingMoreArtist, setLoadingMoreArtist] = useState(false)
+  const [artistCurrentPage, setArtistCurrentPage] = useState(1)
   const [playlistUrl, setPlaylistUrl] = useState('')
   const [format, setFormat] = useState('mp3')
   const [quality, setQuality] = useState('320')
@@ -177,7 +183,7 @@ export default function Downloader() {
 
   useEffect(() => {
     try {
-      const toSave = downloads.map(d => ({ ...d, output: d.output ? d.output.slice(-1000) : undefined })) // limit output
+      const toSave = downloads.map(d => ({ ...d, output: d.output ? d.output.slice(-1000) : undefined }))
       localStorage.setItem('lokal-downloads', JSON.stringify(toSave))
     } catch (e) {
       console.warn('Failed to save downloads to localStorage', e)
@@ -189,16 +195,20 @@ export default function Downloader() {
     if (s?.music_folder) api.scanFolder(s.music_folder)
   }
 
-  const search = async () => {
+  const search = async (page = 1) => {
     if (!query.trim()) return
+    if (page === 1) {
+      setResults([])
+    }
     setSearching(true)
-    setSearchPage(1)
-    const r = await api.searchYTPaginated(query, 1)
+    setSearchPage(page)
+    setCurrentPage(page)
+    const r = await api.searchYTPaginated(query, page)
     if (r && r.results) {
-      setResults(r.results)
+      setResults(page === 1 ? r.results : prev => [...(prev || []), ...r.results])
       setHasMore(r.hasMore || false)
     } else if (Array.isArray(r)) {
-      setResults(r)
+      setResults(page === 1 ? r : prev => [...(prev || []), ...r])
       setHasMore(false)
     } else {
       setResults([])
@@ -212,20 +222,61 @@ export default function Downloader() {
     setLoadingMore(true)
     const nextPage = searchPage + 1
     const r = await api.searchYTPaginated(query, nextPage)
-    if (r && r.results) {
-      setResults(prev => [...prev, ...r.results])
-      setSearchPage(nextPage)
-      setHasMore(r.hasMore || false)
+    if (r && r.results && r.results.length > 0) {
+      const lastResultId = results[results.length - 1]?.id
+      const hasNewResults = r.results.some(result => result.id !== lastResultId)
+      
+      if (hasNewResults) {
+        setResults(prev => [...(prev || []), ...r.results])
+        setSearchPage(nextPage)
+        setCurrentPage(nextPage)
+        setHasMore(r.hasMore || false)
+      } else {
+        setHasMore(false)
+      }
+    } else {
+      setHasMore(false)
     }
     setLoadingMore(false)
   }
 
-  const searchArtist = async () => {
+  const searchArtist = async (page = 1) => {
     if (!artistQuery.trim()) return
+    if (page === 1) {
+      setArtistResults([])
+    }
     setSearchingArtist(true)
-    const r = await api.searchYTArtist(artistQuery)
-    setArtistResults(Array.isArray(r) ? r : [])
+    setArtistPage(page)
+    setArtistCurrentPage(page)
+    const r = await api.searchYTArtist(artistQuery, page)
+    if (r && r.results) {
+      setArtistResults(page === 1 ? r.results : prev => [...(prev || []), ...r.results])
+      setArtistHasMore(r.hasMore || false)
+    } else if (Array.isArray(r)) {
+      setArtistResults(page === 1 ? r : prev => [...(prev || []), ...r])
+      setArtistHasMore(false)
+    } else {
+      setArtistResults([])
+      setArtistHasMore(false)
+    }
     setSearchingArtist(false)
+  }
+
+  const loadMoreArtist = async () => {
+    if (!artistQuery.trim() || loadingMoreArtist || !artistHasMore) return
+    setLoadingMoreArtist(true)
+    const nextPage = artistPage + 1
+    const r = await api.searchYTArtist(artistQuery, nextPage)
+    if (r && r.results) {
+      setArtistResults(prev => [...(prev || []), ...r.results])
+      setArtistPage(nextPage)
+      setArtistCurrentPage(nextPage)
+      setArtistHasMore(r.hasMore || false)
+    } else if (Array.isArray(r)) {
+      setArtistResults(prev => [...(prev || []), ...r])
+      setArtistHasMore(false)
+    }
+    setLoadingMoreArtist(false)
   }
 
   const downloadSingle = async (item) => {
@@ -236,11 +287,11 @@ export default function Downloader() {
     else { setDownloads(prev => prev.map(d => d.id === id ? { ...d, status: 'done', progress: 100 } : d)) }
   }
 
-  const downloadPlaylistFn = async () => {
-    if (!playlistUrl.trim()) return
+  const downloadPlaylistFn = async (url) => {
+    if (!url?.trim()) return
     const id = 'pl-' + Date.now()
-    setDownloads(prev => [...prev, { id, title: 'Playlist / Album', progress: 0, status: 'downloading', url: playlistUrl, message: 'Starting…' }])
-    const r = await api.downloadPlaylist(playlistUrl, { format, quality, id })
+    setDownloads(prev => [...prev, { id, title: 'Playlist / Album', progress: 0, status: 'downloading', url, message: 'Starting…' }])
+    const r = await api.downloadPlaylist(url, { format, quality, id })
     if (r?.error) setDownloads(prev => prev.map(d => d.id === id ? { ...d, status: 'error', error: r.error } : d))
     else { setDownloads(prev => prev.map(d => d.id === id ? { ...d, status: 'done', progress: 100, message: `${r.count || ''} tracks downloaded` } : d)) }
   }
@@ -346,6 +397,17 @@ export default function Downloader() {
             {!results.length && !searching && query && (
               <p className="text-center text-muted text-sm py-8">No results. Try a different search.</p>
             )}
+            {hasMore && (
+              <div className="flex justify-center pt-2">
+                <button
+                  onClick={loadMore}
+                  disabled={loadingMore}
+                  className="px-4 py-2 bg-elevated border border-border rounded-xl text-sm text-muted hover:text-white hover:border-accent/50 transition-colors disabled:opacity-40"
+                >
+                  {loadingMore ? <RefreshCw size={14} className="animate-spin" /> : 'Load More'}
+                </button>
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -361,7 +423,7 @@ export default function Downloader() {
             </div>
             <div className="flex items-center justify-between">
               <p className="text-xs text-muted">Downloads entire playlist to your music folder.</p>
-              <button onClick={downloadPlaylistFn} disabled={!playlistUrl.trim()}
+              <button onClick={() => downloadPlaylistFn(playlistUrl)} disabled={!playlistUrl.trim()}
                 className="flex items-center gap-1.5 px-4 py-2 bg-accent text-base rounded-xl text-sm font-medium disabled:opacity-40 hover:bg-accent/80 transition-colors flex-shrink-0">
                 <Download size={13} /> Download All
               </button>
@@ -418,7 +480,7 @@ export default function Downloader() {
                   </p>
                 </div>
                 <button
-                  onClick={() => downloadPlaylist(item.url)} 
+                  onClick={() => downloadPlaylistFn(item.url)}
                   className="flex-shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium bg-accent/15 text-accent hover:bg-accent/25 transition-colors"
                 >
                   <Download size={12} /> Download
@@ -427,6 +489,17 @@ export default function Downloader() {
             ))}
             {!artistResults.length && artistQuery && !searchingArtist && (
               <p className="text-center text-muted text-sm py-8">No channels or playlists found.</p>
+            )}
+            {artistHasMore && (
+              <div className="flex justify-center pt-2">
+                <button
+                  onClick={loadMoreArtist}
+                  disabled={loadingMoreArtist}
+                  className="px-4 py-2 bg-elevated border border-border rounded-xl text-sm text-muted hover:text-white hover:border-accent/50 transition-colors disabled:opacity-40"
+                >
+                  {loadingMoreArtist ? <RefreshCw size={14} className="animate-spin" /> : 'Load More'}
+                </button>
+              </div>
             )}
           </div>
         </div>
