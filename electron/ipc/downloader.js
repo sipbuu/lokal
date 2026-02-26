@@ -490,6 +490,25 @@ function registerExtraDownloaderHandlers(ipcMain) {
             lastSong = titleMatch[1]
             filepaths.push(lastSong)
             downloadedTracks.push(require('path').basename(lastSong))
+            
+            if (settings.index_while_downloading === '1') {
+              const { indexSingleFile } = require('./scanner')
+              indexSingleFile(lastSong).then(result => {
+                if (result && result.id) {
+                  indexedTracks.push({ filepath: lastSong, id: result.id, title: require('path').basename(lastSong, require('path').extname(lastSong)) })
+                  if (win) {
+                    win.webContents.send('downloader:progress', {
+                      id: dlId,
+                      indexedTracks: indexedTracks.slice(-10),
+                      message: `Indexed: ${require('path').basename(lastSong, require('path').extname(lastSong))}`,
+                      output: outputLines.slice(-30).join('\n')
+                    })
+                    win.webContents.send('library:updated', result)
+                  }
+                }
+              }).catch(e => console.error('Early index failed:', e))
+            }
+            
             Object.assign(downloadQueue.get(dlId), {
               message: `Saving: ${lastSong}`,
               song: lastSong,
