@@ -376,69 +376,77 @@ function registerExtraDownloaderHandlers(ipcMain) {
     const win = BrowserWindow.fromWebContents(e.sender)
     const ytdlp = findYtDlp()
     const ffmpeg = findFfmpeg()
+    const path = require('path')
+    const fs = require('fs-extra')
+    const os = require('os')
+    const { spawn } = require('child_process')
+
     if (!ytdlp) return { error: 'yt-dlp not found. Go to Settings → External Tools to download it or set a custom path.' }
 
     const db = getDB()
     const settings = Object.fromEntries(db.prepare('SELECT key, value FROM settings').all().map(r => [r.key, r.value]))
-    const outputDir = opts.outputDir || settings.music_folder || require('path').join(require('os').homedir(), 'Music')
-    require('fs-extra').ensureDirSync(outputDir)
+    const outputDir = opts.outputDir || settings.music_folder || path.join(os.homedir(), 'Music')
+    fs.ensureDirSync(outputDir)
 
     const dlId = opts.id || 'pl-' + Date.now()
-    const outputTemplate = require('path').join(outputDir, '%(playlist)s', '%(artist)s', '%(title)s.%(ext)s')
+    const outputTemplate = path.join(outputDir, '%(playlist)s', '%(artist)s', '%(title)s.%(ext)s')
     const args = [
-      url, 
-      '-x', 
-      '--audio-format', opts.format || 'mp3', 
-      '--audio-quality', '0', 
-      '--embed-thumbnail', 
-      '--add-metadata', 
-      '--output', outputTemplate, 
-      '--newline', 
-      '--progress', 
+      url,
+      '-x',
+      '--audio-format', opts.format || 'mp3',
+      '--audio-quality', '0',
+      '--embed-thumbnail',
+      '--add-metadata',
+      '--output', outputTemplate,
+      '--newline',
+      '--progress',
       '--yes-playlist',
     ]
 
     const useYtCookies = settings.yt_cookies === '1'
     const ytCookieBrowser = settings.yt_cookie_browser || 'firefox'
     if (useYtCookies) {
-      args.push('--cookies-from-browser', ytCookieBrowser);
+      args.push('--cookies-from-browser', ytCookieBrowser)
     }
     if (ffmpeg && (ffmpeg.includes('/') || ffmpeg.includes('\\'))) {
-      args.push('--ffmpeg-location', path.dirname(ffmpeg));
+      args.push('--ffmpeg-location', path.dirname(ffmpeg))
     }
-    const { spawn } = require('child_process')
+
     return new Promise((resolve) => {
       let lastSong = null
       let currentIndex = 0
       let totalTracks = 0
       let errorLines = []
       let outputLines = []
-      let filepaths = []
+      let filepaths = []              
       let indexedTracks = []
-      let downloadedTracks = []  
-      
+      let downloadedTracks = []
+
       downloadQueue.set(dlId, {
-        proc: null, 
+        proc: null,
         url,
         status: 'downloading',
         progress: 0,
         message: 'Starting…',
         song: null,
-        output: null
+        output: null,
+        downloadedTracks: []
       })
+
       const proc = spawn(ytdlp, args)
       downloadQueue.get(dlId).proc = proc
+
       proc.stdout.on('data', (data) => {
         const lines = data.toString().split(/\r?\n/)
         for (const line of lines) {
           if (!line.trim()) continue
           outputLines.push(line)
 
-          let songMatch = line.match(/\[download\] Downloading video (\d+) of (\d+)/)
+          const songMatch = line.match(/\[download\] Downloading video (\d+) of (\d+)/)
           if (songMatch) {
             currentIndex = parseInt(songMatch[1], 10)
             totalTracks = parseInt(songMatch[2], 10)
-            const progress = Math.round((currentIndex-1)/totalTracks*100)
+            const progress = totalTracks > 0 ? Math.round((currentIndex - 1) / totalTracks * 100) : 0
             Object.assign(downloadQueue.get(dlId), {
               progress,
               message: `Track ${currentIndex} of ${totalTracks}`,
@@ -455,16 +463,30 @@ function registerExtraDownloaderHandlers(ipcMain) {
             })
             continue
           }
-          
-          let titleMatch = line.match(/\[download\] Destination: (.+)/)
+
+          const titleMatch = line.match(/\[download\] Destination: (.+)/)
           if (titleMatch) {
             lastSong = titleMatch[1].replace(/\.(webm|m4a|webp|f\d+|temp|part)$/i, '.' + (opts.format || 'mp3'))
-            filepaths.push(lastSong)
-            downloadedTracks.push(require('path').basename(lastSong))
-            
+            if (!filepaths.includes(lastSong)) filepaths.push(lastSong)
+            downloadedTracks.push(path.basename(lastSong))
             if (win) win.webContents.send('downloader:progress', {
               id: dlId,
-              message: `Saving: ${require('path').basename(lastSong)}`,
+              message: `Saving: ${path.basename(lastSong)}`,
+              song: lastSong,
+              downloadedTracks: downloadedTracks.slice(-10),
+              output: outputLines.slice(-30).join('\n')
+            })
+            continue
+          }
+
+          const extractMatch = line.match(/\[ExtractAudio\] Destination: (.+)/)
+          if (extractMatch) {
+            lastSong = extractMatch[1]
+            if (!filepaths.includes(lastSong)) filepaths.push(lastSong)
+            if (!downloadedTracks.includes(path.basename(lastSong))) downloadedTracks.push(path.basename(lastSong))
+            if (win) win.webContents.send('downloader:progress', {
+              id: dlId,
+              message: `Saved: ${path.basename(lastSong)}`,
               song: lastSong,
               downloadedTracks: downloadedTracks.slice(-10),
               output: outputLines.slice(-30).join('\n')
@@ -473,55 +495,57 @@ function registerExtraDownloaderHandlers(ipcMain) {
           }
 
           if (line.includes('[EmbedThumbnail]') && line.includes('Adding thumbnail to')) {
-            console.log('Index While Downloading Setting:', settings.index_while_downloading)
-            let finalPathMatch = line.match(/Adding thumbnail to "(.+)"/)
-            let pathToIndex = finalPathMatch ? finalPathMatch[1] : lastSong
+            const finalPathMatch = line.match(/Adding thumbnail to "(.+)"/)
+            const pathToIndex = finalPathMatch ? finalPathMatch[1] : lastSong
 
             if (settings.index_while_downloading === '1' && pathToIndex) {
               const { indexSingleFile } = require('./scanner')
               setTimeout(async () => {
                 try {
-                  if (require('fs').existsSync(pathToIndex)) {
+                  if (fs.existsSync(pathToIndex)) {
                     const result = await indexSingleFile(pathToIndex)
                     if (result && result.id && win) {
-                      indexedTracks.push({ filepath: pathToIndex, id: result.id, title: require('path').basename(pathToIndex, require('path').extname(pathToIndex)) })
+                      indexedTracks.push({ filepath: pathToIndex, id: result.id, title: path.basename(pathToIndex, path.extname(pathToIndex)) })
                       win.webContents.send('downloader:progress', {
                         id: dlId,
                         indexedTracks: indexedTracks.slice(-10),
-                        message: `Indexed: ${require('path').basename(pathToIndex)}`,
+                        message: `Indexed: ${path.basename(pathToIndex)}`,
                         output: outputLines.slice(-30).join('\n')
                       })
                       win.webContents.send('library:updated', result)
                     }
                   }
-                } catch (e) {
-                  console.error('Indexing failed:', e)
+                } catch (err) {
+                  console.error('Indexing failed:', err)
                 }
               }, 1000)
             }
+            continue
           }
-          
-          let pctMatch = line.match(/(\d+\.?\d*)%/)
+
+          const pctMatch = line.match(/(\d+\.?\d*)%/)
           if (pctMatch) {
-            let rawProgress = parseFloat(pctMatch[1])
-            let progress = totalTracks > 1 ? Math.round(((currentIndex - 1) + (rawProgress / 100)) / totalTracks * 100) : rawProgress
+            const rawProgress = parseFloat(pctMatch[1])
+            const progress = totalTracks > 1
+              ? Math.round(((currentIndex - 1) + (rawProgress / 100)) / totalTracks * 100)
+              : Math.round(rawProgress)
             Object.assign(downloadQueue.get(dlId), {
               progress,
-              message: lastSong ? `Downloading: ${require('path').basename(lastSong)}` : undefined,
+              message: lastSong ? `Downloading: ${path.basename(lastSong)}` : undefined,
               song: lastSong,
               downloadedTracks: downloadedTracks.slice(-10)
             })
             if (win) win.webContents.send('downloader:progress', {
               id: dlId,
               progress,
-              message: lastSong ? `Downloading: ${require('path').basename(lastSong)}` : undefined,
+              message: lastSong ? `Downloading: ${path.basename(lastSong)}` : undefined,
               song: lastSong,
               downloadedTracks: downloadedTracks.slice(-10),
               output: outputLines.slice(-30).join('\n')
             })
             continue
           }
-          
+
           if (/\[error\]/i.test(line)) errorLines.push(line)
         }
       })
@@ -531,32 +555,44 @@ function registerExtraDownloaderHandlers(ipcMain) {
         for (const line of lines) {
           if (!line.trim()) continue
           outputLines.push(line)
-          if (/\[error\]/i.test(line)) errorLines.push(line)
+          if (/\[error\]/i.test(line) || (line.toLowerCase().includes('error') && !line.includes('Deleting original file'))) {
+            errorLines.push(line)
+          }
         }
       })
 
       proc.on('close', async (code) => {
         if (code === 0) {
-          await cleanupLeftovers(filepaths, outputDir);
+          try {
+            await cleanupLeftovers(filepaths, outputDir)
+          } catch (e) {
+            console.warn('cleanupLeftovers failed:', e)
+          }
+
           setImmediate(async () => {
             try {
               const { indexSingleFile } = require('./scanner')
               for (const filepath of filepaths) {
                 const alreadyIndexed = indexedTracks.some(t => t.filepath === filepath)
-                if (!alreadyIndexed && require('fs').existsSync(filepath)) {
-                  const result = await indexSingleFile(filepath) 
-                  if (result && result.id) {
-                    indexedTracks.push({ filepath, id: result.id, title: require('path').basename(filepath, require('path').extname(filepath)) })
+                if (!alreadyIndexed && fs.existsSync(filepath)) {
+                  try {
+                    const result = await indexSingleFile(filepath)
+                    if (result && result.id) {
+                      indexedTracks.push({ filepath, id: result.id, title: path.basename(filepath, path.extname(filepath)) })
+                    }
+                  } catch (e) {
+                    console.error('Indexing file failed:', e)
                   }
                 }
               }
+
               if (win) {
-                win.webContents.send('downloader:progress', { 
-                  id: dlId, 
-                  progress: 100, 
-                  done: true, 
-                  indexedTracks: indexedTracks,
-                  downloadedTracks: downloadedTracks,
+                win.webContents.send('downloader:progress', {
+                  id: dlId,
+                  progress: 100,
+                  done: true,
+                  indexedTracks,
+                  downloadedTracks,
                   message: indexedTracks.length > 0 ? `Indexed ${indexedTracks.length} track(s)` : `Downloaded ${downloadedTracks.length} track(s)`,
                   output: outputLines.slice(-50).join('\n')
                 })
@@ -565,9 +601,15 @@ function registerExtraDownloaderHandlers(ipcMain) {
               if (win) win.webContents.send('downloader:progress', { id: dlId, progress: 100, done: true, message: 'Complete' })
             }
           })
+
           resolve({ success: true, count: downloadedTracks.length, indexedTracks })
         } else {
-          if (win) win.webContents.send('downloader:progress', { id: dlId, error: 'Failed', message: errorLines.join('\n').slice(0, 500) })
+          if (win) win.webContents.send('downloader:progress', {
+            id: dlId,
+            error: 'Failed',
+            message: errorLines.length ? errorLines.join('\n').slice(0, 500) : `Failed (exit ${code})`,
+            output: outputLines.slice(-50).join('\n')
+          })
           resolve({ error: 'Failed', code })
         }
       })
