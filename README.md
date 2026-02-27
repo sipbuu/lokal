@@ -11,6 +11,8 @@ Local-first music player built w/ Electron and React. Designed for people with l
 ## Before reading further, check the Common links:
 
 
+>Interested in creating TTML lyrics, then check out [our side TTML editor!](https://github.com/sipbuu/lokal-ttml) 
+
 >See [KNOWN_ISSUES.md](./KNOWN_ISSUES.md) for known issues. 
 
 >Report any [issues/bugs](https://github.com/sipbuu/lokal/issues) you find.
