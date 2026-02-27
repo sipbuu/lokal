@@ -168,67 +168,91 @@ export default function App() {
   const initAudioCtx = useCallback(() => {
     if (audioSourcesInitializedRef.current) return
     if (!audioRef.current || !cfAudioRef.current) return
-    
+
+    const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent)
+
     try {
       const ctx = new (window.AudioContext || window.webkitAudioContext)()
       audioCtxRef.current = ctx
-      
+
       const bands = [60, 230, 910, 3600, 14000]
       const nodes = bands.map(freq => {
         const f = ctx.createBiquadFilter()
         f.type = 'peaking'; f.frequency.value = freq; f.Q.value = 1.4; f.gain.value = 0
         return f
       })
-      
+
       const cfNodes = bands.map((freq, i) => {
         const f = ctx.createBiquadFilter()
         f.type = 'peaking'; f.frequency.value = freq; f.Q.value = 1.4
         f.gain.value = nodes[i].gain.value
         return f
       })
-      
+
       eqFiltersRef.current = { primary: nodes, cf: cfNodes }
-      
+
       const primarySource = ctx.createMediaElementSource(audioRef.current)
       const cfSource = ctx.createMediaElementSource(cfAudioRef.current)
-      
+
       const primaryGain = ctx.createGain()
       const cfGain = ctx.createGain()
       gainNodeRef.current = primaryGain
       cfGainNodeRef.current = cfGain
-      
+
       primaryGain.gain.value = volume
       cfGain.gain.value = 0
-      
-      let prev = primarySource
-      for (const n of nodes) { prev.connect(n); prev = n }
-      prev.connect(primaryGain)
-      primaryGain.connect(ctx.destination)
-      
-      let cfPrev = cfSource
-      for (const n of cfNodes) { cfPrev.connect(n); cfPrev = n }
-      cfPrev.connect(cfGain)
-      cfGain.connect(ctx.destination)
-      
-      try { 
+
+      if (isIOS) {
+        primarySource.connect(ctx.destination)
+        cfSource.connect(ctx.destination)
+      } else {
+        let prev = primarySource
+        for (const n of nodes) { prev.connect(n); prev = n }
+        prev.connect(primaryGain)
+        primaryGain.connect(ctx.destination)
+
+        let cfPrev = cfSource
+        for (const n of cfNodes) { cfPrev.connect(n); cfPrev = n }
+        cfPrev.connect(cfGain)
+        cfGain.connect(ctx.destination)
+      }
+
+      try {
         JSON.parse(localStorage.getItem('lokal-eq') || '[]').forEach((v, i) => {
           if (nodes[i]) nodes[i].gain.value = v
           if (cfNodes[i]) cfNodes[i].gain.value = v
-        }) 
+        })
       } catch {}
-      
-      window.__lokaleq = { 
+
+      window.__lokaleq = {
         setGain: (i, v) => {
           if (nodes[i]) nodes[i].gain.value = v
           if (cfNodes[i]) cfNodes[i].gain.value = v
         }
       }
-      
+
       audioSourcesInitializedRef.current = true
     } catch (e) {
       console.error('Failed to initialize AudioContext:', e)
     }
   }, [volume])
+
+   useEffect(() => {
+    const resumeAudio = () => {
+      if (audioCtxRef.current && audioCtxRef.current.state === 'suspended') {
+        audioCtxRef.current.resume().catch(() => {})
+      }
+    }
+
+    window.addEventListener('focus', resumeAudio)
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') resumeAudio()
+    })
+
+    return () => {
+      window.removeEventListener('focus', resumeAudio)
+    }
+  }, [])
 
   useEffect(() => {
     if (!('mediaSession' in navigator)) return
@@ -254,6 +278,12 @@ export default function App() {
     try {
       navigator.mediaSession.playbackState = isPlaying ? 'playing' : 'paused'
     } catch {}
+    
+    const getActiveAudio = () => {
+      const state = usePlayerStore.getState()
+      return state.activeAudioElement === 'primary' ? audioRef.current : cfAudioRef.current
+    }
+
     if (audioRef.current && typeof navigator.mediaSession.setPositionState === 'function') {
       try {
         navigator.mediaSession.setPositionState({
@@ -263,10 +293,17 @@ export default function App() {
         })
       } catch {}
     }
-    navigator.mediaSession.setActionHandler('play', () => { audioRef.current?.play() })
-    navigator.mediaSession.setActionHandler('pause', () => { audioRef.current?.pause() })
+    navigator.mediaSession.setActionHandler('play', () => { 
+      const activeEl = getActiveAudio()
+      activeEl?.play() 
+    })
+    navigator.mediaSession.setActionHandler('pause', () => { 
+      const activeEl = getActiveAudio()
+      activeEl?.pause() 
+    })
     navigator.mediaSession.setActionHandler('seekto', (details) => {
-      if (audioRef.current && typeof details.seekTime === 'number') audioRef.current.currentTime = details.seekTime
+      const activeEl = getActiveAudio()
+      if (activeEl && typeof details.seekTime === 'number') activeEl.currentTime = details.seekTime
     })
     navigator.mediaSession.setActionHandler('previoustrack', () => {
       usePlayerStore.getState().prev()
