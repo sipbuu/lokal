@@ -66,7 +66,7 @@ let mainWindow
 
 function createWindow() {
   mainWindow = new BrowserWindow({
-    icon: path.join(__dirname, '../public/lokal-icon.png'),
+    icon: path.join(__dirname, process.platform === 'win32' ? '../public/lokal-icon.ico' : '../public/lokal-icon.png'),
     width: 1400, height: 860, minWidth: 960, minHeight: 640,
     frame: false, backgroundColor: '#0a0a0a',
     webPreferences: {
@@ -90,13 +90,16 @@ function createWindow() {
     mainWindow.loadFile(filePath)
   }
 }
-
+app.name = 'Lokal'
 app.whenReady().then(() => {
   
   if (app.isPackaged) {
     try { require('../server/index.js') } catch (e) { console.error('Server:', e.message) }
   }
-  
+  app.name = 'Lokal'
+  if (process.platform === 'win32') {
+    app.setAppUserModelId('com.lokal.music');
+  }
   try { initDB() } catch (e) { console.error('DB:', e.message) }
 
   for (const fn of [
@@ -185,7 +188,6 @@ ipcMain.handle('updater:install', () => {
   })
 
   createWindow()
-  app.setAppUserModelId('com.lokal.music');
   app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow() })
 
   if (!app.isPackaged) {
