@@ -82,28 +82,31 @@ export default function App() {
     return (activeSide === 'primary' && isPrimary) || (activeSide === 'cf' && !isPrimary)
   }, [])
 
-  // Fetch changelog from GitHub
   const fetchChangelog = useCallback(async () => {
-    if (!api.isElectron) return
-    setLoadingChangelog(true)
-    try {
-      const response = await fetch('https://api.github.com/repos/sipbuu/lokal/releases/latest')
-      if (!response.ok) throw new Error('Failed to fetch release info')
-      const data = await response.json()
-      const fullBody = data.body || ''
-      
-      // Extract just the changelog section between ## Changelog and ## Setup or ---
-      const match = fullBody.match(/## Changelog([\s\S]*?)(?=## Setup|## |---|$)/)
-      const extracted = match ? match[1].trim() : fullBody.slice(0, 200) + '...'
-      
-      setChangelog(extracted)
-    } catch (err) {
-      console.error('[updater] Failed to fetch changelog:', err)
-      setChangelog('New features and bug fixes await!')
-    } finally {
-      setLoadingChangelog(false)
+  if (!api.isElectron) return;
+  setLoadingChangelog(true);
+  try {
+    const response = await fetch('https://api.github.com/repos/sipbuu/lokal/releases/latest');
+    if (!response.ok) throw new Error('Failed to fetch release info');
+    const data = await response.json();
+    const fullBody = data.body || '';
+
+    const sectionMatch = fullBody.match(/(?:##|###) (?:Changelog|Changes|What's New)([\s\S]*?)(?=(?:##|###) (?:Setup|Binary Checksums|Full Changelog)|---|$)/i);
+    
+    let extracted = sectionMatch ? sectionMatch[1].trim() : '';
+
+    if (!extracted) {
+      extracted = fullBody.split(/## Setup|### Binary Checksums|---/)[0].trim();
     }
-  }, [])
+
+    setChangelog(extracted);
+  } catch (err) {
+    console.error('[updater] Failed to fetch changelog:', err);
+    setChangelog('• Bug fixes and performance improvements\n• Stability updates');
+  } finally {
+    setLoadingChangelog(false);
+  }
+}, []);
 
   useEffect(() => {
     if (!api.isElectron) return
@@ -118,7 +121,6 @@ export default function App() {
             progress: 0,
             error: null,
           })
-          // Fetch changelog when update is available
           fetchChangelog()
           break
         case 'progress':
@@ -600,89 +602,95 @@ export default function App() {
   }, [isEventFromActive, repeat])
 
   const renderUpdateToast = () => {
-    if (updateState.status === 'idle') return null
+    if (updateState.status === 'idle') return null;
 
-    const isReady = updateState.status === 'ready'
-    const isDownloading = updateState.status === 'downloading'
-    const isAvailable = updateState.status === 'available'
+    const isReady = updateState.status === 'ready';
+    const isDownloading = updateState.status === 'downloading';
+    const isAvailable = updateState.status === 'available';
 
     return (
-      <div className="fixed bottom-20 left-1/2 -translate-x-1/2 z-50 bg-elevated border border-accent/30 rounded-xl shadow-xl min-w-96 max-w-lg">
-        {/* Header */}
-        <div className="flex items-center gap-4 p-4 border-b border-white/5">
-          {isDownloading && (
-            <div className="flex-1">
-              <div className="flex items-center justify-between mb-1">
-                <span className="text-sm text-white font-medium">
-                  Update v{updateState.info?.version || ''} downloading…
-                </span>
-                <span className="text-xs text-accent">{Math.round(updateState.progress)}%</span>
+      <div className="fixed bottom-24 left-1/2 -translate-x-1/2 z-[100] w-full max-w-[440px] px-4 animate-in fade-in slide-in-from-bottom-4 duration-300">
+        <div className="bg-elevated/80 backdrop-blur-xl border border-white/10 rounded-2xl shadow-2xl overflow-hidden ring-1 ring-black/5">
+          
+          {/* Top Status Bar */}
+          <div className="p-4 flex items-center justify-between bg-white/5">
+            <div className="flex items-center gap-3">
+              <div className={`p-2 rounded-lg ${isReady ? 'bg-green-500/20 text-green-400' : 'bg-accent/20 text-accent'}`}>
+                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                  <polyline points="17 8 12 3 7 8" />
+                  <line x1="12" y1="3" x2="12" y2="15" />
+                </svg>
               </div>
-              <div className="h-1 bg-card rounded-full overflow-hidden">
-                <div 
-                  className="h-full bg-accent transition-all duration-300"
-                  style={{ width: `${updateState.progress}%` }}
-                />
+              <div>
+                <h4 className="text-sm font-bold text-white leading-none">
+                  {isReady ? 'Ready to Install' : `Version ${updateState.info?.version || ''}`}
+                </h4>
+                <p className="text-[11px] text-muted mt-1 uppercase tracking-wider font-semibold">
+                  {isDownloading ? 'Downloading Update...' : isReady ? 'Restart required' : 'New Update Available'}
+                </p>
               </div>
             </div>
-          )}
-          
-          {(isAvailable || isReady) && (
-            <>
-              <div className="flex-1">
-                <span className="text-sm text-white font-bold">
-                  {isReady ? 'Update Ready!' : `v${updateState.info?.version || ''} Available`}
-                </span>
-                {isReady && (
-                  <p className="text-xs text-muted mt-0.5">Restart to install the update</p>
-                )}
-              </div>
-              <button
-                onClick={handleInstallUpdate}
-                disabled={!isReady}
-                className="px-3 py-1.5 bg-accent text-white text-xs font-medium rounded-lg hover:bg-accent/80 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-              >
-                Restart Now
-              </button>
-            </>
-          )}
-          
-          <button
-            onClick={handleDismissUpdate}
-            className="text-muted hover:text-white transition-colors"
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <line x1="18" y1="6" x2="6" y2="18"></line>
-              <line x1="6" y1="6" x2="18" y2="18"></line>
-            </svg>
-          </button>
-        </div>
+            
+            <button 
+              onClick={handleDismissUpdate}
+              className="p-1.5 hover:bg-white/10 rounded-full transition-colors text-muted hover:text-white"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+            </button>
+          </div>
 
-        {/* Changelog Section */}
-        {(isAvailable || isReady) && (
-          <div className="p-4 max-h-48 overflow-y-auto">
-            {loadingChangelog ? (
-              <div className="flex items-center justify-center py-4">
-                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-accent"></div>
-                <span className="text-xs text-muted ml-2">Loading changelog...</span>
-              </div>
-            ) : changelog ? (
-              <div className="bg-card/50 rounded-lg p-3 border border-white/5">
-                <p className="text-xs font-medium text-accent mb-2">What's New</p>
-                <pre className="text-xs text-muted leading-relaxed whitespace-pre-wrap font-sans">
-                  {changelog}
-                </pre>
+          {/* Content Area */}
+          <div className="p-4 space-y-4">
+            {isDownloading ? (
+              <div className="py-2">
+                <div className="flex justify-between text-xs mb-2">
+                  <span className="text-muted">Progress</span>
+                  <span className="text-accent font-mono">{Math.round(updateState.progress)}%</span>
+                </div>
+                <div className="h-2 bg-white/5 rounded-full overflow-hidden">
+                  <div 
+                    className="h-full bg-accent transition-all duration-300 ease-out shadow-[0_0_10px_rgba(var(--accent-rgb),0.5)]"
+                    style={{ width: `${updateState.progress}%` }}
+                  />
+                </div>
               </div>
             ) : (
-              <p className="text-xs text-muted text-center py-2">
-                New features and bug fixes await!
-              </p>
+              <div className="space-y-3">
+                <div className="max-h-40 overflow-y-auto pr-2 custom-scrollbar">
+                  {loadingChangelog ? (
+                    <div className="space-y-2 py-2">
+                      <div className="h-3 w-3/4 bg-white/5 animate-pulse rounded" />
+                      <div className="h-3 w-1/2 bg-white/5 animate-pulse rounded" />
+                    </div>
+                  ) : (
+                    <div className="text-xs text-muted-foreground leading-relaxed">
+                      <pre className="whitespace-pre-wrap font-sans text-[13px] text-white/70">
+                        {changelog}
+                      </pre>
+                    </div>
+                  )}
+                </div>
+                
+                <div className="pt-2 flex gap-2">
+                  <button
+                    onClick={handleInstallUpdate}
+                    disabled={!isReady}
+                    className="flex-1 py-2.5 bg-white text-black text-sm font-bold rounded-xl hover:bg-gray-200 transition-all disabled:opacity-20 disabled:grayscale"
+                  >
+                    {isReady ? 'Restart & Update' : 'Waiting for download...'}
+                  </button>
+                  {isAvailable && !isDownloading && !isReady && (
+                    <p className="text-[10px] text-center text-muted italic w-full">Update will download automatically</p>
+                  )}
+                </div>
+              </div>
             )}
           </div>
-        )}
+        </div>
       </div>
-    )
-  }
+    );
+  };
 
   return (
     <Router>
