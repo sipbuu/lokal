@@ -13,7 +13,7 @@ const { registerLastFmHandlers } = require('./ipc/lastfm')
 const { registerToolsHandlers } = require('./ipc/tools')
 const { registerPlaylistHandlers } = require('./ipc/playlists')
 let isUpdating = false;
-autoUpdater.autoDownload = true
+autoUpdater.autoDownload = false
 autoUpdater.autoInstallOnAppQuit = true
 
 autoUpdater.on('update-available', (info) => {
@@ -26,6 +26,10 @@ autoUpdater.on('download-progress', (progress) => {
   if (mainWindow) {
     mainWindow.webContents.send('updater:progress', progress)
   }
+})
+
+ipcMain.handle('updater:download', async () => {
+  return await autoUpdater.downloadUpdate()
 })
 
 autoUpdater.on('update-downloaded', () => {

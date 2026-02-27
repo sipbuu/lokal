@@ -601,6 +601,58 @@ export default function App() {
     else autoNext()
   }, [isEventFromActive, repeat])
 
+  const handleStartDownload = async () => {
+    setUpdateState(prev => ({ ...prev, status: 'downloading' }));
+    if (api.updaterDownload) {
+      await api.updaterDownload();
+    }
+  };
+  const MarkdownLite = ({ text }) => {
+    const lines = text.split('\n');
+    return (
+      <div className="space-y-2">
+        {lines.map((line, i) => {
+          if (line.startsWith('### ')) {
+            return <h3 key={i} className="text-sm font-bold text-white mt-4">{line.replace('### ', '')}</h3>;
+          }
+          if (line.startsWith('## ')) {
+            return <h2 key={i} className="text-base font-bold text-white mt-4 border-b border-white/10 pb-1">{line.replace('## ', '')}</h2>;
+          }
+          if (line.startsWith('- ') || line.startsWith('* ')) {
+            return (
+              <div key={i} className="flex gap-2 text-xs text-muted ml-2">
+                <span className="text-accent">•</span>
+                <span>{line.replace(/^[-*]\s+/, '').replace(/\*\*(.*?)\*\*/g, '$1')}</span>
+              </div>
+            );
+          }
+          const bolded = line.split(/(\*\*.*?\*\*)/g).map((part, j) => {
+            if (part.startsWith('**') && part.endsWith('**')) {
+              return <strong key={j} className="font-bold text-white/90">{part.slice(2, -2)}</strong>;
+            }
+            return part;
+          });
+          return <p key={i} className="text-xs text-muted leading-relaxed">{bolded}</p>;
+        })}
+      </div>
+    );
+  };
+
+  const scrollbarStyles = `
+    .update-scrollbar::-webkit-scrollbar {
+      width: 6px;
+    }
+    .update-scrollbar::-webkit-scrollbar-track {
+      background: transparent;
+    }
+    .update-scrollbar::-webkit-scrollbar-thumb {
+      background: rgba(255, 255, 255, 0.1);
+      border-radius: 10px;
+    }
+    .update-scrollbar::-webkit-scrollbar-thumb:hover {
+      background: rgba(255, 255, 255, 0.2);
+    }
+  `;
   const renderUpdateToast = () => {
     if (updateState.status === 'idle') return null;
 
@@ -609,81 +661,93 @@ export default function App() {
     const isAvailable = updateState.status === 'available';
 
     return (
-      <div className="fixed bottom-24 left-1/2 -translate-x-1/2 z-[100] w-full max-w-[440px] px-4 animate-in fade-in slide-in-from-bottom-4 duration-300">
-        <div className="bg-elevated/80 backdrop-blur-xl border border-white/10 rounded-2xl shadow-2xl overflow-hidden ring-1 ring-black/5">
+      <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm animate-in fade-in duration-300">
+        <style>{scrollbarStyles}</style>
+        <div className="bg-elevated/90 backdrop-blur-2xl border border-white/10 rounded-3xl shadow-[0_32px_64px_-12px_rgba(0,0,0,0.8)] w-full max-w-xl overflow-hidden ring-1 ring-white/5">
           
-          <div className="p-4 flex items-center justify-between bg-white/5">
-            <div className="flex items-center gap-3">
-              <div className={`p-2 rounded-lg ${isReady ? 'bg-green-500/20 text-green-400' : 'bg-accent/20 text-accent'}`}>
-                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+          <div className="p-8 flex items-center justify-between bg-white/5">
+            <div className="flex items-center gap-5">
+              <div className={`p-4 rounded-2xl ${isReady ? 'bg-green-500/20 text-green-400' : 'bg-accent/20 text-accent'}`}>
+                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                   <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
                   <polyline points="17 8 12 3 7 8" />
                   <line x1="12" y1="3" x2="12" y2="15" />
                 </svg>
               </div>
               <div>
-                <h4 className="text-sm font-bold text-white leading-none">
-                  {isReady ? 'Ready to Install' : `Version ${updateState.info?.version || ''}`}
+                <h4 className="text-xl font-black text-white tracking-tight">
+                  {isReady ? 'Update Ready' : isDownloading ? 'Downloading...' : 'System Update'}
                 </h4>
-                <p className="text-[11px] text-muted mt-1 uppercase tracking-wider font-semibold">
-                  {isDownloading ? 'Downloading Update...' : isReady ? 'Restart required' : 'New Update Available'}
+                <p className="text-xs text-accent uppercase tracking-[0.2em] font-bold mt-1 opacity-80">
+                  Lokal v{updateState.info?.version || '1.3.0'}
                 </p>
               </div>
             </div>
             
             <button 
               onClick={handleDismissUpdate}
-              className="p-1.5 hover:bg-white/10 rounded-full transition-colors text-muted hover:text-white"
+              className="p-2 hover:bg-white/10 rounded-full transition-colors text-muted hover:text-white"
             >
-              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+              <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
             </button>
           </div>
 
-          <div className="p-4 space-y-4">
-            {isDownloading ? (
-              <div className="py-2">
-                <div className="flex justify-between text-xs mb-2">
-                  <span className="text-muted">Progress</span>
-                  <span className="text-accent font-mono">{Math.round(updateState.progress)}%</span>
+          <div className="p-8 space-y-6">
+            <div className="max-h-[350px] overflow-y-auto pr-4 update-scrollbar">
+              {loadingChangelog ? (
+                <div className="space-y-4">
+                  <div className="h-4 w-full bg-white/5 animate-pulse rounded-lg" />
+                  <div className="h-4 w-5/6 bg-white/5 animate-pulse rounded-lg" />
+                  <div className="h-4 w-4/6 bg-white/5 animate-pulse rounded-lg" />
                 </div>
-                <div className="h-2 bg-white/5 rounded-full overflow-hidden">
+              ) : (
+                <MarkdownLite text={changelog} />
+              )}
+            </div>
+
+            {isDownloading && (
+              <div className="space-y-3 pt-4 border-t border-white/5">
+                <div className="flex justify-between text-xs font-bold uppercase tracking-wider">
+                  <span className="text-muted">Downloading Package</span>
+                  <span className="text-accent">{Math.round(updateState.progress)}%</span>
+                </div>
+                <div className="h-2.5 bg-white/5 rounded-full overflow-hidden p-[2px]">
                   <div 
-                    className="h-full bg-accent transition-all duration-300 ease-out shadow-[0_0_10px_rgba(var(--accent-rgb),0.5)]"
+                    className="h-full bg-accent rounded-full transition-all duration-500 ease-out shadow-[0_0_15px_rgba(var(--accent-rgb),0.6)]"
                     style={{ width: `${updateState.progress}%` }}
                   />
                 </div>
               </div>
-            ) : (
-              <div className="space-y-3">
-                <div className="max-h-40 overflow-y-auto pr-2 custom-scrollbar">
-                  {loadingChangelog ? (
-                    <div className="space-y-2 py-2">
-                      <div className="h-3 w-3/4 bg-white/5 animate-pulse rounded" />
-                      <div className="h-3 w-1/2 bg-white/5 animate-pulse rounded" />
-                    </div>
-                  ) : (
-                    <div className="text-xs text-muted-foreground leading-relaxed">
-                      <pre className="whitespace-pre-wrap font-sans text-[13px] text-white/70">
-                        {changelog}
-                      </pre>
-                    </div>
-                  )}
-                </div>
-                
-                <div className="pt-2 flex gap-2">
-                  <button
-                    onClick={handleInstallUpdate}
-                    disabled={!isReady}
-                    className="flex-1 py-2.5 bg-white text-black text-sm font-bold rounded-xl hover:bg-gray-200 transition-all disabled:opacity-20 disabled:grayscale"
-                  >
-                    {isReady ? 'Restart & Update' : 'Waiting for download...'}
-                  </button>
-                  {isAvailable && !isDownloading && !isReady && (
-                    <p className="text-[10px] text-center text-muted italic w-full">Update will download automatically</p>
-                  )}
-                </div>
-              </div>
             )}
+            
+            <div className="flex gap-3 pt-2">
+              {!isDownloading && !isReady && (
+                <button
+                  onClick={handleStartDownload}
+                  className="flex-1 py-4 bg-accent text-white text-sm font-bold rounded-2xl hover:brightness-110 active:scale-[0.98] transition-all"
+                >
+                  Download Update
+                </button>
+              )}
+              
+              {isReady && (
+                <button
+                  onClick={handleInstallUpdate}
+                  className="flex-1 py-4 bg-white text-black text-sm font-black rounded-2xl hover:bg-gray-100 active:scale-[0.98] transition-all uppercase tracking-widest"
+                >
+                  Restart & Install
+                </button>
+              )}
+
+              {!isReady && (
+                <button
+                  onClick={handleDismissUpdate}
+                  className="px-6 py-4 bg-white/5 text-white text-sm font-bold rounded-2xl hover:bg-white/10 transition-all"
+                >
+                  Later
+                </button>
+              )}
+            </div>
           </div>
         </div>
       </div>
