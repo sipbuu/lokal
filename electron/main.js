@@ -12,6 +12,7 @@ const { registerDiscordHandlers } = require('./ipc/discord')
 const { registerLastFmHandlers } = require('./ipc/lastfm')
 const { registerToolsHandlers } = require('./ipc/tools')
 const { registerPlaylistHandlers } = require('./ipc/playlists')
+let isUpdating = false;
 autoUpdater.autoDownload = true
 autoUpdater.autoInstallOnAppQuit = true
 
@@ -168,18 +169,20 @@ app.whenReady().then(() => {
     }
   }
 });
-  ipcMain.handle('window:minimize', () => mainWindow.minimize())
-  ipcMain.handle('window:maximize', () => mainWindow.isMaximized() ? mainWindow.unmaximize() : mainWindow.maximize())
-  ipcMain.handle('window:close', () => mainWindow.close())
-  ipcMain.handle('shell:openExternal', (_, url) => shell.openExternal(url))
 
-  
-  let isUpdating = false;
+ipcMain.handle('window:minimize', () => mainWindow.minimize())
+ipcMain.handle('window:maximize', () => mainWindow.isMaximized() ? mainWindow.unmaximize() : mainWindow.maximize())
+ipcMain.handle('window:close', () => mainWindow.close())
+ipcMain.handle('shell:openExternal', (_, url) => shell.openExternal(url))
 
 ipcMain.handle('updater:install', () => {
   isUpdating = true; 
-  autoUpdater.quitAndInstall(false, true); 
-})
+  BrowserWindow.getAllWindows().forEach(w => w.close());
+  
+  setTimeout(() => {
+    autoUpdater.quitAndInstall(false, true); 
+  }, 500);
+});
   ipcMain.handle('updater:check', () => {
     autoUpdater.checkForUpdates()
   })
@@ -201,7 +204,16 @@ ipcMain.handle('updater:install', () => {
   }
 })
 app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin' && !isUpdating) {
-    app.quit()
+  if (process.platform !== 'darwin' || isUpdating) {
+    app.quit();
   }
 })
+
+app.on('before-quit', () => {
+  if (isUpdating) {
+    if (mainWindow) {
+      mainWindow.destroy();
+    }
+  }
+});
+

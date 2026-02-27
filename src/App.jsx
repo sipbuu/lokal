@@ -612,7 +612,6 @@ export default function App() {
       <div className="fixed bottom-24 left-1/2 -translate-x-1/2 z-[100] w-full max-w-[440px] px-4 animate-in fade-in slide-in-from-bottom-4 duration-300">
         <div className="bg-elevated/80 backdrop-blur-xl border border-white/10 rounded-2xl shadow-2xl overflow-hidden ring-1 ring-black/5">
           
-          {/* Top Status Bar */}
           <div className="p-4 flex items-center justify-between bg-white/5">
             <div className="flex items-center gap-3">
               <div className={`p-2 rounded-lg ${isReady ? 'bg-green-500/20 text-green-400' : 'bg-accent/20 text-accent'}`}>
@@ -640,7 +639,6 @@ export default function App() {
             </button>
           </div>
 
-          {/* Content Area */}
           <div className="p-4 space-y-4">
             {isDownloading ? (
               <div className="py-2">
