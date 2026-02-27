@@ -7,7 +7,7 @@ try { require('dotenv').config() } catch {}
 
 const { initDB, getDB, getStorageDir } = require('../electron/ipc/db')
 initDB()
-console.log(`📂 DB: ${getStorageDir()}`)
+console.log(`DB: ${getStorageDir()}`)
 
 const app = express()
 app.use(cors())

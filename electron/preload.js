@@ -13,7 +13,7 @@ contextBridge.exposeInMainWorld('electron', {
   readFileBinary: (fp) => invoke('dialog:readFileBinary', fp),
   readFileAsDataURL: (fp) => invoke('dialog:readFileAsDataURL', fp),
 
-  
+  updaterDownload: () => invoke('updater:download'),
   scanFolder: (f) => invoke('scanner:scan', f),
   getTracks: (o) => invoke('scanner:getTracks', o),
   searchTracks: (q) => invoke('scanner:search', q),

@@ -127,7 +127,7 @@ export default function App() {
           setUpdateState(prev => ({
             ...prev,
             status: 'downloading',
-            progress: data.percent || 0,
+            progress: data && data.percent ? Math.floor(data.percent) : prev.progress,
           }))
           break
         case 'ready':
@@ -603,9 +603,19 @@ export default function App() {
 
   const handleStartDownload = async () => {
     setUpdateState(prev => ({ ...prev, status: 'downloading' }));
-    if (api.updaterDownload) {
-      await api.updaterDownload();
+
+    try {
+      const result = await api.updaterDownload();
+      if (result?.error) {
+        setUpdateState(prev => ({ ...prev, status: 'error', error: result.error }));
+      }
+    } catch (err) {
+      setUpdateState(prev => ({ ...prev, status: 'error', error: err.message }));
     }
+
+    //if (api.updaterDownload) {
+      //await api.updaterDownload();
+    //}
   };
   const MarkdownLite = ({ text }) => {
     const lines = text.split('\n');
@@ -676,7 +686,7 @@ export default function App() {
               </div>
               <div>
                 <h4 className="text-xl font-black text-white tracking-tight">
-                  {isReady ? 'Update Ready' : isDownloading ? 'Downloading...' : 'System Update'}
+                  {isReady ? 'Update Ready' : isDownloading ? 'Downloading...' : 'Update Available'}
                 </h4>
                 <p className="text-xs text-accent uppercase tracking-[0.2em] font-bold mt-1 opacity-80">
                   Lokal v{updateState.info?.version || '1.3.0'}

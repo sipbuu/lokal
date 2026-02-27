@@ -28,10 +28,6 @@ autoUpdater.on('download-progress', (progress) => {
   }
 })
 
-ipcMain.handle('updater:download', async () => {
-  return await autoUpdater.downloadUpdate()
-})
-
 autoUpdater.on('update-downloaded', () => {
   if (mainWindow) {
     mainWindow.webContents.send('updater:ready')
@@ -132,7 +128,10 @@ app.whenReady().then(() => {
     }
   })
 
-  
+  ipcMain.handle('updater:download', async () => {
+  return await autoUpdater.downloadUpdate()
+})
+
   ipcMain.handle('perf:load', async () => {
     return perfSettings
   })

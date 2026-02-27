@@ -90,8 +90,7 @@ export const api = {
   downloadPlaylist: (url, o) => isE() ? el().downloadPlaylist(url, o) : apiFetch('/download/playlist', { method:'POST', body:{url,...o} }),
   cancelDownload: (id) => isE() ? el().cancelDownload(id) : Promise.resolve(),
   getDownloadQueue: () => isE() ? el().getDownloadQueue() : apiFetch('/download/queue'),
-
-  
+  updaterDownload: () => isE() ? el().updaterDownload() : Promise.resolve({ error: 'Electron only' }),
   getToolsStatus: () => isE() ? el().getToolsStatus() : Promise.resolve({}),
   downloadYtDlp: () => isE() ? el().downloadYtDlp() : Promise.resolve({ error: 'Electron only' }),
   downloadFfmpeg: () => isE() ? el().downloadFfmpeg() : Promise.resolve({ error: 'Electron only' }),
