@@ -34,7 +34,7 @@ body {
   overflow: hidden;
   user-select: none;
   -webkit-app-region: no-drag;
-
+}
 ::-webkit-scrollbar { width: 4px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }

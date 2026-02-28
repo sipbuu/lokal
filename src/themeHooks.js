@@ -23,6 +23,7 @@ export function useTheme() {
         }
       })
     }
+  }, []);
 
   const selectTheme = async (name) => {
     setThemeName(name)
