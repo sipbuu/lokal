@@ -16,6 +16,7 @@ export const THEMES = {
       '--red': '#ff5757',
       '--purple': '#7c6aff',
       '--orange': '#ff9f43',
+      '--text-scale': '1',
     }
   },
   light: {
@@ -35,6 +36,7 @@ export const THEMES = {
       '--red': '#e53935',
       '--purple': '#5e35b1',
       '--orange': '#fb8c00',
+      '--text-scale': '1',
     }
   },
   midnight: {
@@ -54,6 +56,7 @@ export const THEMES = {
       '--red': '#f85149',
       '--purple': '#a371f7',
       '--orange': '#d29922',
+      '--text-scale': '1',
     }
   },
   warm: {
@@ -73,6 +76,7 @@ export const THEMES = {
       '--red': '#e74c3c',
       '--purple': '#9b59b6',
       '--orange': '#e67e22',
+      '--text-scale': '1',
     }
   },
   oled: {
@@ -92,6 +96,7 @@ export const THEMES = {
       '--red': '#ff5757',
       '--purple': '#7c6aff',
       '--orange': '#ff9f43',
+      '--text-scale': '1',
     }
   },
   ocean: {
@@ -111,6 +116,7 @@ export const THEMES = {
       '--red': '#ff5757',
       '--purple': '#7c6aff',
       '--orange': '#ff9f43',
+      '--text-scale': '1',
     }
   },
   forest: {
@@ -130,6 +136,7 @@ export const THEMES = {
       '--red': '#ff5757',
       '--purple': '#7c6aff',
       '--orange': '#ff9f43',
+      '--text-scale': '1',
     }
   },
   cyberpunk: {
@@ -149,6 +156,7 @@ export const THEMES = {
       '--red': '#ff3e3e',
       '--purple': '#9d4edd',
       '--orange': '#ff9100',
+      '--text-scale': '1',
     }
   },
   rosegold: {
@@ -168,6 +176,7 @@ export const THEMES = {
       '--red': '#ff6b6b',
       '--purple': '#d4a5ff',
       '--orange': '#ffb38a',
+      '--text-scale': '1',
     }
   },
   deepContrast: {
@@ -187,6 +196,7 @@ export const THEMES = {
       '--red': '#ff0000',
       '--purple': '#bf94ff',
       '--orange': '#ffab40',
+      '--text-scale': '1',
     }
   }
 }

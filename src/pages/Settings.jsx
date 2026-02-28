@@ -127,7 +127,7 @@ export default function Settings() {
   
   const { openAlbums, user } = useAppStore()
   const fileInputRef = useRef(null)
-  const { themeName, themeOverrides, showAdvanced, setShowAdvanced, selectTheme, setAccent, saveOverride, resetTheme } = useTheme()
+  const { themeName, themeOverrides, showAdvanced, setShowAdvanced, selectTheme, setAccent, saveOverride, resetTheme, textScale, setTextScale } = useTheme()
 
   useEffect(() => {
 
@@ -849,6 +849,30 @@ export default function Settings() {
                   title={color.name}
                 />
               ))}
+            </div>
+          </div>
+
+          <div>
+            <p className="text-sm text-white font-medium mb-3">Text Size</p>
+            <div className="flex items-center gap-4">
+              <span className="text-xs text-muted">A</span>
+              <input
+                type="range"
+                min="0.7"
+                max="1.5"
+                step="0.05"
+                value={textScale}
+                onChange={(e) => setTextScale(e.target.value)}
+                className="flex-1 accent-accent"
+              />
+              <span className="text-lg text-muted">A</span>
+              <span className="text-xs text-muted ml-2 w-12">
+                {Math.round(parseFloat(textScale) * 100)}%
+              </span>
+            </div>
+            <div className="flex justify-between mt-1">
+              <span className="text-[10px] text-muted/50">Small</span>
+              <span className="text-[10px] text-muted/50">Large</span>
             </div>
           </div>
 

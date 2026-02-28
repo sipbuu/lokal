@@ -6,6 +6,7 @@ export function useTheme() {
   const [themeName, setThemeName] = useState('dark')
   const [themeOverrides, setThemeOverrides] = useState({})
   const [showAdvanced, setShowAdvanced] = useState(false)
+  const [textScale, setTextScaleState] = useState('1')
 
   useEffect(() => {
     if (api.isElectron) {
@@ -15,10 +16,13 @@ export function useTheme() {
           setThemeOverrides(t.overrides || {})
           const baseVars = THEMES[t.theme]?.vars || THEMES.dark.vars
           applyTheme({ ...baseVars, ...(t.overrides || {}) })
+          
+          const textScaleValue = t.overrides?.['--text-scale'] || '1'
+          setTextScaleState(textScaleValue)
+          document.documentElement.style.setProperty('--text-scale', textScaleValue)
         }
       })
     }
-  }, [])
 
   const selectTheme = async (name) => {
     setThemeName(name)
@@ -52,10 +56,20 @@ export function useTheme() {
     await api.saveTheme(themeName, {})
   }
 
+  const setTextScale = async (scale) => {
+    setTextScaleState(scale)
+    const overrides = { ...themeOverrides, '--text-scale': scale }
+    setThemeOverrides(overrides)
+    const vars = { ...THEMES[themeName]?.vars, ...overrides }
+    applyTheme(vars)
+    await api.saveTheme(themeName, overrides)
+  }
+
   return {
     themeName, setThemeName,
     themeOverrides,
     showAdvanced, setShowAdvanced,
-    selectTheme, setAccent, saveOverride, resetTheme
+    selectTheme, setAccent, saveOverride, resetTheme,
+    textScale, setTextScale
   }
 }

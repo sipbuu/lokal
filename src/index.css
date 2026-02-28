@@ -18,9 +18,14 @@
   --purple: #7c6aff;
   --orange: #ff9f43;
   --custom: #e8ff57;
+  --text-scale: 1;
 }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
+
+html {
+  font-size: calc(16px * var(--text-scale, 1));
+}
 
 body {
   background: var(--bg);
@@ -29,7 +34,6 @@ body {
   overflow: hidden;
   user-select: none;
   -webkit-app-region: no-drag;
-}
 
 ::-webkit-scrollbar { width: 4px; }
 ::-webkit-scrollbar-track { background: transparent; }
