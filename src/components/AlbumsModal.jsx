@@ -28,9 +28,9 @@ function AlbumCard({ album, onClick }) {
         </div>
       </div>
       <div className="min-w-0 flex-1 max-w-full">
-        <p className="text-sm font-medium text-white truncate">{album.title}</p>
-        <p className="text-xs text-muted truncate">{album.artists || album.album_artist}</p>
-        <p className="text-xs text-muted/60">{album.track_count} tracks{album.year ? ` · ${album.year}` : ''}</p>
+        <p className="text-xs font-medium text-white truncate">{album.title}</p>
+        <p className="text-[10px] text-muted truncate">{album.artists || album.album_artist}</p>
+        <p className="text-[10px] text-muted/60">{album.track_count} tracks{album.year ? ` · ${album.year}` : ''}</p>
       </div>
     </motion.button>
   )
