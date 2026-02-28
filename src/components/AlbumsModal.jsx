@@ -27,7 +27,7 @@ function AlbumCard({ album, onClick }) {
           </div>
         </div>
       </div>
-      <div className="min-w-0">
+      <div className="min-w-0 flex-1 max-w-full">
         <p className="text-sm font-medium text-white truncate">{album.title}</p>
         <p className="text-xs text-muted truncate">{album.artists || album.album_artist}</p>
         <p className="text-xs text-muted/60">{album.track_count} tracks{album.year ? ` · ${album.year}` : ''}</p>
@@ -46,7 +46,7 @@ function AlbumDetail({ album, onClose }) {
 
   return (
     <div className="flex flex-col h-full">
-      <div className="flex items-center gap-4 p-6 border-b border-border flex-shrink-0">
+      <div className="flex items-center gap-4 p-6 border-b border-border flex-shrink-0 overflow-hidden">
         <button onClick={onClose} className="text-muted hover:text-white transition-colors">← Back</button>
         <div className="w-16 h-16 rounded-xl overflow-hidden bg-card flex items-center justify-center flex-shrink-0">
           {album.artwork_path
@@ -54,9 +54,9 @@ function AlbumDetail({ album, onClose }) {
             : <Disc3 size={28} className="text-subtle" />
           }
         </div>
-        <div className="min-w-0 flex-1">
+        <div className="min-w-0 flex-1 max-w-full">
           <h2 className="text-lg font-display text-white truncate">{album.title}</h2>
-          <p className="text-sm text-muted">{album.artists || album.album_artist}</p>
+          <p className="text-sm text-muted truncate">{album.artists || album.album_artist}</p>
           <p className="text-xs text-muted/60">{album.track_count} tracks{album.year ? ` · ${album.year}` : ''}</p>
         </div>
         {tracks.length > 0 && (
