@@ -236,7 +236,6 @@ useEffect(() => {
   }, [track?.id])
 
   useEffect(() => {
-    // Only call this when loading is false - we haven't determined availability yet when loading
     if (!loading) {
       onLyricsAvailable?.(lines.length > 0);
     }
@@ -307,7 +306,6 @@ useEffect(() => {
     return () => cancelAnimationFrame(raf)
   }, [activeIdx])
 
-  // Check if lyrics are actually synced (have time data)
   const hasSyncedLyrics = processedLines.some(l => l.time != null)
   const showUnsyncedMessage = isAutoSynced && !hasSyncedLyrics && processedLines.length > 0
 
