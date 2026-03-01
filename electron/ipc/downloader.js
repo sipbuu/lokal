@@ -2,7 +2,7 @@ const { spawn } = require('child_process')
 const path = require('path')
 const fs = require('fs-extra')
 const { getDB, getStorageDir } = require('./db')
-const { findYtDlp, findFfmpeg } = require('./tools')
+const { findYtDlp, findFfmpeg, findFfprobe } = require('./tools')
 
 const downloadQueue = new Map()
 let mainWindow = null
@@ -210,7 +210,10 @@ function registerDownloaderHandlers(ipcMain) {
     mainWindow = BrowserWindow.fromWebContents(e.sender)
     const ytdlp = findYtDlp()
     const ffmpeg = findFfmpeg()
+    const ffprobe = findFfprobe()
+    
     if (!ffmpeg) return { error: 'ffmpeg not found. Please download it in Settings.' }
+    if (!ffprobe) return { error: 'ffprobe not found. Please re-download ffmpeg in Settings (it now includes ffprobe).' }
     if (!ytdlp) return { error: 'yt-dlp not found. Go to Settings → External Tools to download it or set a custom path.' }
 
     const db = getDB()
@@ -376,12 +379,15 @@ function registerExtraDownloaderHandlers(ipcMain) {
     const win = BrowserWindow.fromWebContents(e.sender)
     const ytdlp = findYtDlp()
     const ffmpeg = findFfmpeg()
+    const ffprobe = findFfprobe()
     const path = require('path')
     const fs = require('fs-extra')
     const os = require('os')
     const { spawn } = require('child_process')
 
     if (!ytdlp) return { error: 'yt-dlp not found. Go to Settings → External Tools to download it or set a custom path.' }
+    if (!ffmpeg) return { error: 'ffmpeg not found. Please download it in Settings.' }
+    if (!ffprobe) return { error: 'ffprobe not found. Please re-download ffmpeg in Settings.' }
 
     const db = getDB()
     const settings = Object.fromEntries(db.prepare('SELECT key, value FROM settings').all().map(r => [r.key, r.value]))
