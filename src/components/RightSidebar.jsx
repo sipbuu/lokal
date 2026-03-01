@@ -95,7 +95,7 @@ export default function RightSidebar() {
             <div className="flex-1 flex flex-col overflow-hidden">
               <div className="flex-1 overflow-hidden min-h-0">
                 {currentTrack ? (
-                  <LyricsPanel track={currentTrack} progress={progress} darkMode wordSync={wordSync} fullscreen={false} />
+                  <LyricsPanel track={currentTrack} progress={progress} darkMode wordSync={wordSync} fullscreen={false} textScale={1.4} />
                 ) : (
                   <div className="flex items-center justify-center h-full text-muted text-xs">No track playing</div>
                 )}

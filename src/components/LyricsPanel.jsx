@@ -130,14 +130,17 @@ function RAFWordLine({ words, bgWords, liveProgressRef }) {
 }
 
 const Line = React.memo(function Line({
-  line, isActive, isPast, fullscreen, darkMode, wordSync, lyricsType, liveProgressRef, onRef, distanceFromActive,
+  line, isActive, isPast, fullscreen, darkMode, wordSync, lyricsType, liveProgressRef, onRef, distanceFromActive, textScale = 1,
 }) {
-  const normalSize = fullscreen ? 'text-xl leading-relaxed' : 'text-sm leading-snug'
-  const activeSize = fullscreen ? 'text-3xl leading-tight' : 'text-base leading-snug'
   const useRAF = wordSync && lyricsType === 'synced' && isActive && line.words?.length > 0
 
   const blurAmount = Math.min(distanceFromActive * 1, 8)
   const isBlurred = blurAmount > 0.1
+
+  const baseNormalSize = fullscreen ? 1.2 : 0.875
+  const baseActiveSize = fullscreen ? 1.9 : 1.125
+  const normalSize = baseNormalSize * textScale
+  const activeSize = baseActiveSize * textScale
 
   return (
     <motion.div
@@ -147,14 +150,16 @@ const Line = React.memo(function Line({
         scale: isActive ? (fullscreen ? 1 : 1.01) : 1,
       }}
       transition={{ duration: 0.2 }}
-      className={`text-center w-full max-w-2xl my-1.5 font-medium cursor-default select-none
-        ${isActive ? activeSize : normalSize}`}
+      className="text-center w-full max-w-2xl my-1.5 font-medium cursor-default select-none"
       style={{
         color: isActive ? (darkMode ? '#fff' : '#e8ff57') : '#666',
         fontWeight: isActive ? 700 : 500,
         textShadow: isActive && fullscreen ? '0 0 40px rgba(232,255,87,0.2)' : 'none',
         filter: isBlurred ? `blur(${blurAmount}px)` : 'none',
-        transform: isBlurred ? 'scale(0.98)' : 'scale(1)',
+        transform: `scale(${textScale})`,
+        fontSize: isActive ? `${activeSize}rem` : `${normalSize}rem`,
+        lineHeight: isActive ? '1.2' : '1.5',
+        transition: 'transform 0.6s cubic-bezier(0.16, 1, 0.3, 1), filter 0.6s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.6s cubic-bezier(0.16, 1, 0.3, 1), color 0.4s ease',
       }}
     >
       {useRAF
@@ -174,7 +179,7 @@ const Line = React.memo(function Line({
 )
 
 export default function LyricsPanel({
-  track, progress, darkMode = false, fullscreen = false, wordSync = false, onLyricsAvailable, onSearchRequest,
+  track, progress, darkMode = false, fullscreen = false, wordSync = false, onLyricsAvailable, onSearchRequest, textScale = 1,
 }) {
   const [lines, setLines] = useState([])
   const [lyricsType, setLyricsType] = useState(null)
@@ -341,6 +346,7 @@ useEffect(() => {
           liveProgressRef={liveProgressRef}
           onRef={el => lineRefs.current[i] = el}
           distanceFromActive={activeIdx >= 0 ? Math.abs(i - activeIdx) : 0}
+          textScale={textScale}
         />
       ))}
 

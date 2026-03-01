@@ -209,7 +209,7 @@ export default function FullscreenPlayer() {
             {}
             <div className="flex-1 min-h-0">
               {currentTrack
-                ? <LyricsPanel track={currentTrack} progress={progress} darkMode fullscreen wordSync={wordSync} onLyricsAvailable={setHasLyrics} />
+                ? <LyricsPanel track={currentTrack} progress={progress} darkMode fullscreen wordSync={wordSync} onLyricsAvailable={setHasLyrics} textScale={1.15} />
                 : <div className="h-full flex items-center justify-center text-white/15 text-sm">No track playing</div>
               }
             </div>

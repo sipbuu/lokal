@@ -95,6 +95,7 @@ export default function LyricsFullscreen() {
               fullscreen
               wordSync={wordSync}
               onSearchRequest={handleSearchRequest}
+              textScale={1.3}
             />
           </div>
 
