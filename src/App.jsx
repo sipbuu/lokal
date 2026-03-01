@@ -619,30 +619,53 @@ export default function App() {
   };
   const MarkdownLite = ({ text }) => {
     const lines = text.split('\n');
+
+    const renderInline = (str) => {
+      const parts = str.split(/(\*\*.*?\*\*)/g);
+      return parts.map((part, i) => {
+        if (part.startsWith('**') && part.endsWith('**')) {
+          return <strong key={i} className="font-bold text-white/90">{part.slice(2, -2)}</strong>;
+        }
+        return part;
+      });
+    };
+
     return (
       <div className="space-y-2">
         {lines.map((line, i) => {
+          const trimmedLine = line.trim();
+
           if (line.startsWith('### ')) {
-            return <h3 key={i} className="text-sm font-bold text-white mt-4">{line.replace('### ', '')}</h3>;
+            return <h3 key={i} className="text-sm font-bold text-white mt-4">{renderInline(line.replace('### ', ''))}</h3>;
           }
           if (line.startsWith('## ')) {
-            return <h2 key={i} className="text-base font-bold text-white mt-4 border-b border-white/10 pb-1">{line.replace('## ', '')}</h2>;
+            return <h2 key={i} className="text-base font-bold text-white mt-4 border-b border-white/10 pb-1">{renderInline(line.replace('## ', ''))}</h2>;
           }
+
+          if (line.startsWith('> ')) {
+            return (
+              <blockquote key={i} className="border-l-2 border-accent/50 pl-3 py-1 my-2 bg-white/5 italic text-xs text-muted/90 rounded-r-sm">
+                {renderInline(line.replace('> ', ''))}
+              </blockquote>
+            );
+          }
+
           if (line.startsWith('- ') || line.startsWith('* ')) {
             return (
               <div key={i} className="flex gap-2 text-xs text-muted ml-2">
                 <span className="text-accent">•</span>
-                <span>{line.replace(/^[-*]\s+/, '').replace(/\*\*(.*?)\*\*/g, '$1')}</span>
+                <span>{renderInline(line.replace(/^[-*]\s+/, ''))}</span>
               </div>
             );
           }
-          const bolded = line.split(/(\*\*.*?\*\*)/g).map((part, j) => {
-            if (part.startsWith('**') && part.endsWith('**')) {
-              return <strong key={j} className="font-bold text-white/90">{part.slice(2, -2)}</strong>;
-            }
-            return part;
-          });
-          return <p key={i} className="text-xs text-muted leading-relaxed">{bolded}</p>;
+
+          if (!trimmedLine) return <div key={i} className="h-1" />;
+          
+          return (
+            <p key={i} className="text-xs text-muted leading-relaxed">
+              {renderInline(line)}
+            </p>
+          );
         })}
       </div>
     );
