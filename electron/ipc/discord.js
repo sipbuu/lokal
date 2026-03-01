@@ -10,6 +10,45 @@ let lastTrackId = null
 
 const artworkCache = new Map()
 
+let keepCommaArtistsCache = null
+
+function getFirstArtist(artistString) {
+  if (!artistString) return null
+  
+  if (!keepCommaArtistsCache) {
+    try {
+      const { getDB } = require('./db')
+      const db = getDB()
+      const setting = db.prepare("SELECT value FROM settings WHERE key = 'keep_comma_artists'").get()
+      keepCommaArtistsCache = setting?.value ? JSON.parse(setting.value) : []
+    } catch {
+      keepCommaArtistsCache = []
+    }
+  }
+  
+  const keepComma = new Set([
+    'Tyler, The Creator', 'Earth, Wind & Fire', 'Crosby, Stills & Nash',
+    'Crosby, Stills, Nash & Young', 'Simon & Garfunkel', 'Emerson, Lake & Palmer',
+    'Syd Barrett', 'Pete & Bas', 'Pe & Ne',
+    ...keepCommaArtistsCache
+  ])
+  
+  const lower = artistString.toLowerCase().trim()
+  for (const known of keepComma) {
+    if (lower === known.toLowerCase() || lower.startsWith(known.toLowerCase() + ' ') || lower.endsWith(' ' + known.toLowerCase())) {
+      return artistString.trim()
+    }
+  }
+  
+  const commaLowerPattern = /,\s+[a-z]/
+  if (commaLowerPattern.test(artistString)) {
+    return artistString.split(',')[0].trim()
+  }
+  
+  const parts = artistString.split(/,\s+/)
+  return parts[0].trim() || artistString
+}
+
 function cleanTitle(title) {
   if (!title) return ''
   return title.replace(/\s*\([^)]*\)/g, '').trim()
@@ -25,7 +64,8 @@ function isArtistMatch(localArtist, itunesArtist) {
 async function fetchiTunesArtwork(title, artist) {
   if (!title || !artist) return null
   
-  const cacheKey = `${title}-${artist}`
+  const firstArtist = getFirstArtist(artist)
+  const cacheKey = `${title}-${firstArtist}`
   
   if (artworkCache.has(cacheKey)) {
     return artworkCache.get(cacheKey)
@@ -33,12 +73,12 @@ async function fetchiTunesArtwork(title, artist) {
   
   try {
     const cleanTitleText = cleanTitle(title)
-    const query = encodeURIComponent(`${cleanTitleText} ${artist}`)
+    const query = encodeURIComponent(`${cleanTitleText} ${firstArtist}`)
     const response = await fetch(`https://itunes.apple.com/search?term=${query}&entity=song&limit=5`)
     const data = await response.json()
 
     if (data.results && data.results.length > 0) {
-      const match = data.results.find(res => isArtistMatch(artist, res.artistName))
+      const match = data.results.find(res => isArtistMatch(firstArtist, res.artistName))
       
       if (match) {
         const artworkUrl = match.artworkUrl100.replace('100x100bb', '600x600bb')
@@ -99,7 +139,8 @@ async function setActivity(track, isPlaying) {
       return
     }
 
-    const cacheKey = `${track.title}-${track.artist}`
+    const firstArtist = getFirstArtist(track.artist)
+    const cacheKey = `${track.title}-${firstArtist}`
     let largeImageKey = artworkCache.get(cacheKey) || 'lokal_music'
 
     if (track.id !== lastTrackId) {
