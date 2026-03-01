@@ -680,6 +680,13 @@ export default function Settings() {
             {settings.word_sync === '1' ? 'On' : 'Off'}
           </button>
         </Row>
+        <Row label="Unsynced Lyrics Auto-Sync" desc="Rough estimation to sync plain lyrics">
+          <button
+            onClick={() => set('unsynced_auto_sync', settings.unsynced_auto_sync === '1' ? '0' : '1')}
+            className={`px-4 py-1.5 rounded-lg text-xs font-display uppercase tracking-wider border transition-colors ${settings.unsynced_auto_sync === '1' ? 'bg-accent/20 border-accent/50 text-accent' : 'border-border text-muted hover:text-white'}`}>
+            {settings.unsynced_auto_sync === '1' ? 'On' : 'Off'}
+          </button>
+        </Row>
         <Row label="Clear Lyrics Cache">
           <button onClick={() => api.clearLyricsDb()}
             className="px-4 py-2 bg-card border border-border rounded-lg text-sm text-muted hover:text-white transition-colors flex items-center gap-2">

@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { X, Download, RotateCcw, Search } from 'lucide-react'
 import { usePlayerStore } from '../store/player'
@@ -9,7 +9,12 @@ export default function LyricsFullscreen() {
   const { showLyricsFullscreen, toggleLyricsFullscreen, currentTrack, progress } = usePlayerStore()
   const [refreshKey, setRefreshKey] = useState(0)
   const [showSearch, setShowSearch] = useState(false)
+  const [settings, setSettings] = useState({})
   const wordSync = localStorage.getItem('word-sync') === '1'
+
+  useEffect(() => {
+    api.getSettings().then(s => setSettings(s || {}))
+  }, [])
 
   const importLyrics = async () => {
     if (!currentTrack || !api.isElectron) return
@@ -30,6 +35,8 @@ export default function LyricsFullscreen() {
   const handleSearchRequest = () => {
     setShowSearch(true)
   }
+
+  const isAutoSynced = settings.unsynced_auto_sync === '1'
 
   return (
     <AnimatePresence>
@@ -95,7 +102,8 @@ export default function LyricsFullscreen() {
               fullscreen
               wordSync={wordSync}
               onSearchRequest={handleSearchRequest}
-              textScale={1.3}
+              textScale={1.15}
+              isAutoSynced={isAutoSynced}
             />
           </div>
 
