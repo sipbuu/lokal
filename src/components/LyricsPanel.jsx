@@ -136,8 +136,7 @@ const Line = React.memo(function Line({
   const activeSize = fullscreen ? 'text-3xl leading-tight' : 'text-base leading-snug'
   const useRAF = wordSync && lyricsType === 'synced' && isActive && line.words?.length > 0
 
-  // Calculate blur based on distance from active line (Apple Music style)
-  const blurAmount = Math.min(distanceFromActive * 1, 8) // Max blur of 8px
+  const blurAmount = Math.min(distanceFromActive * 1, 8)
   const isBlurred = blurAmount > 0.1
 
   return (
