@@ -19,6 +19,7 @@ export default function RightSidebar() {
   const { showRightSidebar, toggleRightSidebar, currentTrack, isPlaying, progress, toggleFullscreen, toggleLyricsFullscreen } = usePlayerStore()
   const [tab, setTab] = useState('info')
   const wordSync = localStorage.getItem('word-sync') === '1'
+  const isAutoSynced = localStorage.getItem('unsynced_auto_sync') === '1'
 
   const artSrc = currentTrack?.artwork_path
     ? (api.isElectron ? `file://${currentTrack.artwork_path}` : api.artworkURL(currentTrack.id))
@@ -95,7 +96,7 @@ export default function RightSidebar() {
             <div className="flex-1 flex flex-col overflow-hidden">
               <div className="flex-1 overflow-hidden min-h-0">
                 {currentTrack ? (
-                  <LyricsPanel track={currentTrack} progress={progress} darkMode wordSync={wordSync} fullscreen={false} textScale={1.4} />
+                  <LyricsPanel track={currentTrack} progress={progress} darkMode wordSync={wordSync} fullscreen={false} textScale={1.4} isAutoSynced={isAutoSynced} />
                 ) : (
                   <div className="flex items-center justify-center h-full text-muted text-xs">No track playing</div>
                 )}
