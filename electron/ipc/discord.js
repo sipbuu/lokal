@@ -6,6 +6,53 @@ let rpcClient = null
 let artworkServer = null
 let artworkPort = null
 let artworkFile = null
+let lastTrackId = null
+
+const artworkCache = new Map()
+
+function cleanTitle(title) {
+  if (!title) return ''
+  return title.replace(/\s*\([^)]*\)/g, '').trim()
+}
+
+function isArtistMatch(localArtist, itunesArtist) {
+  if (!localArtist || !itunesArtist) return false
+  const a = localArtist.toLowerCase()
+  const b = itunesArtist.toLowerCase()
+  return a.includes(b) || b.includes(a)
+}
+
+async function fetchiTunesArtwork(title, artist) {
+  if (!title || !artist) return null
+  
+  const cacheKey = `${title}-${artist}`
+  
+  if (artworkCache.has(cacheKey)) {
+    return artworkCache.get(cacheKey)
+  }
+  
+  try {
+    const cleanTitleText = cleanTitle(title)
+    const query = encodeURIComponent(`${cleanTitleText} ${artist}`)
+    const response = await fetch(`https://itunes.apple.com/search?term=${query}&entity=song&limit=5`)
+    const data = await response.json()
+
+    if (data.results && data.results.length > 0) {
+      const match = data.results.find(res => isArtistMatch(artist, res.artistName))
+      
+      if (match) {
+        const artworkUrl = match.artworkUrl100.replace('100x100bb', '600x600bb')
+        artworkCache.set(cacheKey, artworkUrl)
+        return artworkUrl
+      }
+    }
+  } catch (err) {
+    console.error('iTunes API Error:', err)
+  }
+  
+  artworkCache.set(cacheKey, 'lokal_music')
+  return 'lokal_music'
+}
 
 function msFromMaybeSeconds(value) {
   if (!value) return 0
@@ -52,7 +99,17 @@ async function setActivity(track, isPlaying) {
       return
     }
 
-    let largeImageKey = 'lokal_music'
+    const cacheKey = `${track.title}-${track.artist}`
+    let largeImageKey = artworkCache.get(cacheKey) || 'lokal_music'
+
+    if (track.id !== lastTrackId) {
+      lastTrackId = track.id
+      fetchiTunesArtwork(track.title, track.artist).then((url) => {
+        if (url && url !== largeImageKey && url !== 'lokal_music') {
+          setActivity(track, isPlaying)
+        }
+      })
+    }
 
     const positionMs = msFromMaybeSeconds(track.position_ms ?? track.position)
     const durationMs = msFromMaybeSeconds(track.duration_ms ?? track.duration)
@@ -60,8 +117,10 @@ async function setActivity(track, isPlaying) {
     const timestamps = {}
 
     if (isPlaying) {
-      timestamps.startTimestamp = new Date(now - positionMs)
-      if (durationMs > 0) timestamps.endTimestamp = new Date(now + (durationMs - positionMs))
+      timestamps.startTimestamp = Math.floor(now - positionMs)
+      if (durationMs > 0) {
+        timestamps.endTimestamp = Math.floor(now + (durationMs - positionMs))
+      }
     }
 
     await rpcClient.setActivity({
@@ -76,7 +135,8 @@ async function setActivity(track, isPlaying) {
         + `${formatTimeMs(positionMs)}${durationMs ? ' / ' + formatTimeMs(durationMs) : ''}`,
       instance: false,
     })
-  } catch {
+  } catch (err) {
+    console.error('Discord RPC Error:', err)
     rpcClient = null
   }
 }
