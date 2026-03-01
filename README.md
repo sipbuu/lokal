@@ -10,6 +10,7 @@ Local-first music player built w/ Electron and React. Designed for people with l
 ---
 ## Before reading further, check the Common links:
 
+If you are wondering why you have to create an account or other general questions, please [read the FAQ](https://github.com/sipbuu/lokal/blob/main/FAQ.md)
 
 >Interested in creating TTML lyrics, then check out [our side TTML editor!](https://github.com/sipbuu/lokal-ttml) 
 
