@@ -68,7 +68,13 @@ function DownloadItem({ d, onRemove }) {
                 animate={{ width: d.progress > 0 ? `${d.progress}%` : ['0%','30%','60%','30%','0%'] }}
                 transition={d.progress > 0 ? { duration: 0.3 } : { duration: 2, repeat: Infinity }} />
             </div>
-            {d.progress > 0 && <p className="text-xs text-muted mt-0.5">{Math.round(d.progress)}% · {d.speed || ''}</p>}
+            {d.progress > 0 && (
+              <p className="text-xs text-muted mt-0.5">
+                {d.message?.includes('Skipping') 
+                  ? <span className="text-accent/80 font-medium">{d.message}</span> 
+                  : `${Math.round(d.progress)}% · ${d.speed || ''}`}
+              </p>
+            )}
           </div>
         )}
         {d.error && <p className="text-xs text-red-400 mt-0.5 truncate">{d.error}</p>}

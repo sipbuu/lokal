@@ -390,8 +390,11 @@ function registerExtraDownloaderHandlers(ipcMain) {
 
     const dlId = opts.id || 'pl-' + Date.now()
     const outputTemplate = path.join(outputDir, '%(playlist)s', '%(artist)s', '%(title)s.%(ext)s')
+    const archivePath = path.join(getStorageDir(), 'yt-dlp-archive.txt')
+
     const args = [
       url,
+      '--download-archive', archivePath,
       '-x',
       '--audio-format', opts.format || 'mp3',
       '--audio-quality', '0',
@@ -401,6 +404,7 @@ function registerExtraDownloaderHandlers(ipcMain) {
       '--newline',
       '--progress',
       '--yes-playlist',
+      '--ignore-errors',
     ]
 
     const useYtCookies = settings.yt_cookies === '1'
@@ -441,6 +445,19 @@ function registerExtraDownloaderHandlers(ipcMain) {
         for (const line of lines) {
           if (!line.trim()) continue
           outputLines.push(line)
+
+          if (line.includes('has already been recorded in the archive')) {
+            const idMatch = line.match(/\[download\] (.*) has already/)
+            const videoId = idMatch ? idMatch[1] : 'item'
+            
+            if (win) win.webContents.send('downloader:progress', {
+              id: dlId,
+              message: `Skipping: ${videoId} (Already in library)`,
+              status: 'skipped',
+              output: outputLines.slice(-30).join('\n')
+            })
+            continue
+          }
 
           const songMatch = line.match(/\[download\] Downloading video (\d+) of (\d+)/)
           if (songMatch) {
