@@ -179,7 +179,7 @@ const Line = React.memo(function Line({
 )
 
 export default function LyricsPanel({
-  track, progress, darkMode = false, fullscreen = false, wordSync = false, onLyricsAvailable, onSearchRequest, textScale = 1,
+  track, progress, darkMode = false, fullscreen = false, wordSync = false, onLyricsAvailable, onSearchRequest, textScale = 1, isAutoSynced = false,
 }) {
   const [lines, setLines] = useState([])
   const [lyricsType, setLyricsType] = useState(null)
@@ -224,7 +224,11 @@ useEffect(() => {
     if (!track?.id) return
     setLoading(true); setLines([]); setActiveIdx(-1); setLyricsType(null); setSource(null)
     api.getLyrics(track.id, track.title, track.artist, track.album, track.duration).then(r => {
-      if (r?.lines) { setLines(r.lines); setLyricsType(r.type); setSource(r.source) }
+      if (r?.lines) { 
+        setLines(r.lines); 
+        setLyricsType(r.type); 
+        setSource(r.source) 
+      }
       setLoading(false)
     }).catch(() => {
       setLoading(false)
@@ -232,8 +236,11 @@ useEffect(() => {
   }, [track?.id])
 
   useEffect(() => {
-    onLyricsAvailable?.(!loading && lines.length > 0)
-  }, [loading, lines.length])
+    // Only call this when loading is false - we haven't determined availability yet when loading
+    if (!loading) {
+      onLyricsAvailable?.(lines.length > 0);
+    }
+  }, [loading, lines.length, onLyricsAvailable])
 
   const processedLines = useMemo(() => {
     if (!lines.length) return []
@@ -300,6 +307,10 @@ useEffect(() => {
     return () => cancelAnimationFrame(raf)
   }, [activeIdx])
 
+  // Check if lyrics are actually synced (have time data)
+  const hasSyncedLyrics = processedLines.some(l => l.time != null)
+  const showUnsyncedMessage = isAutoSynced && !hasSyncedLyrics && processedLines.length > 0
+
   return (
     <div ref={containerRef}
       className="w-full h-full overflow-y-auto flex flex-col items-center py-8 px-6"
@@ -331,7 +342,16 @@ useEffect(() => {
         </div>
       )}
 
-      {processedLines.length > 0 && <div style={{ height: fullscreen ? '30vh' : '40%', flexShrink: 0 }} />}
+      {processedLines.length > 0 && (
+        <>
+          {showUnsyncedMessage && (
+            <p className="text-[10px] text-white/25 italic mb-4 mt-2">
+              these lyrics aren't synced :3
+            </p>
+          )}
+          <div style={{ height: fullscreen ? '30vh' : '40%', flexShrink: 0 }} />
+        </>
+      )}
 
       {processedLines.map((line, i) => (
         <Line
