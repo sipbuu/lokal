@@ -280,10 +280,10 @@ useEffect(() => {
         if ((processedLines[i].time ?? 0) <= progress) idx = i; else break
       }
       setActiveIdx(idx)
-    } else {
+    } else if (isAutoSynced) {
       setActiveIdx(Math.min(Math.floor(progress / 4), processedLines.length - 1))
     }
-  }, [progress, processedLines, lyricsType])
+  }, [progress, processedLines, lyricsType, isAutoSynced])
 
   useEffect(() => {
     const el = lineRefs.current[activeIdx]
@@ -307,7 +307,7 @@ useEffect(() => {
   }, [activeIdx])
 
   const hasSyncedLyrics = processedLines.some(l => l.time != null)
-  const showUnsyncedMessage = isAutoSynced && !hasSyncedLyrics && processedLines.length > 0
+  const showUnsyncedMessage = !hasSyncedLyrics && processedLines.length > 0
 
   return (
     <div ref={containerRef}
@@ -344,7 +344,7 @@ useEffect(() => {
         <>
           {showUnsyncedMessage && (
             <p className="text-[10px] text-white/25 italic mb-4 mt-2">
-              these lyrics aren't synced :3
+              these lyrics are unsynced! :3
             </p>
           )}
           <div style={{ height: fullscreen ? '30vh' : '40%', flexShrink: 0 }} />
