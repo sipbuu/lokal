@@ -130,11 +130,15 @@ function RAFWordLine({ words, bgWords, liveProgressRef }) {
 }
 
 const Line = React.memo(function Line({
-  line, isActive, isPast, fullscreen, darkMode, wordSync, lyricsType, liveProgressRef, onRef,
+  line, isActive, isPast, fullscreen, darkMode, wordSync, lyricsType, liveProgressRef, onRef, distanceFromActive,
 }) {
   const normalSize = fullscreen ? 'text-xl leading-relaxed' : 'text-sm leading-snug'
   const activeSize = fullscreen ? 'text-3xl leading-tight' : 'text-base leading-snug'
   const useRAF = wordSync && lyricsType === 'synced' && isActive && line.words?.length > 0
+
+  // Calculate blur based on distance from active line (Apple Music style)
+  const blurAmount = Math.min(distanceFromActive * 1, 8) // Max blur of 8px
+  const isBlurred = blurAmount > 0.1
 
   return (
     <motion.div
@@ -150,6 +154,8 @@ const Line = React.memo(function Line({
         color: isActive ? (darkMode ? '#fff' : '#e8ff57') : '#666',
         fontWeight: isActive ? 700 : 500,
         textShadow: isActive && fullscreen ? '0 0 40px rgba(232,255,87,0.2)' : 'none',
+        filter: isBlurred ? `blur(${blurAmount}px)` : 'none',
+        transform: isBlurred ? 'scale(0.98)' : 'scale(1)',
       }}
     >
       {useRAF
@@ -164,7 +170,8 @@ const Line = React.memo(function Line({
   prev.fullscreen === next.fullscreen &&
   prev.darkMode === next.darkMode &&
   prev.wordSync === next.wordSync &&
-  prev.lyricsType === next.lyricsType
+  prev.lyricsType === next.lyricsType &&
+  prev.distanceFromActive === next.distanceFromActive
 )
 
 export default function LyricsPanel({
@@ -334,6 +341,7 @@ useEffect(() => {
           lyricsType={lyricsType}
           liveProgressRef={liveProgressRef}
           onRef={el => lineRefs.current[i] = el}
+          distanceFromActive={activeIdx >= 0 ? Math.abs(i - activeIdx) : 0}
         />
       ))}
 
