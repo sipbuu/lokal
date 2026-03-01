@@ -4,6 +4,7 @@ const fs = require('fs')
 const { autoUpdater } = require('electron-updater')
 const { initDB } = require('./ipc/db')
 const { registerScannerHandlers, registerExtraHandlers, registerV4Handlers } = require('./ipc/scanner')
+const { registerMixesHandlers } = require('./ipc/mixes')
 const { registerPlayerHandlers } = require('./ipc/player')
 const { registerDownloaderHandlers, registerExtraDownloaderHandlers } = require('./ipc/downloader')
 const { registerLyricsHandlers } = require('./ipc/lyrics')
@@ -107,7 +108,7 @@ app.whenReady().then(() => {
     registerScannerHandlers, registerPlayerHandlers, registerDownloaderHandlers,
     registerExtraDownloaderHandlers, registerLyricsHandlers, registerUserHandlers,
     registerDiscordHandlers, registerExtraHandlers, registerV4Handlers, registerLastFmHandlers,
-    registerToolsHandlers, registerPlaylistHandlers
+    registerToolsHandlers, registerPlaylistHandlers, registerMixesHandlers
   ]) {
     try { fn(ipcMain) } catch (e) { console.error(fn.name + ':', e.message) }
   }
@@ -219,4 +220,3 @@ app.on('before-quit', () => {
     }
   }
 });
-

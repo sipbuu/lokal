@@ -63,6 +63,16 @@ function MixCard({ mix, onClick }) {
 
   const arts = [...new Set(mix.tracks.filter(t => t.artwork_path).map(t => t.artwork_path))].slice(0, 4)
 
+  const getMixTypeLabel = (type) => {
+    switch (type) {
+      case 'daily': return 'Daily Mix'
+      case 'recent': return 'New Arrivals'
+      case 'top': return 'Most Played'
+      case 'discovery': return 'Discovery'
+      default: return type
+    }
+  }
+
   return (
     <motion.button
       whileHover={{ scale: 1.03 }}
@@ -88,7 +98,7 @@ function MixCard({ mix, onClick }) {
       </div>
       <div>
         <p className="text-sm font-medium text-white truncate">{mix.name}</p>
-        <p className="text-xs text-muted">{mix.tracks.length} tracks · {mix.type}</p>
+        <p className="text-xs text-muted">{mix.tracks.length} tracks · {getMixTypeLabel(mix.type)}</p>
       </div>
     </motion.button>
   )

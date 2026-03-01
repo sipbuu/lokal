@@ -198,7 +198,7 @@ function registerScannerHandlers(ipcMain) {
     }
     
     if (!artist) return null
-    const tracks = db.prepare(`SELECT t.* FROM tracks t JOIN artist_track_links atl ON atl.track_id = t.id WHERE atl.artist_id = ? ORDER BY t.album, t.track_num, t.title`).all(artist.id)
+    const tracks = db.prepare(`SELECT t JOIN artist_track_links atl ON atl t.* FROM tracks.track_id = t.id WHERE atl.artist_id = ? ORDER BY t.album, t.track_num, t.title`).all(artist.id)
     const topTracks = db.prepare(`SELECT t.* FROM tracks t JOIN artist_track_links atl ON atl.track_id = t.id WHERE atl.artist_id = ? ORDER BY t.play_count DESC LIMIT 5`).all(artist.id)
     const albums = db.prepare(`SELECT album as title, year, artwork_path, COUNT(*) as track_count FROM tracks t JOIN artist_track_links atl ON atl.track_id = t.id WHERE atl.artist_id = ? AND album IS NOT NULL GROUP BY album ORDER BY year DESC`).all(artist.id)
     const artistWithFallback = addArtistFallback(db, artist)
@@ -664,24 +664,6 @@ function registerV4Handlers(ipcMain) {
   ipcMain.handle('scanner:getAllAlbums', () => getDB().prepare(`SELECT album as title, album_artist, year, artwork_path, COUNT(*) as track_count, GROUP_CONCAT(DISTINCT artist) as artists FROM tracks WHERE album IS NOT NULL GROUP BY LOWER(album) ORDER BY year DESC, album ASC`).all())
   ipcMain.handle('scanner:searchAlbums', (_, q) => { const term = `%${q}%`; return getDB().prepare(`SELECT album as title, album_artist, year, artwork_path, COUNT(*) as track_count, GROUP_CONCAT(DISTINCT artist) as artists FROM tracks WHERE album LIKE ? OR album_artist LIKE ? GROUP BY LOWER(album) ORDER BY album`).all(term, term) })
   ipcMain.handle('scanner:deleteTracks', (_, ids) => { const db = getDB(); const del = db.transaction((ids) => { for (const id of ids) { db.prepare('DELETE FROM artist_track_links WHERE track_id = ?').run(id); db.prepare('DELETE FROM playlist_tracks WHERE track_id = ?').run(id); db.prepare('DELETE FROM user_likes WHERE track_id = ?').run(id); db.prepare('DELETE FROM play_history WHERE track_id = ?').run(id); db.prepare('DELETE FROM lyrics_cache WHERE track_id = ?').run(id); db.prepare('DELETE FROM tracks WHERE id = ?').run(id) } }); del(ids) })
-  ipcMain.handle('scanner:getMixes', (_, userId) => {
-    const db = getDB()
-    const uid = userId || 'guest'
-    const liked = db.prepare(`SELECT t.genre, t.artist FROM tracks t JOIN user_likes ul ON ul.track_id = t.id WHERE ul.user_id = ? LIMIT 50`).all(uid)
-    const history = db.prepare(`SELECT t.genre, t.artist FROM tracks t JOIN play_history ph ON ph.track_id = t.id WHERE ph.user_id = ? ORDER BY ph.played_at DESC LIMIT 50`).all(uid)
-    const combined = [...liked, ...history]
-    const genreCounts = {}; const artistCounts = {}
-    for (const r of combined) { if (r.genre) genreCounts[r.genre] = (genreCounts[r.genre] || 0) + 1; if (r.artist) artistCounts[r.artist] = (artistCounts[r.artist] || 0) + 1 }
-    const topGenres = Object.entries(genreCounts).sort((a, b) => b[1] - a[1]).slice(0, 4).map(([g]) => g)
-    const topArtists = Object.entries(artistCounts).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([a]) => a)
-    const mixes = []
-    for (const genre of topGenres) { const tracks = db.prepare('SELECT * FROM tracks WHERE genre = ? ORDER BY RANDOM() LIMIT 30').all(genre); if (tracks.length >= 3) mixes.push({ id: `mix-g-${genre}`, name: `${genre} Mix`, type: 'genre', tracks }) }
-    for (const artist of topArtists) { const tracks = db.prepare(`SELECT * FROM tracks WHERE artist LIKE ? ORDER BY RANDOM() LIMIT 25`).all(`%${artist}%`); if (tracks.length >= 3) mixes.push({ id: `mix-a-${artist}`, name: `${artist}`, type: 'artist', tracks }) }
-    const discovery = db.prepare(`SELECT t.* FROM tracks t WHERE t.id NOT IN (SELECT track_id FROM user_likes WHERE user_id = ?) ORDER BY RANDOM() LIMIT 30`).all(uid)
-    if (discovery.length >= 5) mixes.push({ id: 'mix-discovery', name: 'Discover Weekly', type: 'discovery', tracks: discovery })
-    if (mixes.length === 0) { const genres = db.prepare(`SELECT DISTINCT genre FROM tracks WHERE genre IS NOT NULL ORDER BY RANDOM() LIMIT 4`).all(); for (const { genre } of genres) { const tracks = db.prepare('SELECT * FROM tracks WHERE genre = ? ORDER BY RANDOM() LIMIT 25').all(genre); if (tracks.length >= 3) mixes.push({ id: `mix-g-${genre}`, name: `${genre} Mix`, type: 'genre', tracks }) } }
-    return mixes
-  })
   ipcMain.handle('scanner:mergeDuplicates', (_, keepId, removeIds) => {
     const db = getDB()
     const merge = db.transaction(() => {
