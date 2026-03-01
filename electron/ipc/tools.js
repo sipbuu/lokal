@@ -2,6 +2,7 @@ const { app } = require('electron')
 const path = require('path')
 const fs = require('fs-extra')
 const https = require('https')
+const AdmZip = require('adm-zip')
 
 
 function getPlatformFolder() {
@@ -109,6 +110,43 @@ function findFfmpeg() {
 }
 
 
+function findFfprobe() {
+  const ext = process.platform === 'win32' ? '.exe' : ''
+  const candidates = process.platform === 'win32' 
+    ? ['ffprobe.exe']
+    : ['ffprobe']
+
+  
+  const userDataPath = path.join(getUserDataBin(), `ffprobe${ext}`)
+  if (fileExists(userDataPath)) return userDataPath
+
+  
+  const bundledPath = path.join(getBundledBin(), `ffprobe${ext}`)
+  if (fileExists(bundledPath)) return bundledPath
+
+  
+  try {
+    const db = require('./db').getDB()
+    const customPath = db.prepare('SELECT value FROM settings WHERE key = ?').get('custom_ffmpeg_path')
+    // Check in custom ffmpeg directory
+    if (customPath && fileExists(customPath.value)) {
+      const ffprobeInCustomDir = path.join(path.dirname(customPath.value), `ffprobe${ext}`)
+      if (fileExists(ffprobeInCustomDir)) return ffprobeInCustomDir
+    }
+  } catch {}
+
+  
+  for (const c of candidates) {
+    try {
+      require('child_process').execSync(`${c} -version`, { stdio: 'pipe' })
+      return c
+    } catch {}
+  }
+
+  return null
+}
+
+
 function downloadFile(url, dest) {
   return new Promise((resolve, reject) => {
     fs.ensureDirSync(path.dirname(dest));
@@ -179,28 +217,83 @@ async function downloadYtDlp(progressCallback) {
 
 
 async function downloadFfmpeg(progressCallback) {
-  const ext = process.platform === 'win32' ? '.exe' : ''
-  const filename = `ffmpeg${ext}`
-  
-  const dest = path.join(getUserDataBin(), filename)
-  fs.ensureDirSync(getUserDataBin())
+  const binDir = getUserDataBin()
+  fs.ensureDirSync(binDir)
   
   if (progressCallback) progressCallback({ status: 'downloading', message: 'Downloading ffmpeg...' })
   
+  let url, archiveName, extractFolderName, exeSubPath
   
-  const url = process.platform === 'win32'
-    ? 'https://github.com/yt-dlp/ffmpeg-static/releases/download/latest/ffmpeg-win64.exe'
-    : process.platform === 'darwin'
-    ? 'https://github.com/yt-dlp/ffmpeg-static/releases/download/latest/ffmpeg-mac-64'
-    : 'https://github.com/yt-dlp/ffmpeg-static/releases/download/latest/ffmpeg-linux-64'
-  
-  await downloadFile(url, dest)
-  
-  if (process.platform !== 'win32') {
-    fs.chmodSync(dest, '755')
+  if (process.platform === 'win32') {
+    url = 'https://github.com/yt-dlp/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip'
+    archiveName = 'ffmpeg.zip'
+    extractFolderName = 'ffmpeg-master-latest-win64-gpl'
+    exeSubPath = 'bin'
+  } else if (process.platform === 'darwin') {
+    url = 'https://github.com/yt-dlp/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-macos64-gpl.tar.xz'
+    archiveName = 'ffmpeg.tar.xz'
+    extractFolderName = 'ffmpeg-master-latest-macos64-gpl'
+    exeSubPath = 'bin'
+  } else {
+    url = 'https://github.com/yt-dlp/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-linux64-gpl.tar.xz'
+    archiveName = 'ffmpeg.tar.xz'
+    extractFolderName = 'ffmpeg-master-latest-linux64-gpl'
+    exeSubPath = 'bin'
   }
   
-  return dest
+  const archivePath = path.join(binDir, archiveName)
+  const extractFolder = path.join(binDir, 'temp_ffmpeg')
+  
+  try {
+    console.log(`[Tools] Downloading ffmpeg from: ${url}`)
+    await downloadFile(url, archivePath)
+    
+    if (progressCallback) progressCallback({ status: 'extracting', message: 'Extracting ffmpeg...' })
+    
+    if (process.platform === 'win32') {
+      const zip = new AdmZip(archivePath)
+      zip.extractAllTo(extractFolder, true)
+      
+      const srcFfmpeg = path.join(extractFolder, extractFolderName, exeSubPath, 'ffmpeg.exe')
+      const destFfmpeg = path.join(binDir, 'ffmpeg.exe')
+      if (fileExists(srcFfmpeg)) {
+        fs.moveSync(srcFfmpeg, destFfmpeg, { overwrite: true })
+      }
+      
+      const srcFfprobe = path.join(extractFolder, extractFolderName, exeSubPath, 'ffprobe.exe')
+      const destFfprobe = path.join(binDir, 'ffprobe.exe')
+      if (fileExists(srcFfprobe)) {
+        fs.moveSync(srcFfprobe, destFfprobe, { overwrite: true })
+      }
+    } else {
+      const tar = require('tar')
+      await tar.extract({ file: archivePath, cwd: extractFolder })
+      
+      const srcFfmpeg = path.join(extractFolder, extractFolderName, exeSubPath, 'ffmpeg')
+      const destFfmpeg = path.join(binDir, 'ffmpeg')
+      if (fileExists(srcFfmpeg)) {
+        fs.moveSync(srcFfmpeg, destFfmpeg, { overwrite: true })
+        fs.chmodSync(destFfmpeg, '755')
+      }
+      
+      const srcFfprobe = path.join(extractFolder, extractFolderName, exeSubPath, 'ffprobe')
+      const destFfprobe = path.join(binDir, 'ffprobe')
+      if (fileExists(srcFfprobe)) {
+        fs.moveSync(srcFfprobe, destFfprobe, { overwrite: true })
+        fs.chmodSync(destFfprobe, '755')
+      }
+    }
+    
+    try { fs.removeSync(extractFolder) } catch {}
+    try { fs.removeSync(archivePath) } catch {}
+    
+    console.log(`[Tools] ffmpeg extracted successfully`)
+    
+    return path.join(binDir, process.platform === 'win32' ? 'ffmpeg.exe' : 'ffmpeg')
+  } catch (err) {
+    console.error(`[Tools] Failed to download/extract ffmpeg: ${err.message}`)
+    throw err
+  }
 }
 
 
@@ -212,6 +305,7 @@ function registerToolsHandlers(ipcMain) {
   ipcMain.handle('tools:status', async () => {
     const ytdlp = findYtDlp()
     const ffmpeg = findFfmpeg()
+    const ffprobe = findFfprobe()
     
     
     let customYtDlp = null
@@ -236,6 +330,10 @@ function registerToolsHandlers(ipcMain) {
         path: ffmpeg,
         isCustom: customFfmpeg ? fileExists(customFfmpeg) : false,
         customPath: customFfmpeg || null
+      },
+      ffprobe: {
+        found: !!ffprobe,
+        path: ffprobe
       },
       bundledPath: getBundledBin(),
       userDataPath: getUserDataBin()
@@ -299,9 +397,11 @@ function registerToolsHandlers(ipcMain) {
   ipcMain.handle('tools:detect', async () => {
     const ytdlp = findYtDlp()
     const ffmpeg = findFfmpeg()
+    const ffprobe = findFfprobe()
     return {
       ytDlpPath: ytdlp,
-      ffmpegPath: ffmpeg
+      ffmpegPath: ffmpeg,
+      ffprobePath: ffprobe
     }
   })
 }
@@ -309,7 +409,8 @@ function registerToolsHandlers(ipcMain) {
 module.exports = { 
   registerToolsHandlers, 
   findYtDlp, 
-  findFfmpeg, 
+  findFfmpeg,
+  findFfprobe,
   downloadYtDlp, 
   downloadFfmpeg,
   getUserDataBin,
