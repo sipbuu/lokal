@@ -1,58 +1,83 @@
-name: Release
+name: Release Lokal
+
 on:
   push:
     tags:
       - 'v*'
 
 jobs:
-  build:
+  build-and-release:
     runs-on: windows-latest
     permissions:
       contents: write
+
     steps:
-      - uses: actions/checkout@v4
-      
-      - name: Setup Node
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '20'
+          cache: 'npm'
 
-      - name: Install & Build
-        run: |
-          npm install
-          npm run build
-          
-      - name: Generate Checksums
+      - name: Install Dependencies
+        run: npm install
+
+      - name: Build Application
+        run: npm run build
+
+      - name: Rename and Generate Checksums
         id: checksums
         shell: bash
         run: |
-          # Calculate SHA256 for all .exe files in your dist folder
-          cd dist
+          cd release
+          for f in *\ *.exe; do
+            if [ -f "$f" ]; then
+              mv "$f" "${f// /-}"
+            fi
+          done
           echo "HASHES<<EOF" >> $GITHUB_OUTPUT
           for f in *.exe; do
-            echo "> **$f**: \`[$(sha256sum "$f" | awk '{print toupper($1)}')]\`" >> $GITHUB_OUTPUT
+            HASH=$(sha256sum "$f" | awk '{print toupper($1)}')
+            echo "> **$f**: \`[$HASH]\`" >> $GITHUB_OUTPUT
           done
           echo "EOF" >> $GITHUB_OUTPUT
 
-      - name: Create Release
+      - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          files: dist/*.exe
+          files: |
+            releases/*.exe
+            releases/latest.yml
           draft: true
+          generate_release_notes: true
           body: |
-            !ghost !ghost !ghost 
+            ---
+            
+            ![ghost](https://i.imgur.com/ZC3mEUC.png) ![ghost](https://i.imgur.com/ZC3mEUC.png) ![ghost](https://i.imgur.com/ZC3mEUC.png) 
 
             # Lokal ${{ github.ref_name }}
             
-            ${{ github.event.head_commit.message }}
+            *Major update description goes here.*
 
             ---
 
             ## Changelog
-            
-            FYI: **Lokal is 100% local...** 
-            
-            ### Binary Checksums (SHA-256)
-            ${{ steps.checksums.outputs.HASHES }}
 
-            **Full Changelog**: https://github.com/${{ github.repository }}/compare/${{ github.event.before }}...${{ github.ref_name }}
+            FYI:
+            **Lokal is 100% local; the library, history, anything in database, or any info that is used for API's such as yt-dlp, LRCLIB, is *NOT* seen by us.** $GITHUB_RELEASE_NOTES
+
+            ---
+
+            ## Setup
+
+            See [README.md](./README.md) for full setup instructions.
+
+            ---
+
+            ### Binary Checksums (SHA-256)
+
+            ${{ steps.checksums.outputs.HASHES }}
