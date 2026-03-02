@@ -187,6 +187,7 @@ export default function Search() {
           onChange={handleInputChange}
           onFocus={handleInputFocus}
           placeholder="Search tracks, artists, albums…"
+          onKeyDown={(e) => { if (e.key === 'Enter' && query.trim()) saveRecentSearch(query.trim()) }}
           className="w-full bg-elevated border border-border rounded-2xl pl-10 pr-5 py-3 text-sm text-white outline-none focus:border-accent/50 placeholder:text-muted"
         />
         {searching && <div className="absolute right-4 top-1/2 -translate-y-1/2 w-4 h-4 border-2 border-accent/30 border-t-accent rounded-full animate-spin" />}
