@@ -13,3 +13,5 @@ changelog:
       - skip-changelog
     authors:
       - octocat
+
+render-anonymous-commits: true
