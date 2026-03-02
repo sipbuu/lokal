@@ -1,6 +1,14 @@
 const { app, BrowserWindow, ipcMain, shell } = require('electron')
 const path = require('path')
 const fs = require('fs')
+const log = require('electron-log')
+
+const date = new Date().toISOString().replace(/[:.]/g, '-')
+log.transports.file.fileName = `lokal-${date}.log`
+log.transports.file.level = 'info'
+log.errorHandler.startCatching()
+Object.assign(console, log.functions)
+
 const { autoUpdater } = require('electron-updater')
 const { initDB } = require('./ipc/db')
 const { registerScannerHandlers, registerExtraHandlers, registerV4Handlers } = require('./ipc/scanner')
@@ -192,6 +200,10 @@ ipcMain.handle('window:minimize', () => mainWindow.minimize())
 ipcMain.handle('window:maximize', () => mainWindow.isMaximized() ? mainWindow.unmaximize() : mainWindow.maximize())
 ipcMain.handle('window:close', () => mainWindow.close())
 ipcMain.handle('shell:openExternal', (_, url) => shell.openExternal(url))
+
+ipcMain.on('open-logs', () => {
+  shell.showItemInFolder(log.transports.file.getFile().path)
+})
 
 ipcMain.handle('updater:install', () => {
   isUpdating = true; 
