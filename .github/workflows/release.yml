@@ -6,7 +6,7 @@ on:
       - 'v*'
 
 jobs:
-  build-and-release:
+  build:
     strategy:
       matrix:
         os: [windows-latest, macos-latest, ubuntu-latest]
@@ -32,37 +32,84 @@ jobs:
       - name: Build Application
         run: npm run build -- --publish never
 
-      - name: Get Latest Commit Message
-        id: commit_msg
+      - name: Rename release files for this runner
         shell: bash
         run: |
-          PREV_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
-
-          if [ -z "$PREV_TAG" ]; then
-            LOG=$(git log --pretty=format:"- %s")
-          else
-            LOG=$(git log "$PREV_TAG"..HEAD --pretty=format:"- %s")
-          fi
-
-          echo "MESSAGE<<EOF" >> $GITHUB_OUTPUT
-          echo "$LOG" >> $GITHUB_OUTPUT
-          echo "EOF" >> $GITHUB_OUTPUT
-
-      - name: Rename and Generate Checksums
-        id: checksums
-        shell: bash
-        run: |
-          cd release
+          # rename spaces to dashes in release dir if present
+          cd release 2>/dev/null || exit 0
           for f in *\ *; do
             [ -f "$f" ] && mv "$f" "${f// /-}"
           done
-          echo "HASHES<<EOF" >> $GITHUB_OUTPUT
-          for f in *.exe *.dmg *.zip *.AppImage *.deb; do
-            if [ -f "$f" ]; then
-              HASH=$(sha256sum "$f" | awk '{print toupper($1)}')
-              echo "> **$f**: \`[$HASH]\`" >> $GITHUB_OUTPUT
+
+      - name: Upload release artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ matrix.os }}
+          path: release
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Aggregate artifacts into release_all
+        shell: bash
+        run: |
+          mkdir -p release_all
+          # Copy all files from all artifacts (artifact dirs inside artifacts/*)
+          shopt -s nullglob
+          for d in artifacts/*; do
+            if [ -d "$d" ]; then
+              cp -R "$d"/* release_all/ || true
             fi
           done
+          # If release_all is empty, create a placeholder so release creation doesn't fail
+          if [ -z "$(ls -A release_all 2>/dev/null)" ]; then
+            mkdir -p release_all
+            touch release_all/.no_files
+          fi
+
+      - name: Generate checksums for all artifacts
+        id: checksums
+        shell: bash
+        run: |
+          if command -v sha256sum >/dev/null 2>&1; then
+            SHACMD='sha256sum'
+          else
+            SHACMD='shasum -a 256'
+          fi
+
+          echo "HASHES<<EOF" >> $GITHUB_OUTPUT
+          for f in release_all/*; do
+            if [ -f "$f" ] && [ "$(basename "$f")" != ".no_files" ]; then
+              HASH=$($SHACMD "$f" | awk '{print toupper($1)}')
+              NAME=$(basename "$f")
+              echo "> **$NAME**: \`[$HASH]\`" >> $GITHUB_OUTPUT
+            fi
+          done
+          if [ -z "$(ls -A release_all 2>/dev/null | grep -v .no_files)" ]; then
+            echo "No release files found" >> $GITHUB_OUTPUT
+          fi
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: Get latest commit message (single)
+        id: latest_commit
+        shell: bash
+        run: |
+          MSG=$(git log -1 --pretty=%s)
+          echo "LATEST<<EOF" >> $GITHUB_OUTPUT
+          echo "$MSG" >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
 
       - name: Generate Release Notes
@@ -77,27 +124,20 @@ jobs:
             });
             core.setOutput('body', response.data.body);
 
-      - name: Create GitHub Release
+      - name: Create GitHub Release (single aggregated)
         id: create_release
         uses: softprops/action-gh-release@v2
         with:
           name: Release ${{ github.ref_name }}
           files: |
-            release/*.exe
-            release/*.dmg
-            release/*.zip
-            release/*.AppImage
-            release/*.deb
-            release/latest.yml
-            release/latest-mac.yml
-            release/latest-linux.yml
+            release_all/**/*
           draft: true
           body: |
-            ![ghost](https://i.imgur.com/ZC3mEUC.png) ![ghost](https://i.imgur.com/ZC3mEUC.png) ![ghost](https://i.imgur.com/ZC3mEUC.png) 
+            ![ghost](https://i.imgur.com/ZC3mEUC.png) ![ghost](https://i.imgur.com/ZC3mEUC.png) ![ghost](https://i.imgur.com/ZC3mEUC.png)
 
             # Lokal ${{ github.ref_name }}
-            
-            ${{ steps.commit_msg.outputs.MESSAGE }}
+
+            ${{ steps.latest_commit.outputs.LATEST }}
 
             ---
 
@@ -125,7 +165,7 @@ jobs:
         env:
           DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
         run: |
-          SAFE_MSG=$(echo "${{ steps.commit_msg.outputs.MESSAGE }}" | jq -aRs .)
+          LATEST_MSG=${{ steps.latest_commit.outputs.LATEST }}
 
           if [[ "${{ matrix.os }}" == "windows-latest" ]]; then
             PLATFORM="Windows"
@@ -142,7 +182,7 @@ jobs:
             --arg version "${{ github.ref_name }}" \
             --arg platform "$PLATFORM" \
             --arg url "${{ steps.create_release.outputs.html_url }}" \
-            --arg msg "${{ steps.commit_msg.outputs.MESSAGE }}" \
+            --arg msg "$LATEST_MSG" \
             --arg image "https://i.imgur.com/KgjwTvk.png" \
             --arg footer_icon "https://i.imgur.com/ZC3mEUC.png" \
             --argjson color $COLOR \
