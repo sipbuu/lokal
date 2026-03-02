@@ -1,0 +1,58 @@
+name: Release
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build:
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install & Build
+        run: |
+          npm install
+          npm run build
+          
+      - name: Generate Checksums
+        id: checksums
+        shell: bash
+        run: |
+          # Calculate SHA256 for all .exe files in your dist folder
+          cd dist
+          echo "HASHES<<EOF" >> $GITHUB_OUTPUT
+          for f in *.exe; do
+            echo "> **$f**: \`[$(sha256sum "$f" | awk '{print toupper($1)}')]\`" >> $GITHUB_OUTPUT
+          done
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*.exe
+          draft: true
+          body: |
+            !ghost !ghost !ghost 
+
+            # Lokal ${{ github.ref_name }}
+            
+            ${{ github.event.head_commit.message }}
+
+            ---
+
+            ## Changelog
+            
+            FYI: **Lokal is 100% local...** 
+            
+            ### Binary Checksums (SHA-256)
+            ${{ steps.checksums.outputs.HASHES }}
+
+            **Full Changelog**: https://github.com/${{ github.repository }}/compare/${{ github.event.before }}...${{ github.ref_name }}

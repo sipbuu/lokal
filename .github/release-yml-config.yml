@@ -1,0 +1,6 @@
+changelog:
+  categories:
+    - title: "### New Features"
+      labels: ["feature", "enhancement"]
+    - title: "### Critical Fixes"
+      labels: ["bug", "fix"]
