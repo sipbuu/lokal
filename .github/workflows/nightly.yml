@@ -65,9 +65,15 @@ jobs:
       - name: Rename release files for this runner
         shell: bash
         run: |
-          cd release 2>/dev/null || exit 0
+          if [ ! -d release ]; then
+            exit 0
+          fi
+          cd release
+          shopt -s nullglob
           for f in *\ *; do
-            [ -f "$f" ] && mv "$f" "${f// /-}"
+            if [ -f "$f" ]; then
+              mv -- "$f" "${f// /-}"
+            fi
           done
 
       - name: Upload release artifacts
@@ -99,7 +105,7 @@ jobs:
         shell: bash
         run: |
           mkdir -p release_all
-          shopt -s nullglob || true
+          shopt -s nullglob
           for d in artifacts/*; do
             if [ -d "$d" ]; then
               cp -R "$d"/* release_all/ || true
