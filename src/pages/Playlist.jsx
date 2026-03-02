@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useCallback } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { Heart, Music, Play, Trash2, Edit2, Check, X } from 'lucide-react'
+import { Heart, Music, Play, Trash2, Edit2, Check, X, RefreshCw, Plus } from 'lucide-react'
 import { usePlayerStore, useAppStore } from '../store/player'
 import TrackList from '../components/TrackList'
 import PlaylistCover from '../components/PlaylistCover'
@@ -13,6 +13,8 @@ export default function Playlist() {
   const [playlist, setPlaylist] = useState(null)
   const [editingName, setEditingName] = useState(false)
   const [nameVal, setNameVal] = useState('')
+  const [recommendations, setRecommendations] = useState([])
+  const [loadingRecs, setLoadingRecs] = useState(false)
   const { playQueue } = usePlayerStore()
   const { user } = useAppStore()
   const isLiked = id === 'liked'
@@ -110,6 +112,41 @@ export default function Playlist() {
     }
   }
 
+  const fetchRecommendations = useCallback(async () => {
+    if (isLiked) return
+    setLoadingRecs(true)
+    try {
+      const allTracks = await api.getTracks()
+      if (Array.isArray(allTracks)) {
+        const currentIds = new Set(tracks.map(t => t.id))
+        const currentArtists = new Set(tracks.map(t => t.artist))
+        
+        const available = allTracks.filter(t => !currentIds.has(t.id))
+        const related = available.filter(t => currentArtists.has(t.artist))
+        const others = available.filter(t => !currentArtists.has(t.artist))
+        
+        const shuffle = (arr) => [...arr].sort(() => Math.random() - 0.5)
+        
+        let recs = shuffle(related).slice(0, 5)
+        if (recs.length < 5) {
+          recs = [...recs, ...shuffle(others).slice(0, 5 - recs.length)]
+        }
+        setRecommendations(recs)
+      }
+    } catch (e) { console.error(e) }
+    setLoadingRecs(false)
+  }, [tracks, isLiked])
+
+  useEffect(() => {
+    if (!isLiked && tracks.length > 0 && recommendations.length === 0) fetchRecommendations()
+  }, [tracks.length, isLiked, recommendations.length, fetchRecommendations])
+
+  const addRecommendation = async (track) => {
+    await api.addToPlaylist(id, track.id)
+    setRecommendations(p => p.filter(t => t.id !== track.id))
+    window.dispatchEvent(new CustomEvent('lokal:playlist-updated', { detail: { playlistId: id } }))
+  }
+
   const totalDuration = tracks.reduce((s, t) => s + (t.duration || 0), 0)
   const fmt = (s) => `${Math.floor(s / 3600) > 0 ? Math.floor(s / 3600) + 'h ' : ''}${Math.floor((s % 3600) / 60)}m`
 
@@ -168,6 +205,24 @@ export default function Playlist() {
         playlistId={!isLiked ? id : null}
         onReorder={!isLiked ? handleReorder : null}
       />
+
+      {!isLiked && (tracks.length > 0 || recommendations.length > 0) && (
+        <div className="mt-12 mb-6">
+  <div className="flex items-center justify-between mb-4 px-2">
+    <h2 className="text-lg font-display text-white">Recommended Songs</h2>
+    <button onClick={fetchRecommendations} disabled={loadingRecs}
+      className="p-2 hover:bg-elevated rounded-full transition-colors text-muted hover:text-white">
+      <RefreshCw size={16} className={loadingRecs ? 'animate-spin' : ''} />
+    </button>
+  </div>
+  
+  <TrackList 
+    tracks={recommendations} 
+    showAlbum={false}
+    playlistId={null} 
+  />
+</div>
+      )}
 
       {!tracks.length && (
         <div className="text-center py-20 text-muted">
