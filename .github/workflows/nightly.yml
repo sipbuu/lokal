@@ -1,0 +1,201 @@
+name: Nightly Build
+
+on:
+  schedule:
+    - cron: '0 0 * * *'
+  workflow_dispatch:
+
+jobs:
+  # First job: determine whether there are commits since last nightly.
+  check:
+    runs-on: ubuntu-latest
+    outputs:
+      new_commits: ${{ steps.check_commits.outputs.new_commits }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check for new commits since last nightly
+        id: check_commits
+        shell: bash
+        run: |
+          # If manually triggered, force a run
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "new_commits=true" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          # If the 'nightly' tag exists, count commits between it and HEAD.
+          if git rev-parse --verify refs/tags/nightly >/dev/null 2>&1; then
+            COUNT=$(git rev-list --count nightly..HEAD)
+          else
+            # no nightly tag yet -> treat as new commits (first nightly)
+            COUNT=1
+          fi
+
+          echo "Found $COUNT commits since nightly."
+          if [ "$COUNT" -gt 0 ]; then
+            echo "new_commits=true" >> $GITHUB_OUTPUT
+          else
+            echo "new_commits=false" >> $GITHUB_OUTPUT
+          fi
+
+  # Build matrix — only runs when check says there are new commits
+  build:
+    needs: check
+    if: needs.check.outputs.new_commits == 'true'
+    strategy:
+      matrix:
+        os: [windows-latest, macos-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install Dependencies
+        run: npm install
+
+      - name: Build Application
+        run: npm run build -- --publish never
+
+      - name: Rename release files for this runner
+        shell: bash
+        run: |
+          cd release 2>/dev/null || exit 0
+          for f in *\ *; do
+            [ -f "$f" ] && mv "$f" "${f// /-}"
+          done
+
+      - name: Upload release artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: nightly-${{ matrix.os }}
+          path: release
+
+  # Aggregate + release job: runs once if build succeeded
+  release:
+    needs: build
+    if: needs.build.result == 'success'    # only run when the build job ran & succeeded
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      # replace with your moon image URL (hosted somewhere public). 
+      # You can also set this as a repo secret and reference it as ${{ secrets.NIGHTLY_IMAGE_URL }} instead.
+      NIGHTLY_IMAGE_URL: https://i.imgur.com/your-moon.png
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Aggregate artifacts into release_all
+        shell: bash
+        run: |
+          mkdir -p release_all
+          shopt -s nullglob || true
+          for d in artifacts/*; do
+            if [ -d "$d" ]; then
+              cp -R "$d"/* release_all/ || true
+            fi
+          done
+          # keep a placeholder if no files to avoid later failures
+          if [ -z "$(ls -A release_all 2>/dev/null)" ]; then
+            touch release_all/.no_files
+          fi
+
+      - name: Generate checksums for all artifacts
+        id: checksums
+        shell: bash
+        run: |
+          if command -v sha256sum >/dev/null 2>&1; then
+            SHACMD='sha256sum'
+          else
+            SHACMD='shasum -a 256'
+          fi
+
+          echo "HASHES<<EOF" >> $GITHUB_OUTPUT
+          for f in release_all/*; do
+            if [ -f "$f" ] && [ "$(basename "$f")" != ".no_files" ]; then
+              HASH=$($SHACMD "$f" | awk '{print toupper($1)}')
+              NAME=$(basename "$f")
+              echo "> **$NAME**: \`[$HASH]\`" >> $GITHUB_OUTPUT
+            fi
+          done
+          if [ -z "$(ls -A release_all 2>/dev/null | grep -v .no_files)" ]; then
+            echo "No release files found" >> $GITHUB_OUTPUT
+          fi
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: Get latest commit message (single)
+        id: latest_commit
+        shell: bash
+        run: |
+          MSG=$(git log -1 --pretty=%s)
+          echo "LATEST<<EOF" >> $GITHUB_OUTPUT
+          echo "$MSG" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: Generate Release Notes
+        id: release_notes
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const response = await github.rest.repos.generateReleaseNotes({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              tag_name: context.payload.ref.replace('refs/tags/', ''),
+            });
+            core.setOutput('body', response.data.body);
+
+      - name: Create GitHub Release (single aggregated)
+        id: create_release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: "Lokal (Nightly)"
+          tag_name: nightly
+          prerelease: true
+          make_latest: false
+          files: |
+            release_all/**/*
+          body: |
+            ![nightly moon](https://i.imgur.com/2M91R9E.png)
+
+            # Lokal (Nightly)
+
+            **Built from latest commit**
+
+            **Latest commit:** ${{ steps.latest_commit.outputs.LATEST }}
+
+            ---
+
+            ## Changelog (generated)
+            ${{ steps.release_notes.outputs.body }}
+
+            ---
+
+            ### Binary Checksums (SHA-256)
+            ${{ steps.checksums.outputs.HASHES }}
+
+      - name: (optional) notify on success - example (commented)
+        if: false
+        run: echo "Add your notification step here (Discord/webhook/etc.)"
