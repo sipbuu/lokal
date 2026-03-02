@@ -116,7 +116,6 @@ function createWindow() {
 app.name = 'Lokal'
 app.whenReady().then(() => {
   if (!gotTheLock) return;
-  
   if (app.isPackaged) {
     try { require('../server/index.js') } catch (e) { console.error('Server already running or port blocked:', e.message) }
   }
@@ -135,7 +134,7 @@ app.whenReady().then(() => {
     try { fn(ipcMain) } catch (e) { console.error(fn.name + ':', e.message) }
   }
 
-  
+
   ipcMain.on('relaunch-app', () => {
     app.relaunch()
     app.exit()
@@ -158,7 +157,6 @@ app.whenReady().then(() => {
   ipcMain.handle('perf:load', async () => {
     return perfSettings
   })
-
   ipcMain.on('app-log', (event, { level, message }) => {
     if (log[level]) {
       log[level](`[Renderer] ${message}`);
@@ -206,10 +204,15 @@ ipcMain.handle('window:minimize', () => mainWindow.minimize())
 ipcMain.handle('window:maximize', () => mainWindow.isMaximized() ? mainWindow.unmaximize() : mainWindow.maximize())
 ipcMain.handle('window:close', () => mainWindow.close())
 ipcMain.handle('shell:openExternal', (_, url) => shell.openExternal(url))
-
 ipcMain.on('open-logs', () => {
-  shell.showItemInFolder(log.transports.file.getFile().path)
-})
+  const logFile = log.transports.file.getFile().path;
+  const logDir = path.dirname(logFile);
+  if (fs.existsSync(logFile)) {
+    shell.showItemInFolder(logFile);
+  } else {
+    shell.openPath(logDir);
+  }
+});
 
 ipcMain.handle('updater:install', () => {
   isUpdating = true; 
