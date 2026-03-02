@@ -2,8 +2,6 @@ const { contextBridge, ipcRenderer } = require('electron')
 const invoke = (ch, ...a) => ipcRenderer.invoke(ch, ...a)
 const on = (ch, fn) => { ipcRenderer.on(ch, fn); return () => ipcRenderer.removeListener(ch, fn) }
 
-const log = require('electron-log/renderer');
-Object.assign(console, log.functions);
 
 contextBridge.exposeInMainWorld('electron', {
   isElectron: true,
@@ -15,6 +13,8 @@ contextBridge.exposeInMainWorld('electron', {
   openFile: (f) => invoke('dialog:openFile', f),
   readFileBinary: (fp) => invoke('dialog:readFileBinary', fp),
   readFileAsDataURL: (fp) => invoke('dialog:readFileAsDataURL', fp),
+
+  log: (level, message) => ipcRenderer.send('app-log', { level, message }),
   openLogs: () => ipcRenderer.send('open-logs'),
   updaterDownload: () => invoke('updater:download'),
   scanFolder: (f) => invoke('scanner:scan', f),

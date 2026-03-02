@@ -159,7 +159,13 @@ app.whenReady().then(() => {
     return perfSettings
   })
 
-  
+  ipcMain.on('app-log', (event, { level, message }) => {
+    if (log[level]) {
+      log[level](`[Renderer] ${message}`);
+    } else {
+      log.info(`[Renderer] ${message}`);
+    }
+  });
   ipcMain.handle('dialog:openFolder', async () => {
     const r = await require('electron').dialog.showOpenDialog(mainWindow, { properties: ['openDirectory'] })
     return r.filePaths[0] || null
