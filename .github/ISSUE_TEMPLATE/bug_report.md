@@ -27,6 +27,9 @@ A clear and concise description of what you expected to happen.
  - Installation Type: [e.g. Portable .exe, Setup.exe, or running from Source]
 
 **Console Logs / Screenshots**
+
+*New*: Go to Settings and open your log directory and find the logs of the crash/error/current logs, this will help a TON in finding out your issue.
+
 If you can, press `Ctrl+Shift+I` to open DevTools, go to the **Console** tab, and paste any red error text here, or any logs from the terminal (if you ran it through there). 
 Also, drag and drop screenshots here.
 
