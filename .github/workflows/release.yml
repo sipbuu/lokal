@@ -35,12 +35,15 @@ jobs:
       - name: Rename release files for this runner
         shell: bash
         run: |
-          # rename spaces to dashes in release dir if present
           cd release 2>/dev/null || exit 0
+          
+          shopt -s nullglob
+          
           for f in *\ *; do
-            [ -f "$f" ] && mv "$f" "${f// /-}"
+            if [ -f "$f" ]; then
+              mv "$f" "${f// /-}"
+            fi
           done
-
       - name: Upload release artifacts
         uses: actions/upload-artifact@v4
         with:
