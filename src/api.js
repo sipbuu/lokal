@@ -122,7 +122,8 @@ export const api = {
     }
     return 'fallback_nopfp.png';
   },
-  
+  openLogs: () => isE() ? el().openLogs() : Promise.resolve(),
+  log: (level, message) => isE() ? el().log(level, message) : console.log(`[${level}] ${message}`),
   getPerfSettings: () => isE() ? el().getPerfSettings() : Promise.resolve({ hardwareAcceleration: true, performanceMode: false }),
   savePerfSettings: (s) => isE() ? el().savePerfSettings(s) : Promise.resolve({}),
   relaunchApp: () => isE() ? el().relaunchApp() : Promise.resolve(),
