@@ -10,6 +10,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       new_commits: ${{ steps.check_commits.outputs.new_commits }}
+      nightly_version: ${{ steps.gen_version.outputs.VERSION }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
