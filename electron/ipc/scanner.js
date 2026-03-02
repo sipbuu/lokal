@@ -258,7 +258,29 @@ function registerScannerHandlers(ipcMain) {
   ipcMain.handle('artist:updateBio', (_, artistId, bio) => getDB().prepare('UPDATE artists SET bio = ? WHERE id = ?').run(bio, artistId))
   ipcMain.handle('artist:setImage', async (_, artistId, imageData) => { const buf = Buffer.from(imageData.split(',')[1], 'base64'); const imgPath = path.join(getStorageDir(), 'artwork', `artist-${artistId}.jpg`); await fs.writeFile(imgPath, buf); getDB().prepare('UPDATE artists SET image_path = ? WHERE id = ?').run(imgPath, artistId); return imgPath })
   ipcMain.handle('artist:rename', (_, artistId, newName) => { const db = getDB(); const newId = 'a-' + newName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, ''); db.prepare('UPDATE tracks SET artist = ? WHERE artist = (SELECT name FROM artists WHERE id = ?)').run(newName, artistId); db.prepare('UPDATE artists SET id = ?, name = ? WHERE id = ?').run(newId, newName, artistId); db.prepare('UPDATE artist_track_links SET artist_id = ? WHERE artist_id = ?').run(newId, artistId) })
-  ipcMain.handle('artist:merge', (_, sourceId, targetId) => { const db = getDB(); const target = db.prepare('SELECT name FROM artists WHERE id = ?').get(targetId); if (!target) return; db.prepare('UPDATE tracks SET artist = ? WHERE artist = (SELECT name FROM artists WHERE id = ?)').run(target.name, sourceId); db.prepare('UPDATE artist_track_links SET artist_id = ? WHERE artist_id = ?').run(targetId, sourceId); db.prepare('DELETE FROM artists WHERE id = ?').run(sourceId) })
+  ipcMain.handle('artist:merge', (_, sourceId, targetId) => {
+    const db = getDB();
+    const target = db.prepare('SELECT name FROM artists WHERE id = ?').get(targetId);
+    const source = db.prepare('SELECT name FROM artists WHERE id = ?').get(sourceId);
+    if (!target || !source) return;
+    const performMerge = db.transaction(() => {
+      db.prepare('UPDATE tracks SET artist = ? WHERE artist = ?').run(target.name, source.name);
+      db.prepare(`
+        INSERT OR IGNORE INTO artist_track_links (artist_id, track_id)
+        SELECT ?, track_id FROM artist_track_links WHERE artist_id = ?
+      `).run(targetId, sourceId);
+      db.prepare('DELETE FROM artist_track_links WHERE artist_id = ?').run(sourceId);
+      db.prepare('DELETE FROM artists WHERE id = ?').run(sourceId);
+    });
+
+    try {
+      performMerge();
+      return { success: true };
+    } catch (err) {
+      console.error('Merge failed:', err);
+      throw err;
+    }
+  });
   ipcMain.handle('artist:delete', (_, artistId) => { const db = getDB(); db.prepare('DELETE FROM artist_track_links WHERE artist_id = ?').run(artistId); db.prepare('DELETE FROM artists WHERE id = ?').run(artistId) })
   ipcMain.handle('track:setArtwork', async (_, trackId, imageData) => { const buf = Buffer.from(imageData.split(',')[1], 'base64'); const artPath = path.join(getStorageDir(), 'artwork', `${trackId}.jpg`); await fs.writeFile(artPath, buf); getDB().prepare('UPDATE tracks SET artwork_path = ? WHERE id = ?').run(artPath, trackId); return artPath })
   ipcMain.handle('track:setGenre', (_, trackId, genre) => getDB().prepare('UPDATE tracks SET genre = ? WHERE id = ?').run(genre || null, trackId))
