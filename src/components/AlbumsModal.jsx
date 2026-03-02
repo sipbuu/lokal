@@ -77,19 +77,22 @@ function AlbumDetail({ album, onClose }) {
           const isCurrent = currentTrack?.id === t.id
           const isHov = hoveredTrack === t.id
           return (
-            <button 
+            <div 
               key={t.id} 
               onDoubleClick={() => playQueue(tracks, i)}
               onMouseEnter={() => setHoveredTrack(t.id)}
               onMouseLeave={() => setHoveredTrack(null)}
               onClick={(e) => handlePlay(t, i, e)}
-              className={`w-full flex items-center gap-3 px-6 py-2.5 hover:bg-elevated transition-colors group text-left ${isCurrent ? 'bg-accent/8' : ''}`}
+              className={`w-full flex items-center gap-3 px-6 py-2.5 hover:bg-elevated transition-colors group cursor-pointer ${isCurrent ? 'bg-accent/8' : ''}`}
             >
               <div className="w-5 flex items-center justify-center">
                 {isHov || isCurrent ? (
-                  <button onClick={e => handlePlay(t, i, e)} className={isCurrent ? 'text-accent' : 'text-white'}>
+                  <span 
+                    onClick={e => handlePlay(t, i, e)}
+                    className={`cursor-pointer ${isCurrent ? 'text-accent' : 'text-white'}`}
+                  >
                     {isCurrent && isPlaying ? <Pause size={12} fill="currentColor" /> : <Play size={12} fill="currentColor" className="translate-x-px" />}
-                  </button>
+                  </span>
                 ) : (
                   <span className={`text-xs text-muted font-display ${isCurrent ? 'text-accent' : ''}`}>{t.track_num || i + 1}</span>
                 )}
@@ -99,7 +102,7 @@ function AlbumDetail({ album, onClose }) {
                 <p className="text-xs text-muted truncate">{t.artist}</p>
               </div>
               <span className="text-xs text-muted">{t.duration ? `${Math.floor(t.duration/60)}:${String(Math.floor(t.duration%60)).padStart(2,'0')}` : ''}</span>
-            </button>
+            </div>
           )
         })}
       </div>
@@ -108,7 +111,7 @@ function AlbumDetail({ album, onClose }) {
 }
 
 export default function AlbumsModal() {
-  const { showAlbumsModal, closeAlbums } = useAppStore()
+  const { showAlbumsModal, closeAlbums, selectedAlbum } = useAppStore()
   const [albums, setAlbums] = useState([])
   const [filtered, setFiltered] = useState([])
   const [q, setQ] = useState('')
@@ -116,8 +119,15 @@ export default function AlbumsModal() {
   const [loading, setLoading] = useState(false)
 
   useEffect(() => {
+    if (selectedAlbum) {
+      setSelected(selectedAlbum)
+    }
+  }, [selectedAlbum])
+
+  useEffect(() => {
     if (!showAlbumsModal) return
-    setLoading(true); setSelected(null); setQ('')
+    setLoading(true); setQ('')
+    if (!selectedAlbum) setSelected(null)
     api.getAllAlbums().then(a => { const arr = Array.isArray(a) ? a : []; setAlbums(arr); setFiltered(arr); setLoading(false) })
   }, [showAlbumsModal])
 
