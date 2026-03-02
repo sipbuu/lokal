@@ -450,6 +450,14 @@ export default function Settings() {
               )}
             </div>
           </Row>
+          <Row label="Debug Logs" desc="Open the folder containing application logs">
+            <button 
+              onClick={() => api.openLogs?.()}
+              className="flex items-center gap-2 px-4 py-2 bg-card border border-border rounded-lg text-sm text-muted hover:text-white hover:border-accent/30 transition-colors"
+            >
+              <FolderOpen size={14} /> Show Logs
+            </button>
+          </Row>
         </Section>
       )}
 
