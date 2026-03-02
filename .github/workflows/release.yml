@@ -116,6 +116,8 @@ jobs:
         env:
           DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
         run: |
+          SAFE_MSG=$(echo "${{ steps.commit_msg.outputs.MESSAGE }}" | jq -aRs .)
+
           if [[ "${{ matrix.os }}" == "windows-latest" ]]; then
             PLATFORM="Windows"
             COLOR=3447003
@@ -127,14 +129,18 @@ jobs:
             COLOR=15822353
           fi
 
-          curl -H "Content-Type: application/json" \
-          -d '{
+          PAYLOAD=$(cat <<EOF
+          {
             "embeds": [{
-              "title": "Build Complete: Lokal ${{ github.ref_name }} ("$PLATFORM")",
-              "description": "The binaries for version **${{ github.ref_name }}** have been built and uploaded to the release draft.\n\n**Platform:** '$PLATFORM'\n**Status:** Draft Ready\n**Last Commit:** `${{ steps.commit_msg.outputs.MESSAGE }}`",
+              "title": "Build Complete: Lokal ${{ github.ref_name }} ($PLATFORM)",
+              "description": "The binaries for version **${{ github.ref_name }}** have been built and uploaded to the release draft.\n\n**Platform:** $PLATFORM\n**Status:** Draft Ready\n**Last Commit:** $SAFE_MSG",
               "url": "${{ steps.create_release.outputs.html_url }}",
-              "color": '$COLOR',
+              "color": $COLOR,
               "image": { "url": "https://i.imgur.com/KgjwTvk.png" },
               "footer": { "text": "Lokal Build System", "icon_url": "https://i.imgur.com/ZC3mEUC.png" }
             }]
-          }' $DISCORD_WEBHOOK
+          }
+          EOF
+          )
+
+          curl -H "Content-Type: application/json" -d "$PAYLOAD" "$DISCORD_WEBHOOK"
