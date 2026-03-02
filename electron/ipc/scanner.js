@@ -198,7 +198,7 @@ function registerScannerHandlers(ipcMain) {
     }
     
     if (!artist) return null
-    const tracks = db.prepare(`SELECT t JOIN artist_track_links atl ON atl t.* FROM tracks.track_id = t.id WHERE atl.artist_id = ? ORDER BY t.album, t.track_num, t.title`).all(artist.id)
+const tracks = db.prepare(`SELECT t.* FROM tracks t JOIN artist_track_links atl ON atl.track_id = t.id WHERE atl.artist_id = ? ORDER BY t.album, t.track_num, t.title`).all(artist.id)
     const topTracks = db.prepare(`SELECT t.* FROM tracks t JOIN artist_track_links atl ON atl.track_id = t.id WHERE atl.artist_id = ? ORDER BY t.play_count DESC LIMIT 5`).all(artist.id)
     const albums = db.prepare(`SELECT album as title, year, artwork_path, COUNT(*) as track_count FROM tracks t JOIN artist_track_links atl ON atl.track_id = t.id WHERE atl.artist_id = ? AND album IS NOT NULL GROUP BY album ORDER BY year DESC`).all(artist.id)
     const artistWithFallback = addArtistFallback(db, artist)
