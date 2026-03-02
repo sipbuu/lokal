@@ -1,6 +1,6 @@
 {
   "name": "lokal-music",
-  "version": "1.4.0",
+  "version": "1.4.1",
   "description": "Local-first music player built w/ Electron and React. Designed for people with large local music libraries who'd like a modern listening experience w/o the burdens of streaming subscriptions.",
   "author": "sipbuu",
   "main": "electron/main.js",
@@ -51,11 +51,13 @@
     },
     "mac": {
       "icon": "public/lokal-icon.png",
-      "target": "dmg"
+      "target": ["dmg", "zip"],
+      "category": "public.app-category-music"
     },
     "linux": {
       "icon": "public/lokal-icon.png",
-      "target": "AppImage"
+      "target": ["AppImage", "deb"],
+      "category": "Music"
     }
   },
   "dependencies": {
