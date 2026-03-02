@@ -2,7 +2,7 @@
   "name": "lokal-music",
   "version": "1.4.2",
   "description": "Local-first music player built w/ Electron and React. Designed for people with large local music libraries who'd like a modern listening experience w/o the burdens of streaming subscriptions.",
-  "author": "sipbuu",
+  "author": "sipbuu <97703296+sipbuu@users.noreply.github.com>",
   "main": "electron/main.js",
   "scripts": {
     "dev": "concurrently \"vite\" \"wait-on http://localhost:5173 && electron .\"",
@@ -11,7 +11,8 @@
     "server": "node server/start.js",
     "rebuild": "electron-rebuild -f -w better-sqlite3",
     "rebuild:electron": "electron-rebuild",
-    "rebuild:web": "npm rebuild better-sqlite3"
+    "rebuild:web": "npm rebuild better-sqlite3",
+    "postinstall": "electron-builder install-app-deps"
   },
   "build": {
     "appId": "com.lokal.music",
@@ -63,7 +64,8 @@
         "AppImage",
         "deb"
       ],
-      "category": "Music"
+      "category": "Music",
+      "maintainer": "sipbuu <97703296+sipbuu@users.noreply.github.com>"
     }
   },
   "dependencies": {
