@@ -4,3 +4,10 @@ changelog:
       labels: ["feature", "enhancement"]
     - title: "### Critical Fixes"
       labels: ["bug", "fix"]
+    - title: "### Small Updates"
+      labels: ["documentation", "chore"]
+  exclude:
+    labels:
+      - skip-changelog
+    authors:
+      - octocat

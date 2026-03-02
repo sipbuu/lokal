@@ -7,7 +7,10 @@ on:
 
 jobs:
   build-and-release:
-    runs-on: windows-latest
+    strategy:
+      matrix:
+        os: [windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
     permissions:
       contents: write
 
@@ -29,46 +32,65 @@ jobs:
       - name: Build Application
         run: npm run build -- --publish never
 
+      - name: Get Latest Commit Message
+        id: commit_msg
+        shell: bash
+        run: |
+          MSG=$(git log -1 --pretty=%s)
+          echo "MESSAGE=$MSG" >> $GITHUB_OUTPUT
+
       - name: Rename and Generate Checksums
         id: checksums
         shell: bash
         run: |
           cd release
-          for f in *\ *.exe; do
-            if [ -f "$f" ]; then
-              mv "$f" "${f// /-}"
-            fi
+          for f in *\ *; do
+            [ -f "$f" ] && mv "$f" "${f// /-}"
           done
           echo "HASHES<<EOF" >> $GITHUB_OUTPUT
-          for f in *.exe; do
-            HASH=$(sha256sum "$f" | awk '{print toupper($1)}')
-            echo "> **$f**: \`[$HASH]\`" >> $GITHUB_OUTPUT
+          for f in *.exe *.dmg; do
+            if [ -f "$f" ]; then
+              HASH=$(sha256sum "$f" | awk '{print toupper($1)}')
+              echo "> **$f**: \`[$HASH]\`" >> $GITHUB_OUTPUT
+            fi
           done
           echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: Generate Release Notes
+        id: release_notes
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const response = await github.rest.repos.generateReleaseNotes({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              tag_name: context.payload.ref.replace('refs/tags/', ''),
+            });
+            core.setOutput('body', response.data.body);
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            releases/*.exe
-            releases/latest.yml
+            release/*.exe
+            release/*.dmg
+            release/latest.yml
           draft: true
-          generate_release_notes: true
           body: |
-            ---
-            
             ![ghost](https://i.imgur.com/ZC3mEUC.png) ![ghost](https://i.imgur.com/ZC3mEUC.png) ![ghost](https://i.imgur.com/ZC3mEUC.png) 
 
             # Lokal ${{ github.ref_name }}
             
-            *Major update description goes here.*
+            ${{ steps.commit_msg.outputs.MESSAGE }}
 
             ---
 
             ## Changelog
 
             FYI:
-            **Lokal is 100% local; the library, history, anything in database, or any info that is used for API's such as yt-dlp, LRCLIB, is *NOT* seen by us.** $GITHUB_RELEASE_NOTES
+            **Lokal is 100% local; the library, history, anything in database, or any info that is used for API's such as yt-dlp, LRCLIB, is *NOT* seen by us.**
+
+            ${{ steps.release_notes.outputs.body }}
 
             ---
 
