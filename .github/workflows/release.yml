@@ -127,13 +127,17 @@ jobs:
             });
             core.setOutput('body', response.data.body);
 
-      - name: Create GitHub Release (single aggregated)
-        id: create_release
+      - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           name: Release ${{ github.ref_name }}
           files: |
-            release_all/**/*
+            release_all/**/*.exe
+            release_all/**/*.dmg
+            release_all/**/*.AppImage
+            release_all/**/*.deb
+            release_all/**/*.zip
+            release_all/**/latest*.yml
           draft: true
           body: |
             ![ghost](https://i.imgur.com/ZC3mEUC.png) ![ghost](https://i.imgur.com/ZC3mEUC.png) ![ghost](https://i.imgur.com/ZC3mEUC.png)
