@@ -484,6 +484,7 @@ export const useAppStore = create((set, get) => ({
   showProfileModal: false,
   showStatsModal: false,
   showAlbumsModal: false,
+  selectedAlbum: null,
   addToPlaylistTrack: null,
   addToPlaylistTrackIds: [],
 
@@ -497,8 +498,8 @@ export const useAppStore = create((set, get) => ({
   closeProfile: () => set({ showProfileModal: false }),
   openStats: () => set({ showStatsModal: true }),
   closeStats: () => set({ showStatsModal: false }),
-  openAlbums: () => set({ showAlbumsModal: true }),
-  closeAlbums: () => set({ showAlbumsModal: false }),
+  openAlbums: (album = null) => set({ showAlbumsModal: true, selectedAlbum: album }),
+  closeAlbums: () => set({ showAlbumsModal: false, selectedAlbum: null }),
   openAddToPlaylist: (track) => set({ addToPlaylistTrack: track, addToPlaylistTrackIds: [track.id] }),
   openAddMultipleToPlaylist: (trackIds) => set({ addToPlaylistTrack: null, addToPlaylistTrackIds: trackIds }),
   closeAddToPlaylist: () => set({ addToPlaylistTrack: null, addToPlaylistTrackIds: [] }),
