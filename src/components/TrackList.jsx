@@ -4,6 +4,35 @@ import { Play, Pause, Heart, Plus, Camera, Trash2, Music, Clock, ListEnd, GripVe
 import { usePlayerStore, useAppStore } from '../store/player'
 import { api } from '../api'
 
+const RECENT_ITEMS_KEY = 'lokal-recent-items'
+const MAX_RECENT = 5
+
+function getRecentItems() {
+  try {
+    return JSON.parse(localStorage.getItem(RECENT_ITEMS_KEY) || '[]')
+  } catch {
+    return []
+  }
+}
+
+function saveRecentItem(item) {
+  if (!item?.id) return
+  const recent = getRecentItems()
+  const filtered = recent.filter(r => r.id !== item.id)
+  const newRecent = [item, ...filtered].slice(0, MAX_RECENT)
+  localStorage.setItem(RECENT_ITEMS_KEY, JSON.stringify(newRecent))
+}
+
+function saveRecentTrack(track) {
+  saveRecentItem({
+    id: track.id,
+    name: track.title,
+    artist: track.artist,
+    artwork_path: track.artwork_path,
+    type: 'track'
+  })
+}
+
 function fmt(s) { return s ? `${Math.floor(s/60)}:${Math.floor(s%60).toString().padStart(2,'0')}` : '' }
 
 function fmtAddedAt(ts) {
@@ -29,6 +58,7 @@ export default function TrackList({ tracks = [], showAlbum = true, onRemove = nu
 
   const handlePlay = (track, e) => {
     e.stopPropagation()
+    saveRecentTrack(track)
     if (currentTrack?.id === track.id) togglePlay()
     else playTrack(track, tracks)
   }
