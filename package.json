@@ -51,12 +51,18 @@
     },
     "mac": {
       "icon": "public/lokal-icon.png",
-      "target": ["dmg", "zip"],
+      "target": [
+        "dmg",
+        "zip"
+      ],
       "category": "public.app-category-music"
     },
     "linux": {
       "icon": "public/lokal-icon.png",
-      "target": ["AppImage", "deb"],
+      "target": [
+        "AppImage",
+        "deb"
+      ],
       "category": "Music"
     }
   },
@@ -67,6 +73,7 @@
     "cors": "^2.8.5",
     "discord-rpc": "^4.0.1",
     "dotenv": "^16.4.5",
+    "electron-log": "^5.4.3",
     "electron-store": "^8.1.0",
     "electron-updater": "^6.8.3",
     "express": "^4.18.3",
