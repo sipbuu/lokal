@@ -6,6 +6,8 @@ changelog:
       labels: ["bug", "fix"]
     - title: "### Small Updates"
       labels: ["documentation", "chore"]
+    - title: "### Dependencies"
+      labels: ["dependencies"]
   exclude:
     labels:
       - skip-changelog
