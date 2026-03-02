@@ -14,6 +14,19 @@ const { registerLastFmHandlers } = require('./ipc/lastfm')
 const { registerToolsHandlers } = require('./ipc/tools')
 const { registerPlaylistHandlers } = require('./ipc/playlists')
 let isUpdating = false;
+
+const gotTheLock = app.requestSingleInstanceLock()
+
+if (!gotTheLock) {
+  app.quit()
+} else {
+  app.on('second-instance', (event, commandLine, workingDirectory) => {
+    if (mainWindow) {
+      if (mainWindow.isMinimized()) mainWindow.restore()
+      mainWindow.focus()
+    }
+  })
+}
 autoUpdater.autoDownload = false
 autoUpdater.autoInstallOnAppQuit = true
 
@@ -94,9 +107,10 @@ function createWindow() {
 }
 app.name = 'Lokal'
 app.whenReady().then(() => {
+  if (!gotTheLock) return;
   
   if (app.isPackaged) {
-    try { require('../server/index.js') } catch (e) { console.error('Server:', e.message) }
+    try { require('../server/index.js') } catch (e) { console.error('Server already running or port blocked:', e.message) }
   }
   app.name = 'Lokal'
   if (process.platform === 'win32') {

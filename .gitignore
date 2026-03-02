@@ -19,3 +19,4 @@ src/photos/
 *.db
 *.db-journal
 *.log
+.vscode/

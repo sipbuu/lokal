@@ -92,5 +92,13 @@ app.get('*', (req, res) => {
 })
 
 const PORT = process.env.PORT || 3421
-app.listen(PORT, () => console.log(`Lokal Music → http://localhost:${PORT}`))
+const server = app.listen(PORT, () => {
+  console.log(`Lokal Music → http://localhost:${PORT}`);
+}).on('error', (err) => {
+  if (err.code === 'EADDRINUSE') {
+    console.error(`Port ${PORT} is busy. Server is likely already running.`);
+  } else {
+    console.error('Server Error:', err);
+  }
+});
 module.exports = app
