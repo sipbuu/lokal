@@ -1,6 +1,6 @@
 import React, { useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { X, Music, GripVertical, Plus, Clock } from 'lucide-react'
+import { X, Music, GripVertical, Plus, Clock, ListPlus, ListStart, FolderPlus } from 'lucide-react'
 import { usePlayerStore, useAppStore } from '../store/player'
 import { api } from '../api'
 
@@ -180,7 +180,7 @@ export default function QueuePanel() {
             title="Play next"
             className="p-1 rounded hover:bg-accent/20 text-muted hover:text-accent transition-colors"
           >
-            <Clock size={12} />
+            <ListStart size={14} />
           </button>
           
           <button
@@ -188,7 +188,7 @@ export default function QueuePanel() {
             title="Add to queue"
             className="p-1 rounded hover:bg-accent/20 text-muted hover:text-accent transition-colors"
           >
-            <Plus size={12} />
+            <ListPlus size={14} />
           </button>
           
           <button
@@ -196,7 +196,7 @@ export default function QueuePanel() {
             title="Add to playlist"
             className="p-1 rounded hover:bg-accent/20 text-muted hover:text-accent transition-colors"
           >
-            <span className="text-xs font-bold">+</span>
+            <FolderPlus size={14} />
           </button>
 
           {!isCurrent && (
@@ -205,14 +205,14 @@ export default function QueuePanel() {
               title="Remove from queue"
               className="p-1 rounded hover:bg-red-500/20 text-muted hover:text-red-400 transition-colors"
             >
-              <X size={12} />
+              <X size={14} />
             </button>
           )}
         </div>
       )}
-    </motion.div>
-  )
-})}
+          </motion.div>
+        )
+      })}
           </div>
         </motion.aside>
       )}
