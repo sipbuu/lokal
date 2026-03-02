@@ -56,18 +56,47 @@ jobs:
           node-version: '20'
           cache: 'npm'
 
+      - name: Cache electron and app-builder downloads
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/electron
+            ~/.cache/app-builder
+            ~/Library/Caches/electron
+            ~/.npm
+          key: ${{ runner.os }}-electron-cache-${{ hashFiles('**/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-electron-cache-
+
       - name: Install Dependencies
         run: npm install
 
       - name: Build Application
-        run: npm run build -- --publish never
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm run build:renderer || exit 1
+          ATTEMPTS=0
+          MAX=3
+          SLEEP=5
+          while true; do
+            ATTEMPTS=$((ATTEMPTS+1))
+            npx electron-builder --publish never && break
+            RET=$?
+            if [ "$ATTEMPTS" -ge "$MAX" ]; then
+              export DEBUG=electron-builder
+              npx electron-builder --publish never || true
+              exit $RET
+            fi
+            sleep $SLEEP
+            SLEEP=$((SLEEP*2))
+          done
 
       - name: Rename release files for this runner
         shell: bash
         run: |
           set -euo pipefail
           if [ ! -d release ]; then
-            echo "release directory not found — skipping rename"
             exit 0
           fi
           cd release
@@ -77,15 +106,12 @@ jobs:
             if [ -f "$f" ]; then
               dest="${f// /-}"
               if [ "$f" = "$dest" ]; then
-                echo "no rename needed for: $f"
                 continue
               fi
               if [ -e "$dest" ]; then
-                echo "target exists, skipping: $dest"
                 continue
               fi
-              mv -- "$f" "$dest" || { echo "mv failed for $f" ; exit 1; }
-              echo "renamed: '$f' -> '$dest'"
+              mv -- "$f" "$dest" || exit 1
             fi
           done
 
@@ -145,12 +171,9 @@ jobs:
               echo "> **$NAME**: \`[$HASH]\`" >> $GITHUB_OUTPUT
             fi
           done
-          if [ -z "$(ls -A release_all 2>/dev/null | grep -v .no_files)" ]; then
-            echo "No release files found" >> $GITHUB_OUTPUT
-          fi
           echo "EOF" >> $GITHUB_OUTPUT
 
-      - name: Get latest commit message (single)
+      - name: Get latest commit message
         id: latest_commit
         shell: bash
         run: |
@@ -167,11 +190,11 @@ jobs:
             const response = await github.rest.repos.generateReleaseNotes({
               owner: context.repo.owner,
               repo: context.repo.repo,
-              tag_name: context.payload.ref.replace('refs/tags/', ''),
+              tag_name: 'nightly',
             });
             core.setOutput('body', response.data.body);
 
-      - name: Create GitHub Release (single aggregated)
+      - name: Create GitHub Release
         id: create_release
         uses: softprops/action-gh-release@v2
         with:
@@ -192,7 +215,7 @@ jobs:
 
             ---
 
-            ## Changelog (generated)
+            ## Changelog
             ${{ steps.release_notes.outputs.body }}
 
             ---
@@ -200,7 +223,7 @@ jobs:
             ### Binary Checksums (SHA-256)
             ${{ steps.checksums.outputs.HASHES }}
 
-      - name: Discord Notification (Nightly started)
+      - name: Discord Notification
         shell: bash
         run: |
           LATEST_MSG=${{ steps.latest_commit.outputs.LATEST }}
