@@ -99,7 +99,7 @@ jobs:
             release/latest*.yml
 
   release:
-    needs: build
+    needs: [check, build]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -121,12 +121,9 @@ jobs:
         run: |
           mkdir -p release_all
           if [ -d "artifacts" ]; then
-            echo "Copying artifacts..."
             find artifacts -type f -exec cp -v {} release_all/ \;
           fi
-          
           if [ -z "$(ls -A release_all 2>/dev/null)" ]; then
-            echo "No files found, creating placeholder."
             touch release_all/.no_files
           fi
 
@@ -163,20 +160,20 @@ jobs:
               const response = await github.rest.repos.generateReleaseNotes({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
-                tag_name: 'nightly',
+                tag_name: '${{ needs.check.outputs.nightly_version }}',
                 target_commitish: context.sha
               });
               core.setOutput('body', response.data.body);
             } catch (e) {
-              core.setOutput('body', 'Incremental changelog not available for this build.');
+              core.setOutput('body', 'Changelog generated from latest commits.');
             }
         
-      - name: Refresh Nightly Tag
+      - name: Push Dynamic Nightly Tag
         run: |
-          git tag -d nightly || true
-          git push origin :refs/tags/nightly || true
-          git tag nightly
-          git push origin nightly
+          TAG_NAME="${{ needs.check.outputs.nightly_version }}"
+          git tag $TAG_NAME
+          git push origin $TAG_NAME
+
       - name: Create GitHub Release
         id: create_release
         uses: softprops/action-gh-release@v2
@@ -196,13 +193,13 @@ jobs:
             ---
             
             ## Changelog
-
             ${{ steps.release_notes.outputs.body }} 
-           
+            
             ---
               
             ### Binary Checksums (SHA-256)
             ${{ steps.checksums.outputs.HASHES }}
+
       - name: Discord Notification
         if: env.DISCORD_WEBHOOK != ''
         shell: bash
@@ -227,8 +224,8 @@ jobs:
                 footer: { text: "Click the title to download from GitHub" }
               }]
             }')
-
           curl -H "Content-Type: application/json" -d "$PAYLOAD" "$DISCORD_WEBHOOK"
+
       - name: Cleanup Old Nightly Releases
         uses: dev-drprasad/delete-older-releases@v0.3.0
         with:
