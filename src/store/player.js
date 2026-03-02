@@ -1,5 +1,27 @@
 import { create } from 'zustand'
 
+function loadQueue() {
+  try {
+    const data = localStorage.getItem('lokal-queue')
+    if (!data) return null
+    const parsed = JSON.parse(data)
+
+    if (Array.isArray(parsed.queue)) {
+      return {
+        ...parsed,
+        isPlaying: false,
+        progress: 0,
+        duration: 0,
+        audioRef: null,
+        cfAudioRef: null,
+      }
+    }
+  } catch (e) {
+    console.error('Failed to load queue from localStorage', e)
+  }
+  return null
+}
+
 function loadUser() {
   try { return JSON.parse(localStorage.getItem('lokal-user') || 'null') } catch { return null }
 }
@@ -13,6 +35,8 @@ function shuffleArray(array) {
   }
   return arr
 }
+
+const savedQueueState = loadQueue()
 
 export const usePlayerStore = create((set, get) => ({
   queue: [], queueIndex: -1, currentTrack: null,
@@ -30,6 +54,8 @@ export const usePlayerStore = create((set, get) => ({
   playHistory: [], 
   futureHistory: [], 
   wasShuffled: false, 
+
+  ...(savedQueueState || {}),
 
   setAudioRef: (ref) => set({ audioRef: ref }),
   setCfAudioRef: (ref) => set({ cfAudioRef: ref }),
@@ -477,3 +503,21 @@ export const useAppStore = create((set, get) => ({
   openAddMultipleToPlaylist: (trackIds) => set({ addToPlaylistTrack: null, addToPlaylistTrackIds: trackIds }),
   closeAddToPlaylist: () => set({ addToPlaylistTrack: null, addToPlaylistTrackIds: [] }),
 }))
+
+usePlayerStore.subscribe((state) => {
+  const {
+    queue, queueIndex, currentTrack, shuffle, repeat, shuffleQueue,
+    shuffleIndex, playHistory, futureHistory, wasShuffled, originalQueue,
+  } = state
+
+  const dataToSave = {
+    queue, queueIndex, currentTrack, shuffle, repeat, shuffleQueue,
+    shuffleIndex, playHistory, futureHistory, wasShuffled, originalQueue,
+  }
+
+  try {
+    localStorage.setItem('lokal-queue', JSON.stringify(dataToSave))
+  } catch (e) {
+    console.error('Failed to save queue to localStorage', e)
+  }
+})
