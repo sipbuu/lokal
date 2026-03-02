@@ -36,8 +36,17 @@ jobs:
         id: commit_msg
         shell: bash
         run: |
-          MSG=$(git log -1 --pretty=%s)
-          echo "MESSAGE=$MSG" >> $GITHUB_OUTPUT
+          PREV_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+
+          if [ -z "$PREV_TAG" ]; then
+            LOG=$(git log --pretty=format:"- %s")
+          else
+            LOG=$(git log "$PREV_TAG"..HEAD --pretty=format:"- %s")
+          fi
+
+          echo "MESSAGE<<EOF" >> $GITHUB_OUTPUT
+          echo "$LOG" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
 
       - name: Rename and Generate Checksums
         id: checksums
@@ -129,18 +138,24 @@ jobs:
             COLOR=15822353
           fi
 
-          PAYLOAD=$(cat <<EOF
-          {
-            "embeds": [{
-              "title": "Build Complete: Lokal ${{ github.ref_name }} ($PLATFORM)",
-              "description": "The binaries for version **${{ github.ref_name }}** have been built and uploaded to the release draft.\n\n**Platform:** $PLATFORM\n**Status:** Draft Ready\n**Last Commit:** $SAFE_MSG",
-              "url": "${{ steps.create_release.outputs.html_url }}",
-              "color": $COLOR,
-              "image": { "url": "https://i.imgur.com/KgjwTvk.png" },
-              "footer": { "text": "Lokal Build System", "icon_url": "https://i.imgur.com/ZC3mEUC.png" }
-            }]
-          }
-          EOF
+          PAYLOAD=$(jq -n \
+            --arg version "${{ github.ref_name }}" \
+            --arg platform "$PLATFORM" \
+            --arg url "${{ steps.create_release.outputs.html_url }}" \
+            --arg msg "${{ steps.commit_msg.outputs.MESSAGE }}" \
+            --arg image "https://i.imgur.com/KgjwTvk.png" \
+            --arg footer_icon "https://i.imgur.com/ZC3mEUC.png" \
+            --argjson color $COLOR \
+            '{
+              embeds: [{
+                title: "Build Complete: Lokal \($version) (\($platform))",
+                description: "The binaries for version **\($version)** have been built and uploaded to the release draft.\n\n**Platform:** \($platform)\n**Status:** Draft Ready\n**Last Commit:** \($msg)",
+                url: $url,
+                color: $color,
+                image: { url: $image },
+                footer: { text: "Lokal Build System", icon_url: $footer_icon }
+              }]
+            }'
           )
 
           curl -H "Content-Type: application/json" -d "$PAYLOAD" "$DISCORD_WEBHOOK"
