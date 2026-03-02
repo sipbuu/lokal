@@ -48,7 +48,7 @@ jobs:
             [ -f "$f" ] && mv "$f" "${f// /-}"
           done
           echo "HASHES<<EOF" >> $GITHUB_OUTPUT
-          for f in *.exe *.dmg; do
+          for f in *.exe *.dmg *.zip; do
             if [ -f "$f" ]; then
               HASH=$(sha256sum "$f" | awk '{print toupper($1)}')
               echo "> **$f**: \`[$HASH]\`" >> $GITHUB_OUTPUT
@@ -69,12 +69,16 @@ jobs:
             core.setOutput('body', response.data.body);
 
       - name: Create GitHub Release
+        id: create_release
         uses: softprops/action-gh-release@v2
         with:
+          name: Release ${{ github.ref_name }}
           files: |
             release/*.exe
             release/*.dmg
+            release/*.zip
             release/latest.yml
+            release/latest-mac.yml
           draft: true
           body: |
             ![ghost](https://i.imgur.com/ZC3mEUC.png) ![ghost](https://i.imgur.com/ZC3mEUC.png) ![ghost](https://i.imgur.com/ZC3mEUC.png) 
@@ -103,3 +107,20 @@ jobs:
             ### Binary Checksums (SHA-256)
 
             ${{ steps.checksums.outputs.HASHES }}
+
+      - name: Discord Notification (Draft)
+        if: matrix.os == 'windows-latest'
+        env:
+          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
+        run: |
+          curl -H "Content-Type: application/json" \
+          -d '{
+            "embeds": [{
+              "title": "Build Successful: Lokal ${{ github.ref_name }}",
+              "description": "The binaries for version **${{ github.ref_name }}** have been built and uploaded as a **Draft**.\n\n**Status:** 🏗️ Waiting for manual review/publish.\n**Commit:** `${{ steps.commit_msg.outputs.MESSAGE }}`",
+              "url": "${{ steps.create_release.outputs.html_url }}",
+              "color": 8421504,
+              "image": { "url": "https://i.imgur.com/KgjwTvk.png" },
+              "footer": { "text": "Internal Dev Alert", "icon_url": "https://i.imgur.com/ZC3mEUC.png" }
+            }]
+          }' $DISCORD_WEBHOOK
