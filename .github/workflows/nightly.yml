@@ -16,7 +16,7 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Check for new commits since last nightly
+      - name: Check for new commits
         id: check_commits
         shell: bash
         run: |
@@ -29,11 +29,7 @@ jobs:
           else
             COUNT=1
           fi
-          if [ "$COUNT" -gt 0 ]; then
-            echo "new_commits=true" >> $GITHUB_OUTPUT
-          else
-            echo "new_commits=false" >> $GITHUB_OUTPUT
-          fi
+          [ "$COUNT" -gt 0 ] && echo "new_commits=true" >> $GITHUB_OUTPUT || echo "new_commits=false" >> $GITHUB_OUTPUT
 
   build:
     needs: check
@@ -56,64 +52,26 @@ jobs:
           node-version: '20'
           cache: 'npm'
 
-      - name: Cache electron and app-builder downloads
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cache/electron
-            ~/.cache/app-builder
-            ~/Library/Caches/electron
-            ~/.npm
-          key: ${{ runner.os }}-electron-cache-${{ hashFiles('**/package-lock.json') }}
-          restore-keys: |
-            ${{ runner.os }}-electron-cache-
-
       - name: Install Dependencies
-        run: npm install
+        # Added environment variable to prevent Electron download timeouts
+        # and switched to 'npm ci' for a cleaner, more stable install.
+        env:
+          ELECTRON_DOWNLOAD_TIMEOUT: 120000
+        run: npm ci
 
       - name: Build Application
-        shell: bash
-        run: |
-          set -euo pipefail
-          npm run build:renderer || exit 1
-          ATTEMPTS=0
-          MAX=3
-          SLEEP=5
-          while true; do
-            ATTEMPTS=$((ATTEMPTS+1))
-            npx electron-builder --publish never && break
-            RET=$?
-            if [ "$ATTEMPTS" -ge "$MAX" ]; then
-              export DEBUG=electron-builder
-              npx electron-builder --publish never || true
-              exit $RET
-            fi
-            sleep $SLEEP
-            SLEEP=$((SLEEP*2))
-          done
+        run: npm run build -- --publish never
 
-      - name: Rename release files for this runner
+      - name: Rename release files
         shell: bash
         run: |
-          set -euo pipefail
-          if [ ! -d release ]; then
-            exit 0
+          if [ -d release ]; then
+            cd release
+            # Safely find files with spaces and replace them with dashes
+            find . -maxdepth 1 -type f -name "* *" | while read -r f; do
+              mv "$f" "${f// /-}"
+            done
           fi
-          cd release
-          shopt -s nullglob
-          for f in *\ *; do
-            [ -e "$f" ] || continue
-            if [ -f "$f" ]; then
-              dest="${f// /-}"
-              if [ "$f" = "$dest" ]; then
-                continue
-              fi
-              if [ -e "$dest" ]; then
-                continue
-              fi
-              mv -- "$f" "$dest" || exit 1
-            fi
-          done
 
       - name: Upload release artifacts
         uses: actions/upload-artifact@v4
@@ -123,7 +81,6 @@ jobs:
 
   release:
     needs: build
-    if: needs.build.result == 'success'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -140,47 +97,30 @@ jobs:
         with:
           path: artifacts
 
-      - name: Aggregate artifacts into release_all
+      - name: Aggregate artifacts
         shell: bash
         run: |
           mkdir -p release_all
-          shopt -s nullglob || true
-          for d in artifacts/*; do
-            if [ -d "$d" ]; then
-              cp -R "$d"/* release_all/ || true
-            fi
-          done
-          if [ -z "$(ls -A release_all 2>/dev/null)" ]; then
-            touch release_all/.no_files
-          fi
+          find artifacts -type f -exec cp {} release_all/ \;
+          [ -z "$(ls -A release_all)" ] && touch release_all/.no_files
 
-      - name: Generate checksums for all artifacts
+      - name: Generate checksums
         id: checksums
         shell: bash
         run: |
-          if command -v sha256sum >/dev/null 2>&1; then
-            SHACMD='sha256sum'
-          else
-            SHACMD='shasum -a 256'
-          fi
           echo "HASHES<<EOF" >> $GITHUB_OUTPUT
-          for f in release_all/*; do
-            if [ -f "$f" ] && [ "$(basename "$f")" != ".no_files" ]; then
-              HASH=$($SHACMD "$f" | awk '{print toupper($1)}')
-              NAME=$(basename "$f")
-              echo "> **$NAME**: \`[$HASH]\`" >> $GITHUB_OUTPUT
+          cd release_all
+          for f in *; do
+            if [ -f "$f" ] && [ "$f" != ".no_files" ]; then
+              HASH=$(sha256sum "$f" | awk '{print toupper($1)}')
+              echo "> **$f**: \`[$HASH]\`" >> $GITHUB_OUTPUT
             fi
           done
           echo "EOF" >> $GITHUB_OUTPUT
 
       - name: Get latest commit message
         id: latest_commit
-        shell: bash
-        run: |
-          MSG=$(git log -1 --pretty=%s)
-          echo "LATEST<<EOF" >> $GITHUB_OUTPUT
-          echo "$MSG" >> $GITHUB_OUTPUT
-          echo "EOF" >> $GITHUB_OUTPUT
+        run: echo "LATEST=$(git log -1 --pretty=%s)" >> $GITHUB_OUTPUT
 
       - name: Generate Release Notes
         id: release_notes
@@ -191,6 +131,7 @@ jobs:
               owner: context.repo.owner,
               repo: context.repo.repo,
               tag_name: 'nightly',
+              target_commitish: context.sha
             });
             core.setOutput('body', response.data.body);
 
@@ -202,39 +143,23 @@ jobs:
           tag_name: nightly
           prerelease: true
           make_latest: false
-          files: |
-            release_all/**/*
+          files: release_all/**/*
           body: |
             ![nightly moon](https://i.imgur.com/2M91R9E.png)
-
             # Lokal (Nightly)
-
-            **Built from latest commit**
-
-            **Latest commit:** ${{ steps.latest_commit.outputs.LATEST }}
-
+            **Built from latest commit:** ${{ steps.latest_commit.outputs.LATEST }}
             ---
-
             ## Changelog
             ${{ steps.release_notes.outputs.body }}
-
             ---
-
             ### Binary Checksums (SHA-256)
             ${{ steps.checksums.outputs.HASHES }}
 
       - name: Discord Notification
+        if: env.DISCORD_WEBHOOK != ''
         shell: bash
         run: |
-          LATEST_MSG=${{ steps.latest_commit.outputs.LATEST }}
-          PAYLOAD=$(jq -n --arg msg "$LATEST_MSG" --arg url "${{ steps.create_release.outputs.html_url }}" --arg image "https://i.imgur.com/2M91R9E.png" --argjson color 3447003 '{
-            embeds: [{
-              title: "Nightly build is being made",
-              description: "A new nightly build has started.",
-              url: $url,
-              color: $color,
-              image: { url: $image },
-              footer: { text: "Lokal Nightly", icon_url: $image }
-            }]
-          }')
+          PAYLOAD=$(jq -n --arg msg "${{ steps.latest_commit.outputs.LATEST }}" \
+            --arg url "${{ steps.create_release.outputs.html_url }}" \
+            '{embeds: [{title: "Nightly build updated", description: $msg, url: $url, color: 3447003}]}')
           curl -H "Content-Type: application/json" -d "$PAYLOAD" "$DISCORD_WEBHOOK"
