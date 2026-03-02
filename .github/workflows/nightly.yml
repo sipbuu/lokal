@@ -16,7 +16,7 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Check for new commits
+      - name: Check for new commits since last nightly
         id: check_commits
         shell: bash
         run: |
@@ -29,7 +29,11 @@ jobs:
           else
             COUNT=1
           fi
-          [ "$COUNT" -gt 0 ] && echo "new_commits=true" >> $GITHUB_OUTPUT || echo "new_commits=false" >> $GITHUB_OUTPUT
+          if [ "$COUNT" -gt 0 ]; then
+            echo "new_commits=true" >> $GITHUB_OUTPUT
+          else
+            echo "new_commits=false" >> $GITHUB_OUTPUT
+          fi
 
   build:
     needs: check
@@ -53,8 +57,7 @@ jobs:
           cache: 'npm'
 
       - name: Install Dependencies
-        # Added environment variable to prevent Electron download timeouts
-        # and switched to 'npm ci' for a cleaner, more stable install.
+        # Fix for "socket hang up" by increasing timeout and using npm ci
         env:
           ELECTRON_DOWNLOAD_TIMEOUT: 120000
         run: npm ci
@@ -65,9 +68,9 @@ jobs:
       - name: Rename release files
         shell: bash
         run: |
-          if [ -d release ]; then
+          if [ -d "release" ]; then
             cd release
-            # Safely find files with spaces and replace them with dashes
+            # Robust renaming logic that won't crash if no spaces are found
             find . -maxdepth 1 -type f -name "* *" | while read -r f; do
               mv "$f" "${f// /-}"
             done
@@ -97,30 +100,43 @@ jobs:
         with:
           path: artifacts
 
-      - name: Aggregate artifacts
+      - name: Aggregate artifacts into release_all
         shell: bash
         run: |
           mkdir -p release_all
-          find artifacts -type f -exec cp {} release_all/ \;
-          [ -z "$(ls -A release_all)" ] && touch release_all/.no_files
+          # Use explicit if-statements to prevent exit code 1 when files exist
+          if [ -d "artifacts" ]; then
+            echo "Copying artifacts..."
+            find artifacts -type f -exec cp -v {} release_all/ \;
+          fi
+          
+          if [ -z "$(ls -A release_all 2>/dev/null)" ]; then
+            echo "No files found, creating placeholder."
+            touch release_all/.no_files
+          fi
 
-      - name: Generate checksums
+      - name: Generate checksums for all artifacts
         id: checksums
         shell: bash
         run: |
           echo "HASHES<<EOF" >> $GITHUB_OUTPUT
-          cd release_all
-          for f in *; do
-            if [ -f "$f" ] && [ "$f" != ".no_files" ]; then
-              HASH=$(sha256sum "$f" | awk '{print toupper($1)}')
-              echo "> **$f**: \`[$HASH]\`" >> $GITHUB_OUTPUT
-            fi
-          done
+          if [ -d "release_all" ]; then
+            cd release_all
+            for f in *; do
+              if [ -f "$f" ] && [ "$f" != ".no_files" ]; then
+                HASH=$(sha256sum "$f" | awk '{print toupper($1)}')
+                echo "> **$f**: \`[$HASH]\`" >> $GITHUB_OUTPUT
+              fi
+            done
+          fi
           echo "EOF" >> $GITHUB_OUTPUT
 
       - name: Get latest commit message
         id: latest_commit
-        run: echo "LATEST=$(git log -1 --pretty=%s)" >> $GITHUB_OUTPUT
+        shell: bash
+        run: |
+          MSG=$(git log -1 --pretty=%s)
+          echo "LATEST=$MSG" >> $GITHUB_OUTPUT
 
       - name: Generate Release Notes
         id: release_notes
@@ -146,12 +162,18 @@ jobs:
           files: release_all/**/*
           body: |
             ![nightly moon](https://i.imgur.com/2M91R9E.png)
+
             # Lokal (Nightly)
+
             **Built from latest commit:** ${{ steps.latest_commit.outputs.LATEST }}
+
             ---
-            ## Changelog
+
+            ## Changelog (generated)
             ${{ steps.release_notes.outputs.body }}
+
             ---
+
             ### Binary Checksums (SHA-256)
             ${{ steps.checksums.outputs.HASHES }}
 
