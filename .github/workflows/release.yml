@@ -110,6 +110,7 @@ jobs:
 
       - name: Discord Notification (Draft)
         if: matrix.os == 'windows-latest'
+        shell: bash
         env:
           DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
         run: |

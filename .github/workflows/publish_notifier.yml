@@ -11,6 +11,7 @@ jobs:
       - name: Send Public Notification
         env:
           DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
+        shell: bash
         run: |
           curl -H "Content-Type: application/json" \
           -d '{
