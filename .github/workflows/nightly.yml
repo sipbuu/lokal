@@ -6,7 +6,6 @@ on:
   workflow_dispatch:
 
 jobs:
-  # First job: determine whether there are commits since last nightly.
   check:
     runs-on: ubuntu-latest
     outputs:
@@ -42,7 +41,6 @@ jobs:
             echo "new_commits=false" >> $GITHUB_OUTPUT
           fi
 
-  # Build matrix — only runs when check says there are new commits
   build:
     needs: check
     if: needs.check.outputs.new_commits == 'true'
@@ -85,17 +83,12 @@ jobs:
           name: nightly-${{ matrix.os }}
           path: release
 
-  # Aggregate + release job: runs once if build succeeded
   release:
     needs: build
-    if: needs.build.result == 'success'    # only run when the build job ran & succeeded
+    if: needs.build.result == 'success'   
     runs-on: ubuntu-latest
     permissions:
       contents: write
-    env:
-      # replace with your moon image URL (hosted somewhere public). 
-      # You can also set this as a repo secret and reference it as ${{ secrets.NIGHTLY_IMAGE_URL }} instead.
-      NIGHTLY_IMAGE_URL: https://i.imgur.com/your-moon.png
 
     steps:
       - name: Checkout Code
