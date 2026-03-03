@@ -634,6 +634,9 @@ function registerExtraDownloaderHandlers(ipcMain) {
                 }
               }
 
+              db.prepare('UPDATE downloaded_playlists SET status = ?, downloaded_count = ?, last_downloaded_at = ? WHERE id = ?')
+                .run('completed', downloadedTracks.length, Date.now(), playlistDbId)
+
               if (win) {
                 win.webContents.send('downloader:progress', {
                   id: dlId,
