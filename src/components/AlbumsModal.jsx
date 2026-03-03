@@ -1,9 +1,11 @@
-import React, { useEffect, useState, useCallback } from 'react'
+import React, { useEffect, useState, useCallback, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { X, Search, Play, Pause, Disc3 } from 'lucide-react'
+import { X, Search, Play, Pause, Disc3, Loader2 } from 'lucide-react'
 import { useAppStore } from '../store/player'
 import { usePlayerStore } from '../store/player'
 import { api } from '../api'
+
+const PAGE_SIZE = 40
 
 function AlbumCard({ album, onClick }) {
   const [imgLoaded, setImgLoaded] = useState(false)
@@ -51,10 +53,15 @@ function AlbumCard({ album, onClick }) {
 function AlbumDetail({ album, onClose }) {
   const [tracks, setTracks] = useState([])
   const [hoveredTrack, setHoveredTrack] = useState(null)
+  const [loading, setLoading] = useState(true)
   const { playQueue, currentTrack, isPlaying, playTrack, togglePlay } = usePlayerStore()
 
   useEffect(() => {
-    api.getAlbumTracks(album.title).then(t => setTracks(Array.isArray(t) ? t : []))
+    setLoading(true)
+    api.getAlbumTracks(album.title).then(t => {
+      setTracks(Array.isArray(t) ? t : [])
+      setLoading(false)
+    })
   }, [album.title])
 
   const handlePlay = (track, index, e) => {
@@ -85,38 +92,46 @@ function AlbumDetail({ album, onClose }) {
         )}
       </div>
       <div className="flex-1 overflow-y-auto">
-        {tracks.map((t, i) => {
-          const isCurrent = currentTrack?.id === t.id
-          const isHov = hoveredTrack === t.id
-          return (
-            <div 
-              key={t.id} 
-              onDoubleClick={() => playQueue(tracks, i)}
-              onMouseEnter={() => setHoveredTrack(t.id)}
-              onMouseLeave={() => setHoveredTrack(null)}
-              onClick={(e) => handlePlay(t, i, e)}
-              className={`w-full flex items-center gap-3 px-6 py-2.5 hover:bg-elevated transition-colors group cursor-pointer ${isCurrent ? 'bg-accent/8' : ''}`}
-            >
-              <div className="w-5 flex items-center justify-center">
-                {isHov || isCurrent ? (
-                  <span 
-                    onClick={e => handlePlay(t, i, e)}
-                    className={`cursor-pointer ${isCurrent ? 'text-accent' : 'text-white'}`}
-                  >
-                    {isCurrent && isPlaying ? <Pause size={12} fill="currentColor" /> : <Play size={12} fill="currentColor" className="translate-x-px" />}
-                  </span>
-                ) : (
-                  <span className={`text-xs text-muted font-display ${isCurrent ? 'text-accent' : ''}`}>{t.track_num || i + 1}</span>
-                )}
+        {loading ? (
+          <div className="flex items-center justify-center py-10">
+            <Loader2 size={24} className="text-muted animate-spin" />
+          </div>
+        ) : tracks.length === 0 ? (
+          <p className="text-center text-muted text-sm py-10">No tracks found for this album.</p>
+        ) : (
+          tracks.map((t, i) => {
+            const isCurrent = currentTrack?.id === t.id
+            const isHov = hoveredTrack === t.id
+            return (
+              <div 
+                key={t.id} 
+                onDoubleClick={() => playQueue(tracks, i)}
+                onMouseEnter={() => setHoveredTrack(t.id)}
+                onMouseLeave={() => setHoveredTrack(null)}
+                onClick={(e) => handlePlay(t, i, e)}
+                className={`w-full flex items-center gap-3 px-6 py-2.5 hover:bg-elevated transition-colors group cursor-pointer ${isCurrent ? 'bg-accent/8' : ''}`}
+              >
+                <div className="w-5 flex items-center justify-center">
+                  {isHov || isCurrent ? (
+                    <span 
+                      onClick={e => handlePlay(t, i, e)}
+                      className={`cursor-pointer ${isCurrent ? 'text-accent' : 'text-white'}`}
+                    >
+                      {isCurrent && isPlaying ? <Pause size={12} fill="currentColor" /> : <Play size={12} fill="currentColor" className="translate-x-px" />}
+                    </span>
+                  ) : (
+                    <span className={`text-xs text-muted font-display ${isCurrent ? 'text-accent' : ''}`}>{t.track_num || i + 1}</span>
+                  )}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className={`text-sm truncate ${isCurrent ? 'text-accent' : 'text-white'}`}>{t.title}</p>
+                  <p className="text-xs text-muted truncate">{t.artist}</p>
+                </div>
+                <span className="text-xs text-muted">{t.duration ? `${Math.floor(t.duration/60)}:${String(Math.floor(t.duration%60)).padStart(2,'0')}` : ''}</span>
               </div>
-              <div className="flex-1 min-w-0">
-                <p className={`text-sm truncate ${isCurrent ? 'text-accent' : 'text-white'}`}>{t.title}</p>
-                <p className="text-xs text-muted truncate">{t.artist}</p>
-              </div>
-              <span className="text-xs text-muted">{t.duration ? `${Math.floor(t.duration/60)}:${String(Math.floor(t.duration%60)).padStart(2,'0')}` : ''}</span>
-            </div>
-          )
-        })}
+            )
+          })
+        )}
       </div>
     </div>
   )
@@ -125,30 +140,110 @@ function AlbumDetail({ album, onClose }) {
 export default function AlbumsModal() {
   const { showAlbumsModal, closeAlbums, selectedAlbum } = useAppStore()
   const [albums, setAlbums] = useState([])
-  const [filtered, setFiltered] = useState([])
+  const [displayedAlbums, setDisplayedAlbums] = useState([])
   const [q, setQ] = useState('')
   const [selected, setSelected] = useState(null)
   const [loading, setLoading] = useState(false)
+  const [loadingMore, setLoadingMore] = useState(false)
+  const [hasMore, setHasMore] = useState(true)
+  const observerRef = useRef(null)
+  const loadMoreRef = useRef(null)
 
   useEffect(() => {
+    if (!showAlbumsModal) {
+      setSelected(null)
+      setAlbums([])
+      setDisplayedAlbums([])
+      setQ('')
+      setHasMore(true)
+      return
+    }
+    setLoading(true)
+    
     if (selectedAlbum) {
       setSelected(selectedAlbum)
     }
-  }, [selectedAlbum])
-
-  useEffect(() => {
-    if (!showAlbumsModal) return
-    setLoading(true); setQ('')
-    if (!selectedAlbum) setSelected(null)
-    api.getAllAlbums().then(a => { const arr = Array.isArray(a) ? a : []; setAlbums(arr); setFiltered(arr); setLoading(false) })
+    
+    api.getAllAlbums().then(a => { 
+      const arr = Array.isArray(a) ? a : [] 
+      setAlbums(arr)
+      setDisplayedAlbums(arr.slice(0, PAGE_SIZE))
+      setHasMore(arr.length > PAGE_SIZE)
+      setLoading(false)
+    })
   }, [showAlbumsModal])
 
-  const search = useCallback((val) => {
-    setQ(val)
-    if (!val.trim()) { setFiltered(albums); return }
-    const lower = val.toLowerCase()
-    setFiltered(albums.filter(a => (a.title||'').toLowerCase().includes(lower) || (a.artists||'').toLowerCase().includes(lower)))
-  }, [albums])
+  useEffect(() => {
+    if (!q.trim()) {
+      setDisplayedAlbums(albums.slice(0, PAGE_SIZE))
+      setHasMore(albums.length > PAGE_SIZE)
+    } else {
+      const lower = q.toLowerCase()
+      const filtered = albums.filter(a => 
+        (a.title||'').toLowerCase().includes(lower) || 
+        (a.artists||'').toLowerCase().includes(lower)
+      )
+      setDisplayedAlbums(filtered.slice(0, PAGE_SIZE))
+      setHasMore(filtered.length > PAGE_SIZE)
+    }
+  }, [q, albums])
+
+  const loadMore = useCallback(() => {
+    if (loadingMore || !hasMore) return
+    
+    setLoadingMore(true)
+    
+    setTimeout(() => {
+      const currentLength = displayedAlbums.length
+      const currentQ = q.trim().toLowerCase()
+      
+      let source = albums
+      if (currentQ) {
+        source = albums.filter(a => 
+          (a.title||'').toLowerCase().includes(currentQ) || 
+          (a.artists||'').toLowerCase().includes(currentQ)
+        )
+      }
+      
+      const more = source.slice(currentLength, currentLength + PAGE_SIZE)
+      
+      if (more.length > 0) {
+        setDisplayedAlbums(prev => [...prev, ...more])
+      }
+      
+      setHasMore(currentLength + more.length < source.length)
+      setLoadingMore(false)
+    }, 50)
+  }, [displayedAlbums.length, hasMore, loadingMore, albums, q])
+
+  useEffect(() => {
+    if (!showAlbumsModal || loading) return
+    
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting && hasMore && !loadingMore) {
+          loadMore()
+        }
+      },
+      { threshold: 0.1 }
+    )
+    
+    observerRef.current = observer
+    
+    if (loadMoreRef.current) {
+      observer.observe(loadMoreRef.current)
+    }
+    
+    return () => observer.disconnect()
+  }, [showAlbumsModal, loading, hasMore, loadingMore, loadMore])
+
+  const handleAlbumClick = (album) => {
+    setSelected(album)
+  }
+
+  const handleBack = () => {
+    setSelected(null)
+  }
 
   return (
     <AnimatePresence>
@@ -164,7 +259,7 @@ export default function AlbumsModal() {
             onClick={e => e.stopPropagation()}
           >
             {selected ? (
-              <AlbumDetail album={selected} onClose={() => setSelected(null)} />
+              <AlbumDetail album={selected} onClose={handleBack} />
             ) : (
               <>
                 <div className="flex items-center gap-4 p-5 border-b border-border flex-shrink-0">
@@ -172,7 +267,7 @@ export default function AlbumsModal() {
                   <div className="relative w-56">
                     <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted" />
                     <input
-                      value={q} onChange={e => search(e.target.value)}
+                      value={q} onChange={e => setQ(e.target.value)}
                       placeholder="Search albums…"
                       className="w-full bg-card border border-border rounded-lg pl-9 pr-3 py-2 text-sm text-white outline-none focus:border-accent/50 placeholder-muted"
                     />
@@ -182,13 +277,41 @@ export default function AlbumsModal() {
                   </button>
                 </div>
                 <div className="flex-1 overflow-y-auto p-5">
-                  {loading && <p className="text-center text-muted text-sm py-10">Loading…</p>}
-                  {!loading && !filtered.length && <p className="text-center text-muted text-sm py-10">No albums found.</p>}
-                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
-                    {filtered.map((a, i) => (
-                      <AlbumCard key={a.title + i} album={a} onClick={() => setSelected(a)} />
-                    ))}
-                  </div>
+                  {loading && (
+                    <div className="flex items-center justify-center py-10">
+                      <Loader2 size={24} className="text-muted animate-spin" />
+                    </div>
+                  )}
+                  {!loading && !displayedAlbums.length && (
+                    <p className="text-center text-muted text-sm py-10">
+                      {q.trim() ? 'No albums found.' : 'No albums in library.'}
+                    </p>
+                  )}
+                  {!loading && displayedAlbums.length > 0 && (
+                    <>
+                      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
+                        {displayedAlbums.map((a, i) => (
+                          <AlbumCard 
+                            key={`${a.title}-${i}`} 
+                            album={a} 
+                            onClick={() => handleAlbumClick(a)} 
+                          />
+                        ))}
+                      </div>
+                      {hasMore && (
+                        <div ref={loadMoreRef} className="min-h-[80px] flex items-center justify-center mt-4">
+                          {loadingMore ? (
+                            <Loader2 size={20} className="text-muted animate-spin" />
+                          ) : (
+                            <p className="text-xs text-muted/50">Scroll for more</p>
+                          )}
+                        </div>
+                      )}
+                      {!hasMore && !loadingMore && displayedAlbums.length > 0 && (
+                        <p className="text-center text-xs text-muted/50 mt-4 pb-4">All albums loaded</p>
+                      )}
+                    </>
+                  )}
                 </div>
               </>
             )}
