@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useCallback, useState } from 'react'
-import { MemoryRouter as Router, Routes, Route } from 'react-router-dom'
+import { MemoryRouter as Router, Routes, Route, useLocation } from 'react-router-dom'
+import { motion, AnimatePresence } from 'framer-motion'
 import Sidebar from './components/Sidebar'
 import PlayerBar from './components/PlayerBar'
 import TitleBar from './components/TitleBar'
@@ -20,6 +21,23 @@ import Downloader from './pages/Downloader'
 import Settings from './pages/Settings'
 import { usePlayerStore, useAppStore } from './store/player'
 import { api } from './api'
+
+function AnimatedRoutes() {
+  const location = useLocation()
+  return (
+    <AnimatePresence mode="wait">
+      <Routes location={location} key={location.pathname}>
+        <Route path="/" element={<motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.15 }}><Home /></motion.div>} />
+        <Route path="/library" element={<motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.15 }}><Library /></motion.div>} />
+        <Route path="/search" element={<motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.15 }}><Search /></motion.div>} />
+        <Route path="/artist/:id" element={<motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.15 }}><Artist /></motion.div>} />
+        <Route path="/playlist/:id" element={<motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.15 }}><Playlist /></motion.div>} />
+        <Route path="/downloader" element={<motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.15 }}><Downloader /></motion.div>} />
+        <Route path="/settings" element={<motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.15 }}><Settings /></motion.div>} />
+      </Routes>
+    </AnimatePresence>
+  )
+}
 
 export default function App() {
   const audioRef = useRef(null)
@@ -794,15 +812,7 @@ export default function App() {
         <div className="flex flex-1 overflow-hidden">
           <Sidebar />
           <main className="flex-1 overflow-y-auto bg-base">
-            <Routes>
-              <Route path="/" element={<Home />} />
-              <Route path="/library" element={<Library />} />
-              <Route path="/search" element={<Search />} />
-              <Route path="/artist/:id" element={<Artist />} />
-              <Route path="/playlist/:id" element={<Playlist />} />
-              <Route path="/downloader" element={<Downloader />} />
-              <Route path="/settings" element={<Settings />} />
-            </Routes>
+            <AnimatedRoutes />
           </main>
           <RightSidebar />
           <QueuePanel />
