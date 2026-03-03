@@ -127,7 +127,7 @@ app.whenReady().then(() => {
 
   for (const fn of [
     registerScannerHandlers, registerPlayerHandlers, registerDownloaderHandlers,
-    registerExtraDownloaderHandlers, registerLyricsHandlers, registerUserHandlers,
+    registerExtraDownloaderHandlers, registerPlaylistArchiveHandlers, registerLyricsHandlers, registerUserHandlers,
     registerDiscordHandlers, registerExtraHandlers, registerV4Handlers, registerLastFmHandlers,
     registerToolsHandlers, registerPlaylistHandlers, registerMixesHandlers
   ]) {
