@@ -99,6 +99,11 @@ function createWindow() {
   })
   
   
+  mainWindow.webContents.on('console-message', (event, level, message, line, sourceId) => {
+    const logLevel = ['debug', 'info', 'warn', 'error'][level] || 'info'
+    log[logLevel](`[Renderer:${sourceId}:${line}] ${message}`)
+  })
+  
   mainWindow.webContents.on('did-finish-load', () => {
     mainWindow.webContents.send('perf-settings', perfSettings)
   })
