@@ -419,14 +419,28 @@ export default function App() {
       if (!isCrossfadingRef.current) return
 
       flushTime(currentTrackRef.current?.id)
-      fadeInEl.play().catch(() => {})
+
+      const nextSide = isPrimaryActive ? 'cf' : 'primary'
+      setActiveAudioElement(nextSide)
+      activeElementRef.current = nextSide
+
+      const state = usePlayerStore.getState()
+      const nextIdx = state.shuffle ? state.shuffleIndex + 1 : state.queueIndex + 1
+      usePlayerStore.setState({
+        currentTrack: nextTrack,
+        queueIndex: !state.shuffle ? nextIdx : state.queueIndex,
+        shuffleIndex: state.shuffle ? nextIdx : state.shuffleIndex,
+        isPlaying: true,
+      })
+
+      if (fadeInEl.readyState >= 2) {
+        fadeInEl.play().catch(() => {})
+      }
 
       const rampNow = ctx.currentTime
-
       fadeOutGain.gain.cancelScheduledValues(rampNow)
       fadeOutGain.gain.setValueAtTime(fadeOutGain.gain.value, rampNow)
       fadeOutGain.gain.linearRampToValueAtTime(0, rampNow + cfDuration)
-
       fadeInGain.gain.cancelScheduledValues(rampNow)
       fadeInGain.gain.setValueAtTime(0, rampNow)
       fadeInGain.gain.linearRampToValueAtTime(volume, rampNow + cfDuration)
@@ -445,8 +459,6 @@ export default function App() {
           cfGainNodeRef.current.gain.setValueAtTime(volume, endNow)
           gainNodeRef.current.gain.setValueAtTime(0, endNow)
         }
-        
-        setActiveAudioElement(isPrimaryActive ? 'cf' : 'primary')
 
         justCrossfadedRef.current = true
         isCrossfadingRef.current = false
@@ -456,18 +468,6 @@ export default function App() {
         try { fadeOutEl.src = '' } catch {}
         try { fadeOutEl.currentTime = 0 } catch {}
         setTimeout(() => { pauseSuppressRef.current = false }, 200)
-
-        activeElementRef.current = isPrimaryActive ? 'cf' : 'primary'
-
-        const state = usePlayerStore.getState()
-        const nextIdx = state.shuffle ? state.shuffleIndex + 1 : state.queueIndex + 1
-        usePlayerStore.setState({
-          currentTrack: nextTrack,
-          queueIndex: !state.shuffle ? nextIdx : state.queueIndex,
-          shuffleIndex: state.shuffle ? nextIdx : state.shuffleIndex,
-        })
-
-        if (api.isElectron) api.discordSetActivity(nextTrack, true).catch(() => {})
       }, cfDuration * 1000)
     })
   }, [volume, flushTime])
@@ -832,16 +832,16 @@ export default function App() {
           onTimeUpdate={handleTimeUpdate}
           onDurationChange={handlePrimaryDurationChange}
           onEnded={handlePrimaryEnded}
-          onPlay={() => { setIsPlaying(true); if (usePlayerStore.getState().activeAudioElement === 'primary') startTimer() }}
-          onPause={() => { if (pauseSuppressRef.current) return; if (usePlayerStore.getState().activeAudioElement === 'primary') { setIsPlaying(false); stopTimer() } }}
+          onPlay={(e) => { if (!isEventFromActive(e)) return; setIsPlaying(true); startTimer() }}
+          onPause={(e) => { if (pauseSuppressRef.current) return; if (!isEventFromActive(e)) return; setIsPlaying(false); stopTimer() }}
         />
         <audio 
           ref={cfAudioRef}
           onTimeUpdate={handleTimeUpdate}
           onDurationChange={handleCfDurationChange}
           onEnded={handleCfEnded}
-          onPlay={() => { setIsPlaying(true); if (usePlayerStore.getState().activeAudioElement === 'cf') startTimer() }}
-          onPause={() => { if (pauseSuppressRef.current) return; if (usePlayerStore.getState().activeAudioElement === 'cf') { setIsPlaying(false); stopTimer() } }}
+          onPlay={(e) => { if (!isEventFromActive(e)) return; setIsPlaying(true); startTimer() }}
+          onPause={(e) => { if (pauseSuppressRef.current) return; if (!isEventFromActive(e)) return; setIsPlaying(false); stopTimer() }}
         />
       </div>
     </Router>

@@ -162,12 +162,12 @@ export const usePlayerStore = create((set, get) => ({
   },
 
   togglePlay: () => {
-    const { audioRef, isPlaying } = get()
-    if (!audioRef?.current) return
-    isPlaying ? audioRef.current.pause() : audioRef.current.play()
+    const { audioRef, cfAudioRef, activeAudioElement, isPlaying } = get()
+    const activeRef = activeAudioElement === 'primary' ? audioRef : cfAudioRef
+    if (!activeRef?.current) return
+    isPlaying ? activeRef.current.pause() : activeRef.current.play()
     set({ isPlaying: !isPlaying })
   },
-
 
   next: () => {
     const { shuffle, shuffleQueue, shuffleIndex, queue, queueIndex, repeat, futureHistory, playHistory } = get()
