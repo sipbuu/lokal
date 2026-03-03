@@ -172,31 +172,19 @@ jobs:
         env:
           DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
         run: |
-          LATEST_MSG=${{ steps.latest_commit.outputs.LATEST }}
-
-          if [[ "${{ matrix.os }}" == "windows-latest" ]]; then
-            PLATFORM="Windows"
-            COLOR=3447003
-          elif [[ "${{ matrix.os }}" == "macos-latest" ]]; then
-            PLATFORM="macOS"
-            COLOR=16777215
-          else
-            PLATFORM="Linux"
-            COLOR=15822353
-          fi
-
+          LATEST_MSG="${{ steps.latest_commit.outputs.LATEST }}"
+          
           PAYLOAD=$(jq -n \
             --arg version "${{ github.ref_name }}" \
-            --arg platform "$PLATFORM" \
             --arg url "${{ steps.create_release.outputs.html_url }}" \
             --arg msg "$LATEST_MSG" \
             --arg image "https://i.imgur.com/KgjwTvk.png" \
             --arg footer_icon "https://i.imgur.com/ZC3mEUC.png" \
-            --argjson color $COLOR \
+            --argjson color 3447003 \
             '{
               embeds: [{
-                title: "Build Complete: Lokal \($version) (\($platform))",
-                description: "The binaries for version **\($version)** have been built and uploaded to the release draft.\n\n**Platform:** \($platform)\n**Status:** Draft Ready\n**Last Commit:** \($msg)",
+                title: "Build Complete: Lokal \($version)",
+                description: "All platform binaries for version **\($version)** have been successfully built and uploaded to the release draft. \n\n**Status:** Draft Ready\n**Last Commit:** \($msg)",
                 url: $url,
                 color: $color,
                 image: { url: $image },

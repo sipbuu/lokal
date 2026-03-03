@@ -204,6 +204,8 @@ jobs:
       - name: Discord Notification
         if: env.DISCORD_WEBHOOK != ''
         shell: bash
+        env:
+          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
         run: |
           VERSION="${{ needs.check.outputs.nightly_version }}"
           LATEST_MSG="${{ steps.latest_commit.outputs.LATEST }}"
@@ -211,20 +213,21 @@ jobs:
           THUMBNAIL="https://i.imgur.com/2M91R9E.png"
 
           PAYLOAD=$(jq -n \
-            --arg title "New Nightly Build: $VERSION" \
-            --arg desc "The latest nightly version of **Lokal** is now available.\n\n**Latest Commit:**\n\`$LATEST_MSG\`" \
+            --arg version "$VERSION" \
+            --arg msg "$LATEST_MSG" \
             --arg url "$RELEASE_URL" \
             --arg thumb "$THUMBNAIL" \
             '{
               embeds: [{
-                title: $title,
-                description: $desc,
+                title: "New Nightly Build: \($version)",
+                description: "The latest nightly version of **Lokal** is now available.\n\n**Latest Commit:**\n`\($msg)`",
                 url: $url,
                 color: 3447003,
                 thumbnail: { url: $thumb },
                 footer: { text: "Click the title to download from GitHub" }
               }]
             }')
+
           curl -H "Content-Type: application/json" -d "$PAYLOAD" "$DISCORD_WEBHOOK"
 
       - name: Cleanup Old Nightly Releases

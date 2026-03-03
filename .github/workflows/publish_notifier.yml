@@ -8,20 +8,29 @@ jobs:
   discord-announcement:
     runs-on: ubuntu-latest
     steps:
-      - name: Send Public Notification
+      - name: Discord Notification (Release Published)
+        shell: bash
         env:
           DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
-        shell: bash
         run: |
-          curl -H "Content-Type: application/json" \
-          -d '{
-            "content": "**A new Lokal update is now available!**",
-            "embeds": [{
-              "title": "Lokal ${{ github.event.release.tag_name }} is here!",
-              "description": "The latest version of Lokal is now available for download!\n\n**What’s New:**\n${{ github.event.release.name }}\n\nGrab the update from GitHub below.",
-              "url": "${{ github.event.release.html_url }}",
-              "color": 3066993,
-              "image": { "url": "https://i.imgur.com/KgjwTvk.png" },
-              "footer": { "text": "Lokal - Local-first Music Player", "icon_url": "https://i.imgur.com/ZC3mEUC.png" }
-            }]
-          }' $DISCORD_WEBHOOK
+          PAYLOAD=$(jq -n \
+            --arg tag "${{ github.event.release.tag_name }}" \
+            --arg name "${{ github.event.release.name }}" \
+            --arg url "${{ github.event.release.html_url }}" \
+            --arg image "https://i.imgur.com/KgjwTvk.png" \
+            --arg footer_icon "https://i.imgur.com/ZC3mEUC.png" \
+            --argjson color 3066993 \
+            '{
+              content: "**A new Lokal update is now available!**",
+              embeds: [{
+                title: "Lokal \($tag) is here!",
+                description: "The latest version of Lokal is now available for download!\n\n**What’s New:**\n\($name)\n\nGrab the update from GitHub below.",
+                url: $url,
+                color: $color,
+                image: { url: $image },
+                footer: { text: "Lokal - Local-first Music Player", icon_url: $footer_icon }
+              }]
+            }'
+          )
+
+          curl -H "Content-Type: application/json" -d "$PAYLOAD" "$DISCORD_WEBHOOK"
