@@ -134,9 +134,9 @@ async function scanFolder(folderPath) {
       const title = c.title?.trim()
       const artist = (c.artist || c.albumartist)?.trim()
       const duration = meta.format.duration || 0
-      if (!title || !artist) { scanStatus.skipped++; scanStatus.done++; emit('scanner:progress', { ...scanStatus }); continue }
-      if (duration < MIN_DURATION_SECONDS) { scanStatus.skipped++; scanStatus.done++; emit('scanner:progress', { ...scanStatus }); continue }
-      if (isDrumKit(title, c.album, c.genre?.[0])) { scanStatus.skipped++; scanStatus.done++; emit('scanner:progress', { ...scanStatus }); continue }
+      if (!title || !artist) { console.log(`[scanFolder] Skipped: ${filePath} - Missing title/artist`); scanStatus.skipped++; scanStatus.done++; emit('scanner:progress', { ...scanStatus }); continue }
+      if (duration < MIN_DURATION_SECONDS) { console.log(`[scanFolder] Skipped: ${filePath} - Too short (${duration}s)`); scanStatus.skipped++; scanStatus.done++; emit('scanner:progress', { ...scanStatus }); continue }
+      if (isDrumKit(title, c.album, c.genre?.[0])) { console.log(`[scanFolder] Skipped: ${filePath} - Drumkit pattern detected`); scanStatus.skipped++; scanStatus.done++; emit('scanner:progress', { ...scanStatus }); continue }
       const artwork = await extractArtwork(meta, trackId)
       const replaygain = c.replaygain_track_gain || null
       batch.push({ id: trackId, file_path: filePath, file_hash: trackId, title, artist, album: c.album?.trim() || null, album_artist: c.albumartist?.trim() || null, track_num: c.track?.no || null, year: c.year || null, genre: c.genre?.[0] || null, duration, artwork_path: artwork, bitrate: meta.format.bitrate ? Math.round(meta.format.bitrate / 1000) : null, last_modified: stat.mtimeMs, replaygain })
