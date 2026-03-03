@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react'
 import { motion } from 'framer-motion'
 import { LayoutGrid, List, Music, Disc3 } from 'lucide-react'
-import { usePlayerStore } from '../store/player'
+import { usePlayerStore, useAppStore } from '../store/player'
 import TrackList from '../components/TrackList'
 import AlbumsModal from '../components/AlbumsModal'
 import { api } from '../api'
@@ -10,7 +10,7 @@ export default function Library() {
   const [tracks, setTracks] = useState([])
   const [sort, setSort] = useState('added_at DESC')
   const [view, setView] = useState('list')
-  const [showAlbums, setShowAlbums] = useState(false)
+  const { openAlbums } = useAppStore()
   const { playQueue } = usePlayerStore()
 
   useEffect(() => {
@@ -26,7 +26,7 @@ export default function Library() {
       <div className="flex items-center justify-between">
         <h1 className="font-display text-lg uppercase tracking-widest text-white">Library</h1>
         <div className="flex items-center gap-2">
-          <button onClick={() => setShowAlbums(true)}
+          <button onClick={() => openAlbums()}
             className="flex items-center gap-1.5 px-3 py-1.5 bg-elevated border border-border rounded-lg text-xs text-muted hover:text-white transition-colors">
             <Disc3 size={13} /> Albums
           </button>
@@ -89,7 +89,7 @@ export default function Library() {
         </div>
       )}
 
-      <AlbumsModal open={showAlbums} onClose={() => setShowAlbums(false)} />
+      <AlbumsModal />
     </div>
   )
 }
