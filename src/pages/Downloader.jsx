@@ -99,6 +99,8 @@ export default function Downloader() {
   const [accepted] = useState(() => localStorage.getItem(DISCLAIMER_KEY) === '1')
   const [showDisclaimer, setShowDisclaimer] = useState(!accepted)
   const [tab, setTab] = useState('search')
+  const [downloadedPlaylists, setDownloadedPlaylists] = useState([])
+  const [loadingPlaylists, setLoadingPlaylists] = useState(false)
   const [query, setQuery] = useState('')
   const [results, setResults] = useState([])
   const [searching, setSearching] = useState(false)
@@ -308,6 +310,23 @@ export default function Downloader() {
   }
   const clearDone = () => setDownloads(prev => prev.filter(d => d.status === 'downloading'))
 
+  const loadDownloadedPlaylists = () => {
+    setLoadingPlaylists(true)
+    api.getDownloadedPlaylists()
+      .then(r => { setDownloadedPlaylists(r || []); setLoadingPlaylists(false) })
+      .catch(() => setLoadingPlaylists(false))
+  }
+
+  const handleRedownload = (playlistId) => {
+    api.redownloadPlaylist(playlistId).then(() => loadDownloadedPlaylists())
+  }
+
+  const handleRemovePlaylist = (playlistId) => {
+    if (confirm('Delete this playlist from library?')) {
+      api.deleteDownloadedPlaylist(playlistId).then(() => loadDownloadedPlaylists())
+    }
+  }
+
   if (showDisclaimer) return (
     <div className="p-8 max-w-md">
       <h1 className="font-display text-lg uppercase tracking-widest text-white mb-5">Downloader</h1>
@@ -334,8 +353,8 @@ export default function Downloader() {
       <div className="flex items-center justify-between">
         <h1 className="font-display text-lg uppercase tracking-widest text-white">Downloader</h1>
         <div className="flex gap-1 p-0.5 bg-elevated border border-border rounded-xl">
-          {[['search','Search'],['artist','Artist'],['playlist','Playlist / Album']].map(([id, label]) => (
-            <button key={id} onClick={() => setTab(id)}
+          {[['search','Search'],['artist','Artist'],['playlist','Playlist / Album'],['library','Library']].map(([id, label]) => (
+            <button key={id} onClick={() => { setTab(id); if (id === 'library') loadDownloadedPlaylists() }}
               className={`px-3 py-1.5 text-xs font-display uppercase tracking-wider rounded-lg transition-colors ${tab === id ? 'bg-accent text-base' : 'text-muted hover:text-white'}`}>
               {label}
             </button>
@@ -443,6 +462,53 @@ export default function Downloader() {
               <li>• Also works with Soundcloud, Bandcamp, and other yt-dlp sources</li>
               <li>• Files are saved to your configured music folder</li>
               <li>• FLAC is lossless but much larger (yt-dlp re-encodes from best source)</li>
+            </ul>
+          </div>
+        </div>
+      )}
+
+      {tab === 'library' && (
+        <div className="space-y-4">
+          <div className="p-4 bg-elevated border border-border rounded-xl">
+            <h3 className="text-sm font-medium text-white mb-3">Downloaded Playlists</h3>
+            {loadingPlaylists ? (
+              <p className="text-sm text-muted">Loading...</p>
+            ) : downloadedPlaylists.length === 0 ? (
+              <p className="text-sm text-muted">No playlists downloaded yet. Download a playlist to see it here.</p>
+            ) : (
+              <div className="space-y-2">
+                {downloadedPlaylists.map(pl => (
+                  <div key={pl.id} className="flex items-center justify-between p-3 bg-card border border-border rounded-xl">
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm text-white truncate">{pl.title || 'Untitled Playlist'}</p>
+                      <p className="text-xs text-muted">{pl.downloaded_count || 0} tracks · {pl.status}</p>
+                    </div>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => handleRedownload(pl.id)}
+                        className="px-3 py-1.5 text-xs bg-accent/15 text-accent hover:bg-accent/25 rounded-lg"
+                      >
+                        Re-download
+                      </button>
+                      <button
+                        onClick={() => handleRemovePlaylist(pl.id)}
+                        className="px-3 py-1.5 text-xs text-red-400 hover:text-red-300"
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+          <div className="p-4 bg-elevated/50 border border-border/50 rounded-xl">
+            <p className="text-xs text-muted/70 font-display uppercase tracking-widest mb-2">How it works</p>
+            <ul className="text-xs text-muted space-y-1">
+              <li>• Each playlist gets its own archive file</li>
+              <li>• Re-download clears the archive and re-fetches all tracks</li>
+              <li>• Remove deletes the playlist from library (not files)</li>
+              <li>• If you deleted files, use Re-download to get them back</li>
             </ul>
           </div>
         </div>
