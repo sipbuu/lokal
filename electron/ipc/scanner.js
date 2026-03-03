@@ -9,8 +9,22 @@ const { ipcMain } = require('electron')
 
 const DEFAULT_MUSIC_PATH = 'C:\\Users\\sipbuu\\Music'
 const AUDIO_EXTS = new Set(['.mp3', '.flac', '.m4a', '.ogg', '.wav', '.aac', '.opus', '.wma', '.alac', '.ape'])
-const MIN_DURATION_SECONDS = 60
 const DRUM_KIT_PATTERNS = /\b(kick|snare|808|hi[- ]?hat|hihat|rimshot|clap|crash|cymbal|drum( kit| loop| sample)?|sample pack|loop kit|one[- ]?shot|fx[- ]?sound|bass[- ]?drum|perc(ussion)?|stem[s]?|acapella)\b/i
+
+function getMinDuration() {
+  try {
+    const db = getDB()
+    const setting = db.prepare("SELECT value FROM settings WHERE key = 'min_duration'").get()
+    const value = setting?.value
+    if (value !== undefined && value !== null && value !== '') {
+      const parsed = parseInt(value, 10)
+      if (!isNaN(parsed) && parsed >= 0) {
+        return parsed
+      }
+    }
+  } catch {}
+  return 60
+}
 
 let scanStatus = { scanning: false, total: 0, done: 0, errors: 0, skipped: 0 }
 let mainWindow = null
@@ -135,7 +149,8 @@ async function scanFolder(folderPath) {
       const artist = (c.artist || c.albumartist)?.trim()
       const duration = meta.format.duration || 0
       if (!title || !artist) { console.log(`[scanFolder] Skipped: ${filePath} - Missing title/artist`); scanStatus.skipped++; scanStatus.done++; emit('scanner:progress', { ...scanStatus }); continue }
-      if (duration < MIN_DURATION_SECONDS) { console.log(`[scanFolder] Skipped: ${filePath} - Too short (${duration}s)`); scanStatus.skipped++; scanStatus.done++; emit('scanner:progress', { ...scanStatus }); continue }
+      const minDuration = getMinDuration()
+      if (duration < minDuration) { console.log(`[scanFolder] Skipped: ${filePath} - Too short (${duration}s)`); scanStatus.skipped++; scanStatus.done++; emit('scanner:progress', { ...scanStatus }); continue }
       if (isDrumKit(title, c.album, c.genre?.[0])) { console.log(`[scanFolder] Skipped: ${filePath} - Drumkit pattern detected`); scanStatus.skipped++; scanStatus.done++; emit('scanner:progress', { ...scanStatus }); continue }
       const artwork = await extractArtwork(meta, trackId)
       const replaygain = c.replaygain_track_gain || null
@@ -517,7 +532,7 @@ async function indexSingleFile(filePath, opts = {}) {
   const artist = (c.artist || c.albumartist)?.trim()
   const duration = meta.format.duration || 0
   if (!title || !artist) return { error: 'Missing title/artist' }
-  if (duration < MIN_DURATION_SECONDS) return { error: 'Too short' }
+  if (duration < getMinDuration()) return { error: 'Too short' }
   if (isDrumKit(title, c.album, c.genre?.[0])) return { error: 'Filtered drumkit' }
   
   let artwork = await extractArtwork(meta, trackId)
