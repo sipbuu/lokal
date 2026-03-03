@@ -1,6 +1,6 @@
 import React, { useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Play, Pause, Heart, Plus, Camera, Trash2, Music, Clock, ListEnd, GripVertical, X } from 'lucide-react'
+import { Play, Pause, Heart, Plus, Camera, Trash2, Music, Clock, ListEnd, GripVertical, X, Check } from 'lucide-react'
 import { usePlayerStore, useAppStore } from '../store/player'
 import { api } from '../api'
 
@@ -47,11 +47,12 @@ function fmtAddedAt(ts) {
   return date.toLocaleDateString()
 }
 
-export default function TrackList({ tracks = [], showAlbum = true, onRemove = null, showPlayNext = true, showAddToQueue = true, playlistId = null, onReorder = null }) {
+export default function TrackList({ tracks = [], showAlbum = true, onRemove = null, showPlayNext = true, showAddToQueue = true, playlistId = null, onReorder = null, onQuickAdd = null }) {
   const { currentTrack, isPlaying, playTrack, togglePlay, likedIds, setLiked, playNext, addToQueue } = usePlayerStore()
   const { user, openAddToPlaylist, openAddMultipleToPlaylist } = useAppStore()
   const [hoveredId, setHoveredId] = useState(null)
   const [likeAnim, setLikeAnim] = useState(null)
+  const [quickAddAnim, setQuickAddAnim] = useState(null)
   const [selectedIds, setSelectedIds] = useState(new Set())
   const [draggedId, setDraggedId] = useState(null)
   const [dragOverId, setDragOverId] = useState(null)
@@ -236,6 +237,20 @@ export default function TrackList({ tracks = [], showAlbum = true, onRemove = nu
     }
   }
 
+  const handleQuickAdd = async (track, e) => {
+    e?.stopPropagation()
+    if (!onQuickAdd) return
+    
+    // Trigger animation
+    setQuickAddAnim(track.id)
+    
+    // Call the quick add callback
+    await onQuickAdd(track)
+    
+    // Clear animation after a short delay
+    setTimeout(() => setQuickAddAnim(null), 600)
+  }
+
   return (
     <div className="w-full" onClick={handleContainerClick}>
       {selectedIds.size > 0 && (
@@ -351,8 +366,31 @@ export default function TrackList({ tracks = [], showAlbum = true, onRemove = nu
                   )}
                 </AnimatePresence>
               </div>
+              {/* Quick add button - auto-adds to current playlist with animation */}
+              {onQuickAdd && (
+                <div className="relative">
+                  <button onClick={e => handleQuickAdd(track, e)}
+                    className={`opacity-0 group-hover:opacity-100 transition-all ${quickAddAnim === track.id ? 'text-green-400' : 'text-muted hover:text-green-400'}`}>
+                    {quickAddAnim === track.id ? <Check size={14} /> : <Plus size={14} />}
+                  </button>
+                  <AnimatePresence>
+                    {quickAddAnim === track.id && (
+                      <motion.div 
+                        initial={{ scale: 0.5, opacity: 1 }} 
+                        animate={{ scale: 2, opacity: 0 }} 
+                        exit={{}}
+                        transition={{ duration: 0.4 }}
+                        className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                        <Check size={14} className="text-green-400" />
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+                </div>
+              )}
+              {/* Existing button - opens add to playlist modal */}
               <button onClick={e => { e.stopPropagation(); openAddToPlaylist(track) }}
-                className="opacity-0 group-hover:opacity-100 text-muted hover:text-accent transition-all">
+                className="opacity-0 group-hover:opacity-100 text-muted hover:text-accent transition-all"
+                title="Add to another playlist">
                 <Plus size={14} />
               </button>
               {onRemove && (

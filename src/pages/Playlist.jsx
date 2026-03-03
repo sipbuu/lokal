@@ -219,7 +219,8 @@ export default function Playlist() {
   <TrackList 
     tracks={recommendations} 
     showAlbum={false}
-    playlistId={null} 
+    playlistId={null}
+    onQuickAdd={!isLiked ? addRecommendation : null}
   />
 </div>
       )}
