@@ -140,6 +140,18 @@ function initDB() {
     `ALTER TABLE playlist_tracks ADD COLUMN added_at INTEGER`,
     
     `ALTER TABLE playlist_tracks ADD COLUMN id INTEGER PRIMARY KEY AUTOINCREMENT`,
+    
+    `CREATE TABLE IF NOT EXISTS downloaded_playlists (
+      id TEXT PRIMARY KEY,
+      url TEXT NOT NULL,
+      title TEXT,
+      archive_path TEXT NOT NULL,
+      total_tracks INTEGER DEFAULT 0,
+      downloaded_count INTEGER DEFAULT 0,
+      status TEXT DEFAULT 'pending',
+      created_at INTEGER DEFAULT (unixepoch()),
+      last_downloaded_at INTEGER
+    )`,
   ]
   for (const m of quickMigrations) { try { db.exec(m) } catch {} }
   
