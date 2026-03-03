@@ -7,6 +7,25 @@ const { findYtDlp, findFfmpeg, findFfprobe } = require('./tools')
 const downloadQueue = new Map()
 let mainWindow = null
 
+function getPlaylistId(url) {
+  const match = url.match(/(?:playlist\?list=|youtube\.com\/playlist\?list=)([a-zA-Z0-9_-]+)/)
+  return match ? match[1] : null
+}
+
+function getVideoIdsFromArchive(archivePath) {
+  const ids = new Set()
+  try {
+    if (fs.existsSync(archivePath)) {
+      const content = fs.readFileSync(archivePath, 'utf-8')
+      for (const line of content.split('\n')) {
+        const match = line.match(/^([a-zA-Z0-9_-]{11})$/)
+        if (match) ids.add(match[1])
+      }
+    }
+  } catch {}
+  return ids
+}
+
 
 function getYouTubeId(url) {
   const match = url.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/|music\.youtube\.com\/watch\?v=)([a-zA-Z0-9_-]{11})/)
@@ -396,7 +415,13 @@ function registerExtraDownloaderHandlers(ipcMain) {
 
     const dlId = opts.id || 'pl-' + Date.now()
     const outputTemplate = path.join(outputDir, '%(playlist)s', '%(artist)s', '%(title)s.%(ext)s')
-    const archivePath = path.join(getStorageDir(), 'yt-dlp-archive.txt')
+    
+    const playlistIdFromUrl = getPlaylistId(url)
+    const playlistDbId = opts.playlistId || playlistIdFromUrl || 'pl-' + Date.now()
+    const archivePath = path.join(getStorageDir(), `archive-${playlistDbId}.txt`)
+    
+    db.prepare(`INSERT OR REPLACE INTO downloaded_playlists (id, url, title, archive_path, status) VALUES (?, ?, ?, ?, 'downloading')`)
+      .run(playlistDbId, url, opts.title || null, archivePath)
 
     const args = [
       url,
@@ -641,3 +666,126 @@ function registerExtraDownloaderHandlers(ipcMain) {
 }
 
 module.exports.registerExtraDownloaderHandlers = registerExtraDownloaderHandlers
+
+function registerPlaylistArchiveHandlers(ipcMain) {
+  const { getDB, getStorageDir } = require('./db')
+
+  ipcMain.handle('downloader:getDownloadedPlaylists', () => {
+    const db = getDB()
+    return db.prepare('SELECT * FROM downloaded_playlists ORDER BY last_downloaded_at DESC').all()
+  })
+
+  ipcMain.handle('downloader:deleteDownloadedPlaylist', (_, playlistId) => {
+    const db = getDB()
+    const playlist = db.prepare('SELECT * FROM downloaded_playlists WHERE id = ?').get(playlistId)
+    if (playlist && playlist.archive_path) {
+      try { fs.unlinkSync(playlist.archive_path) } catch {}
+    }
+    db.prepare('DELETE FROM downloaded_playlists WHERE id = ?').run(playlistId)
+    return { success: true }
+  })
+
+  ipcMain.handle('downloader:redownloadPlaylist', async (e, playlistId) => {
+    const db = getDB()
+    const playlist = db.prepare('SELECT * FROM downloaded_playlists WHERE id = ?').get(playlistId)
+    if (!playlist) return { error: 'Playlist not found' }
+
+    if (playlist.archive_path && fs.existsSync(playlist.archive_path)) {
+      try { fs.unlinkSync(playlist.archive_path) } catch {}
+    }
+    db.prepare('DELETE FROM downloaded_playlists WHERE id = ?').run(playlistId)
+
+    const opts = { id: 'pl-redownload-' + Date.now() }
+    const result = await new Promise((resolve) => {
+      const win = BrowserWindow.fromWebContents(e.sender)
+      const ytdlp = findYtDlp()
+      const ffmpeg = findFfmpeg()
+      const ffprobe = findFfprobe()
+      const os = require('os')
+
+      if (!ytdlp || !ffmpeg || !ffprobe) {
+        resolve({ error: 'Missing tools' })
+        return
+      }
+
+      const settings = Object.fromEntries(db.prepare('SELECT key, value FROM settings').all().map(r => [r.key, r.value]))
+      const outputDir = settings.music_folder || path.join(os.homedir(), 'Music')
+
+      const playlistIdFromUrl = getPlaylistId(playlist.url)
+      const archivePath = path.join(getStorageDir(), `archive-${playlistIdFromUrl || playlistId}.txt`)
+
+      db.prepare(`INSERT INTO downloaded_playlists (id, url, title, archive_path, status) VALUES (?, ?, ?, ?, 'downloading')`)
+        .run(playlistId, playlist.url, playlist.title, archivePath)
+
+      const args = [
+        playlist.url,
+        '--download-archive', archivePath,
+        '-x', '--audio-format', 'mp3', '--audio-quality', '0',
+        '--embed-thumbnail', '--add-metadata',
+        '--output', path.join(outputDir, '%(playlist)s', '%(artist)s', '%(title)s.%(ext)s'),
+        '--newline', '--progress', '--yes-playlist', '--ignore-errors'
+      ]
+
+      const useYtCookies = settings.yt_cookies === '1'
+      if (useYtCookies) args.push('--cookies-from-browser', settings.yt_cookie_browser || 'firefox')
+      if (ffmpeg && (ffmpeg.includes('/') || ffmpeg.includes('\\'))) args.push('--ffmpeg-location', path.dirname(ffmpeg))
+
+      const proc = spawn(ytdlp, args)
+      let downloadedCount = 0
+
+      proc.stdout.on('data', (data) => {
+        const lines = data.toString().split('\n')
+        for (const line of lines) {
+          if (line.includes('Destination:') || line.includes('[ExtractAudio] Destination:')) {
+            downloadedCount++
+            if (win) win.webContents.send('downloader:progress', {
+              id: playlistId,
+              progress: null,
+              message: `Downloaded: ${downloadedCount}`,
+              output: lines.slice(-10).join('\n')
+            })
+          }
+        }
+      })
+
+      proc.on('close', (code) => {
+        db.prepare('UPDATE downloaded_playlists SET status = ?, downloaded_count = ?, last_downloaded_at = ? WHERE id = ?')
+          .run(code === 0 ? 'completed' : 'failed', downloadedCount, Date.now(), playlistId)
+        resolve({ success: code === 0, count: downloadedCount })
+      })
+
+      proc.on('error', (err) => {
+        db.prepare('UPDATE downloaded_playlists SET status = ? WHERE id = ?').run('failed', playlistId)
+        resolve({ error: err.message })
+      })
+    })
+
+    return result
+  })
+
+  ipcMain.handle('downloader:getPlaylistArchiveIds', (_, playlistId) => {
+    const db = getDB()
+    const playlist = db.prepare('SELECT archive_path FROM downloaded_playlists WHERE id = ?').get(playlistId)
+    if (!playlist) return []
+    return Array.from(getVideoIdsFromArchive(playlist.archive_path))
+  })
+
+  ipcMain.handle('downloader:removeFromPlaylistArchive', (_, playlistId, videoId) => {
+    const db = getDB()
+    const playlist = db.prepare('SELECT archive_path FROM downloaded_playlists WHERE id = ?').get(playlistId)
+    if (!playlist) return { error: 'Playlist not found' }
+
+    try {
+      if (fs.existsSync(playlist.archive_path)) {
+        let content = fs.readFileSync(playlist.archive_path, 'utf-8')
+        content = content.split('\n').filter(line => !line.includes(videoId)).join('\n')
+        fs.writeFileSync(playlist.archive_path, content)
+      }
+      return { success: true }
+    } catch (e) {
+      return { error: e.message }
+    }
+  })
+}
+
+module.exports.registerPlaylistArchiveHandlers = registerPlaylistArchiveHandlers
