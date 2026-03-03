@@ -2,21 +2,40 @@ name: Notify Published Release
 
 on:
   release:
-    types: [published]
+    types: [published, released]
+  workflow_dispatch: 
 
 jobs:
   discord-announcement:
     runs-on: ubuntu-latest
     steps:
-      - name: Discord Notification (Release Published)
+      - name: Debug Event Data
+        run: |
+          echo "Event Type: ${{ github.event_name }}"
+          echo "Release Tag: ${{ github.event.release.tag_name }}"
+
+      - name: Discord Notification
         shell: bash
         env:
           DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
         run: |
+          if [ "${{ github.event_name }}" == "workflow_dispatch" ] || [ -z "${{ github.event.release.tag_name }}" ]; then
+            RELEASE_DATA=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+              https://api.github.com/repos/${{ github.repository }}/releases/latest)
+            TAG=$(echo "$RELEASE_DATA" | jq -r .tag_name)
+            NAME=$(echo "$RELEASE_DATA" | jq -r .name)
+            URL=$(echo "$RELEASE_DATA" | jq -r .html_url)
+          else
+            TAG="${{ github.event.release.tag_name }}"
+            NAME="${{ github.event.release.name }}"
+            URL="${{ github.event.release.html_url }}"
+          fi
+          if [ "$NAME" == "null" ] || [ -z "$NAME" ]; then NAME="Release $TAG"; fi
+
           PAYLOAD=$(jq -n \
-            --arg tag "${{ github.event.release.tag_name }}" \
-            --arg name "${{ github.event.release.name }}" \
-            --arg url "${{ github.event.release.html_url }}" \
+            --arg tag "$TAG" \
+            --arg name "$NAME" \
+            --arg url "$URL" \
             --arg image "https://i.imgur.com/KgjwTvk.png" \
             --arg footer_icon "https://i.imgur.com/ZC3mEUC.png" \
             --argjson color 3066993 \
@@ -33,4 +52,4 @@ jobs:
             }'
           )
 
-          curl -H "Content-Type: application/json" -d "$PAYLOAD" "$DISCORD_WEBHOOK"
+          curl -X POST -H "Content-Type: application/json" -d "$PAYLOAD" "$DISCORD_WEBHOOK"
