@@ -18,6 +18,32 @@ function WaveLoader() {
   )
 }
 
+function WaveDots({ duration = 3 }) {
+  const dotDuration = duration * 1000
+  
+  return (
+    <span className="inline-flex items-center gap-0.5" style={{ height: '1em' }}>
+      {[0, 1, 2].map(i => (
+        <motion.span
+          key={i}
+          className="w-1 h-1 rounded-full"
+          style={{ backgroundColor: '#9ca3af' }}
+          animate={{
+            opacity: [0.3, 1, 0.3],
+            scale: [0.8, 1.2, 0.8],
+          }}
+          transition={{
+            duration: dotDuration / 1000,
+            repeat: Infinity,
+            ease: "easeInOut",
+            delay: i * (dotDuration / 3000),
+          }}
+        />
+      ))}
+    </span>
+  )
+}
+
 const isLetter = ch => /[A-Za-z0-9]/.test(ch)
 const charWeight = ch => isLetter(ch) ? 1.0 : 0.35
 
@@ -142,6 +168,11 @@ const Line = React.memo(function Line({
   const normalSize = baseNormalSize * textScale
   const activeSize = baseActiveSize * textScale
 
+ const lineDuration = useMemo(() => {
+    if (line.end && line.time) return Math.max(1, line.end - line.time)
+    return 3 
+  }, [line.end, line.time])
+
   return (
     <motion.div
       ref={onRef}
@@ -149,22 +180,25 @@ const Line = React.memo(function Line({
         opacity: isActive ? 1 : isPast ? 0.18 : 0.35,
         scale: isActive ? (fullscreen ? 1 : 1.01) : 1,
       }}
-      transition={{ duration: 0.2 }}
+      transition={{ 
+        duration: 0.5,
+        ease: [0.16, 1, 0.3, 1] 
+      }}
       className="text-center w-full max-w-2xl my-1.5 font-medium cursor-default select-none"
       style={{
         color: isActive ? (darkMode ? '#fff' : '#e8ff57') : '#666',
         fontWeight: isActive ? 700 : 500,
-        textShadow: isActive && fullscreen ? '0 0 40px rgba(232,255,87,0.2)' : 'none',
+        textShadow: isActive ? (fullscreen ? '0 0 40px rgba(232,255,87,0.2)' : '0 0 20px rgba(232,255,87,0.15)') : 'none',
         filter: isBlurred ? `blur(${blurAmount}px)` : 'none',
         transform: `scale(${textScale})`,
         fontSize: isActive ? `${activeSize}rem` : `${normalSize}rem`,
         lineHeight: isActive ? '1.2' : '1.5',
-        transition: 'transform 0.6s cubic-bezier(0.16, 1, 0.3, 1), filter 0.6s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.6s cubic-bezier(0.16, 1, 0.3, 1), color 0.4s ease',
+        transition: 'transform 0.5s cubic-bezier(0.16, 1, 0.3, 1), filter 0.5s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.5s cubic-bezier(0.16, 1, 0.3, 1), color 0.4s ease, text-shadow 0.5s ease',
       }}
     >
       {useRAF
         ? <RAFWordLine words={line.words} bgWords={line.bgWords} liveProgressRef={liveProgressRef} />
-        : (line.text || <span style={{ opacity: 0.2 }}>♪</span>)
+        : (line.text || <WaveDots duration={lineDuration} />)
       }
     </motion.div>
   )
@@ -209,7 +243,7 @@ export default function LyricsPanel({
     return () => cancelAnimationFrame(raf)
   }, [])
 
-useEffect(() => {
+  useEffect(() => {
     const handleOnline = () => setIsOnline(true)
     const handleOffline = () => setIsOnline(false)
     window.addEventListener('online', handleOnline)
@@ -316,7 +350,7 @@ useEffect(() => {
 
       {loading && <WaveLoader />}
 
-{!loading && !processedLines.length && (
+      {!loading && !processedLines.length && (
         <div className="flex flex-col items-center justify-center flex-1 gap-3 opacity-30 select-none">
           <Mic2 size={fullscreen ? 40 : 28} />
           {!isOnline ? (
