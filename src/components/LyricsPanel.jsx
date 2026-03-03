@@ -1,5 +1,5 @@
-import React, { useEffect, useState, useRef, useMemo, useCallback } from 'react'
-import { motion } from 'framer-motion'
+import React, { useEffect, useState, useRef, useMemo } from 'react'
+import { motion, AnimatePresence } from 'framer-motion'
 import { Mic2, Search } from 'lucide-react'
 import { api } from '../api'
 
@@ -18,30 +18,71 @@ function WaveLoader() {
   )
 }
 
-function WaveDots({ duration = 3 }) {
-  const dotDuration = duration * 1000
-  
+function WaveDots({ duration = 3, isActive = false, id = 0 }) {
+  if (!isActive) return null;
+
+  const times = [0, 0.33, 0.66, 0.99, 1];
+
+  const makeGlow = (i) => [
+    "0 0 0px rgba(255,255,255,0)",
+    i <= 0 ? "0 0 20px rgba(255,255,255,0.9)" : "0 0 0px rgba(255,255,255,0)",
+    i <= 1 ? "0 0 20px rgba(255,255,255,0.9)" : "0 0 0px rgba(255,255,255,0)",
+    i <= 2 ? "0 0 20px rgba(255,255,255,0.9)" : "0 0 0px rgba(255,255,255,0)",
+    "0 0 0px rgba(255,255,255,0)",
+  ];
+
+  const makeOpacity = (i) => [
+    0.2,
+    i <= 0 ? 1 : 0.2,
+    i <= 1 ? 1 : 0.2,
+    i <= 2 ? 1 : 0.2,
+    0.2,
+  ];
+
   return (
-    <span className="inline-flex items-center gap-0.5" style={{ height: '1em' }}>
-      {[0, 1, 2].map(i => (
-        <motion.span
-          key={i}
-          className="w-1 h-1 rounded-full"
-          style={{ backgroundColor: '#9ca3af' }}
-          animate={{
-            opacity: [0.3, 1, 0.3],
-            scale: [0.8, 1.2, 0.8],
-          }}
-          transition={{
-            duration: dotDuration / 1000,
-            repeat: Infinity,
-            ease: "easeInOut",
-            delay: i * (dotDuration / 3000),
-          }}
-        />
-      ))}
-    </span>
-  )
+    <motion.div
+      className="flex items-center justify-center gap-5 h-12 my-4"
+      initial={{ x: 20, opacity: 0 }}
+      animate={{ x: 0, opacity: 1 }}
+      exit={{
+        x: -40,
+        opacity: 0,
+        transition: { duration: 0.6, ease: "easeIn" },
+      }}
+    >
+      {[0, 1, 2].map((i) => {
+        const activePhase = i + 1;
+        const scaleKF = times.map((_, phaseIdx) => (phaseIdx === activePhase ? 1.6 : 1));
+
+        const yKF = times.map((_, phaseIdx) => (phaseIdx === activePhase ? -14 : 0));
+
+        const xKF = times.map((_, phaseIdx) => (phaseIdx === activePhase ? 10 : 0));
+
+        return (
+          <motion.span
+            key={`wavedot-${id}-${i}`}
+            className="w-3 h-3 bg-white rounded-full"
+            animate={{
+              y: yKF,
+              scale: scaleKF,
+              x: xKF,
+
+
+              opacity: makeOpacity(i),
+              boxShadow: makeGlow(i),
+            }}
+            transition={{
+              duration,
+              repeat: Infinity,
+              ease: [0.4, 0, 0.2, 1],
+              times,
+            }}
+            style={{ willChange: "transform, box-shadow, opacity" }}
+          />
+        );
+      })}
+    </motion.div>
+  );
 }
 
 const isLetter = ch => /[A-Za-z0-9]/.test(ch)
@@ -61,6 +102,7 @@ function buildCharTimeline(wordText, start, end) {
     return { ch, start: chStart, end: chEnd }
   })
 }
+
 
 function RAFWordLine({ words, bgWords, liveProgressRef }) {
   const containerRef = useRef(null)
@@ -156,7 +198,7 @@ function RAFWordLine({ words, bgWords, liveProgressRef }) {
 }
 
 const Line = React.memo(function Line({
-  line, isActive, isPast, fullscreen, darkMode, wordSync, lyricsType, liveProgressRef, onRef, distanceFromActive, textScale = 1,
+  line, isActive, isPast, fullscreen, darkMode, wordSync, lyricsType, liveProgressRef, onRef, distanceFromActive, textScale = 1, index,
 }) {
   const useRAF = wordSync && lyricsType === 'synced' && isActive && line.words?.length > 0
 
@@ -168,7 +210,7 @@ const Line = React.memo(function Line({
   const normalSize = baseNormalSize * textScale
   const activeSize = baseActiveSize * textScale
 
- const lineDuration = useMemo(() => {
+  const lineDuration = useMemo(() => {
     if (line.end && line.time) return Math.max(1, line.end - line.time)
     return 3 
   }, [line.end, line.time])
@@ -180,9 +222,9 @@ const Line = React.memo(function Line({
         opacity: isActive ? 1 : isPast ? 0.18 : 0.35,
         scale: isActive ? (fullscreen ? 1 : 1.01) : 1,
       }}
-      transition={{ 
+      transition={{
         duration: 0.5,
-        ease: [0.16, 1, 0.3, 1] 
+        ease: [0.16, 1, 0.3, 1]
       }}
       className="text-center w-full max-w-2xl my-1.5 font-medium cursor-default select-none"
       style={{
@@ -196,10 +238,22 @@ const Line = React.memo(function Line({
         transition: 'transform 0.5s cubic-bezier(0.16, 1, 0.3, 1), filter 0.5s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.5s cubic-bezier(0.16, 1, 0.3, 1), color 0.4s ease, text-shadow 0.5s ease',
       }}
     >
-      {useRAF
-        ? <RAFWordLine words={line.words} bgWords={line.bgWords} liveProgressRef={liveProgressRef} />
-        : (line.text || <WaveDots duration={lineDuration} />)
-      }
+      {useRAF ? (
+        <RAFWordLine words={line.words} bgWords={line.bgWords} liveProgressRef={liveProgressRef} />
+      ) : line.text ? (
+        line.text
+      ) : (
+        <AnimatePresence initial={false} mode="wait">
+          {isActive && (
+            <WaveDots
+              key={`wavedots-line-${index}`}
+              id={index}
+              duration={lineDuration}
+              isActive={isActive}
+            />
+          )}
+        </AnimatePresence>
+      )}
     </motion.div>
   )
 }, (prev, next) =>
@@ -258,10 +312,10 @@ export default function LyricsPanel({
     if (!track?.id) return
     setLoading(true); setLines([]); setActiveIdx(-1); setLyricsType(null); setSource(null)
     api.getLyrics(track.id, track.title, track.artist, track.album, track.duration).then(r => {
-      if (r?.lines) { 
-        setLines(r.lines); 
-        setLyricsType(r.type); 
-        setSource(r.source) 
+      if (r?.lines) {
+        setLines(r.lines);
+        setLyricsType(r.type);
+        setSource(r.source)
       }
       setLoading(false)
     }).catch(() => {
@@ -361,7 +415,7 @@ export default function LyricsPanel({
             <>
               <p className={fullscreen ? 'text-sm' : 'text-xs'}>No lyrics found</p>
               {onSearchRequest && (
-                <button 
+                <button
                   onClick={onSearchRequest}
                   className="flex items-center gap-1 text-xs text-accent hover:text-accent/80 transition-colors"
                 >
@@ -387,7 +441,8 @@ export default function LyricsPanel({
 
       {processedLines.map((line, i) => (
         <Line
-          key={i}
+          key={`line-${i}`}
+          index={i}
           line={line}
           isActive={i === activeIdx}
           isPast={i < activeIdx}
