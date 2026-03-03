@@ -6,6 +6,7 @@ import { usePlayerStore } from '../store/player'
 import { api } from '../api'
 
 function AlbumCard({ album, onClick }) {
+  const [imgLoaded, setImgLoaded] = useState(false)
   const artSrc = album.artwork_path
     ? (api.isElectron ? `file://${album.artwork_path}` : api.artworkURL(album.artwork_path))
     : null
@@ -17,10 +18,21 @@ function AlbumCard({ album, onClick }) {
       className="flex flex-col gap-2 p-3 bg-elevated border border-border rounded-xl hover:border-accent/30 transition-all text-left group"
     >
       <div className="w-full aspect-square rounded-lg overflow-hidden bg-card flex items-center justify-center relative">
-        {artSrc
-          ? <img src={artSrc} className="w-full h-full object-cover" />
-          : <Disc3 size={40} className="text-subtle" />
-        }
+        {artSrc ? (
+          <>
+            <img 
+              src={artSrc} 
+              className="w-full h-full object-cover absolute inset-0"
+              style={{ opacity: imgLoaded ? 1 : 0 }}
+              onLoad={() => setImgLoaded(true)}
+            />
+            <div className={`absolute inset-0 flex items-center justify-center transition-opacity duration-300 ${imgLoaded ? 'opacity-0' : 'opacity-100'}`}>
+              <Disc3 size={40} className="text-subtle animate-pulse" />
+            </div>
+          </>
+        ) : (
+          <Disc3 size={40} className="text-subtle" />
+        )}
         <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
           <div className="w-10 h-10 bg-accent rounded-full flex items-center justify-center shadow-xl">
             <Play size={16} fill="currentColor" className="text-base translate-x-px" />
