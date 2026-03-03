@@ -119,7 +119,7 @@ export default function Sidebar() {
           </button>
         ))}
         
-        <button onClick={openAlbums}
+        <button onClick={() => openAlbums()}
           className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium text-muted hover:text-white hover:bg-elevated transition-all">
           <Disc3 size={15} /> Albums
         </button>
