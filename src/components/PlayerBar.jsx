@@ -4,6 +4,7 @@ import { Play, Pause, SkipBack, SkipForward, Shuffle, Repeat, Repeat1, Volume2, 
 import { usePlayerStore, useAppStore } from '../store/player'
 import { useNavigate } from 'react-router-dom'
 import { api } from '../api'
+import Waveform from './Waveform'
 
 function fmt(s) { return `${Math.floor((s||0)/60)}:${Math.floor((s||0)%60).toString().padStart(2,'0')}` }
 
@@ -164,6 +165,11 @@ export default function PlayerBar() {
       </div>
 
       <div className="flex items-center gap-2 w-52 justify-end">
+        {currentTrack && (
+          <div className="flex-shrink-0">
+            <Waveform isPlaying={isPlaying} />
+          </div>
+        )}
         <button onClick={toggleLyricsFullscreen} className="text-subtle hover:text-accent transition-colors" title="Lyrics"><Mic2 size={16} /></button>
         <button onClick={toggleQueue} className={`transition-colors ${showQueue ? 'text-accent' : 'text-subtle hover:text-white'}`} title="Queue"><ListMusic size={16} /></button>
         <button onClick={toggleRightSidebar} className={`transition-colors ${showRightSidebar ? 'text-accent' : 'text-subtle hover:text-white'}`} title="Now Playing"><PanelRight size={16} /></button>
