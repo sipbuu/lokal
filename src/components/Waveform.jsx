@@ -40,7 +40,6 @@ export default function Waveform({ isPlaying, className = '' }) {
 
     const draw = () => {
       if (!isPlaying) {
-        // Draw static low bars when paused
         ctx.clearRect(0, 0, width, height)
         const barCount = 32
         const barWidth = width / barCount - 2
@@ -69,7 +68,6 @@ export default function Waveform({ isPlaying, className = '' }) {
         const x = i * (barWidth + 2)
         const y = (height - barHeight) / 2
         
-        // Gradient from accent to white based on height
         const alpha = 0.3 + (value / 255) * 0.7
         ctx.fillStyle = `rgba(255, 255, 255, ${alpha})`
         ctx.fillRect(x, y, barWidth, barHeight)
