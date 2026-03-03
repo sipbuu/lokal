@@ -82,6 +82,11 @@ contextBridge.exposeInMainWorld('electron', {
   cancelDownload: (id) => invoke('downloader:cancel', id),
   getDownloadQueue: () => invoke('downloader:queue'),
   onDownloadProgress: (fn) => on('downloader:progress', fn),
+  getDownloadedPlaylists: () => invoke('downloader:getDownloadedPlaylists'),
+  deleteDownloadedPlaylist: (id) => invoke('downloader:deleteDownloadedPlaylist', id),
+  redownloadPlaylist: (id) => invoke('downloader:redownloadPlaylist', id),
+  getPlaylistArchiveIds: (id) => invoke('downloader:getPlaylistArchiveIds', id),
+  removeFromPlaylistArchive: (id, videoId) => invoke('downloader:removeFromPlaylistArchive', id, videoId),
 
   
   getToolsStatus: () => invoke('tools:status'),

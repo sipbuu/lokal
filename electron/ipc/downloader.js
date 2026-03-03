@@ -671,6 +671,7 @@ function registerExtraDownloaderHandlers(ipcMain) {
 module.exports.registerExtraDownloaderHandlers = registerExtraDownloaderHandlers
 
 function registerPlaylistArchiveHandlers(ipcMain) {
+  const { BrowserWindow } = require('electron')
   const { getDB, getStorageDir } = require('./db')
 
   ipcMain.handle('downloader:getDownloadedPlaylists', () => {
