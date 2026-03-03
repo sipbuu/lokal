@@ -45,6 +45,7 @@ export default function App() {
   const gainNodeRef = useRef(null)
   const cfGainNodeRef = useRef(null)
   const audioCtxRef = useRef(null)
+  const analyserRef = useRef(null)
   const isCrossfadingRef = useRef(false)
   const audioSourcesInitializedRef = useRef(false)
   const playSecsRef = useRef(0)
@@ -101,30 +102,30 @@ export default function App() {
   }, [])
 
   const fetchChangelog = useCallback(async () => {
-  if (!api.isElectron) return;
-  setLoadingChangelog(true);
-  try {
-    const response = await fetch('https://api.github.com/repos/sipbuu/lokal/releases/latest');
-    if (!response.ok) throw new Error('Failed to fetch release info');
-    const data = await response.json();
-    const fullBody = data.body || '';
+    if (!api.isElectron) return;
+    setLoadingChangelog(true);
+    try {
+      const response = await fetch('https://api.github.com/repos/sipbuu/lokal/releases/latest');
+      if (!response.ok) throw new Error('Failed to fetch release info');
+      const data = await response.json();
+      const fullBody = data.body || '';
 
-    const sectionMatch = fullBody.match(/(?:##|###) (?:Changelog|Changes|What's New)([\s\S]*?)(?=(?:##|###) (?:Setup|Binary Checksums|Full Changelog)|---|$)/i);
-    
-    let extracted = sectionMatch ? sectionMatch[1].trim() : '';
+      const sectionMatch = fullBody.match(/(?:##|###) (?:Changelog|Changes|What's New)([\s\S]*?)(?=(?:##|###) (?:Setup|Binary Checksums|Full Changelog)|---|$)/i);
+      
+      let extracted = sectionMatch ? sectionMatch[1].trim() : '';
 
-    if (!extracted) {
-      extracted = fullBody.split(/## Setup|### Binary Checksums|---/)[0].trim();
+      if (!extracted) {
+        extracted = fullBody.split(/## Setup|### Binary Checksums|---/)[0].trim();
+      }
+
+      setChangelog(extracted);
+    } catch (err) {
+      console.error('[updater] Failed to fetch changelog:', err);
+      setChangelog('• Bug fixes and performance improvements\n• Stability updates');
+    } finally {
+      setLoadingChangelog(false);
     }
-
-    setChangelog(extracted);
-  } catch (err) {
-    console.error('[updater] Failed to fetch changelog:', err);
-    setChangelog('• Bug fixes and performance improvements\n• Stability updates');
-  } finally {
-    setLoadingChangelog(false);
-  }
-}, []);
+  }, []);
 
   useEffect(() => {
     if (!api.isElectron) return
@@ -222,6 +223,12 @@ export default function App() {
       primaryGain.gain.value = volume
       cfGain.gain.value = 0
 
+      const analyser = ctx.createAnalyser()
+      analyser.fftSize = 256
+      analyser.smoothingTimeConstant = 0.8
+      analyserRef.current = analyser
+      window.__lokalAnalyser = analyser
+
       if (isIOS) {
         primarySource.connect(ctx.destination)
         cfSource.connect(ctx.destination)
@@ -229,7 +236,8 @@ export default function App() {
         let prev = primarySource
         for (const n of nodes) { prev.connect(n); prev = n }
         prev.connect(primaryGain)
-        primaryGain.connect(ctx.destination)
+        primaryGain.connect(analyser)
+        analyser.connect(ctx.destination)
 
         let cfPrev = cfSource
         for (const n of cfNodes) { cfPrev.connect(n); cfPrev = n }
@@ -257,7 +265,7 @@ export default function App() {
     }
   }, [volume])
 
-   useEffect(() => {
+  useEffect(() => {
     const resumeAudio = () => {
       if (audioCtxRef.current && audioCtxRef.current.state === 'suspended') {
         audioCtxRef.current.resume().catch(() => {})
@@ -507,14 +515,8 @@ export default function App() {
     initAudioCtx()
 
     const src = api.isElectron 
-  ? `file://${currentTrack.file_path
-      .replace(/\\/g, '/')       
-      .split('/')                
-      .map(segment => encodeURIComponent(segment)) 
-      .join('/')                 
-      .replace(/%3A/g, ':')      
-    }` 
-  : api.streamURL(currentTrack);
+      ? `file://${currentTrack.file_path.replace(/\\/g, '/').split('/').map(s => encodeURIComponent(s)).join('/').replace(/%3A/g, ':')}`
+      : api.streamURL(currentTrack);
     audioRef.current.src = src
     if (isPlaying) audioRef.current.play().catch(() => {})
     if (api.isElectron) api.discordSetActivity(currentTrack, true).catch(() => {})
@@ -545,7 +547,6 @@ export default function App() {
       } catch {}
     }
   }, [volume])
-
 
   const handleTimeUpdate = useCallback((e) => {
     if (!isEventFromActive(e)) return;
@@ -630,11 +631,8 @@ export default function App() {
     } catch (err) {
       setUpdateState(prev => ({ ...prev, status: 'error', error: err.message }));
     }
-
-    //if (api.updaterDownload) {
-      //await api.updaterDownload();
-    //}
   };
+
   const MarkdownLite = ({ text }) => {
     const lines = text.split('\n');
 
@@ -704,12 +702,12 @@ export default function App() {
       background: rgba(255, 255, 255, 0.2);
     }
   `;
+
   const renderUpdateToast = () => {
     if (updateState.status === 'idle') return null;
 
     const isReady = updateState.status === 'ready';
     const isDownloading = updateState.status === 'downloading';
-    const isAvailable = updateState.status === 'available';
 
     return (
       <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm animate-in fade-in duration-300">
