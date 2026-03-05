@@ -457,6 +457,14 @@ export const usePlayerStore = create((set, get) => ({
   },
 
   setProgress: (v) => set({ progress: v }),
+  setProgressWithAudioUpdate: (v) => {
+    const { audioRef, cfAudioRef, activeAudioElement } = get()
+    const activeRef = activeAudioElement === 'primary' ? audioRef : cfAudioRef
+    if (activeRef?.current) {
+      activeRef.current.currentTime = v
+    }
+    set({ progress: v })
+  },
   setDuration: (v) => set({ duration: v }),
   setVolume: (v) => { localStorage.setItem('lokal-volume', String(v)); set({ volume: v }) },
   toggleRepeat: () => set(s => ({ repeat: s.repeat === 'none' ? 'all' : s.repeat === 'all' ? 'one' : 'none' })),
