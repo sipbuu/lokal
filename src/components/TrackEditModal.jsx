@@ -105,17 +105,17 @@ export default function TrackEditModal({ track, open, onClose, onSave }) {
     if (!track) return
     
     setSaving(true)
-    setStatus({ type: 'loading', message: 'Searching iTunes...' })
+    setStatus({ type: 'loading', message: 'Searching iTunes for artwork...' })
     
     try {
-      const result = await api.lastfmGetTrackInfo(track.artist, track.title)
+      const result = await api.fetchExternalArtwork(track.id, track.title, track.artist)
       
-      if (result?.error) {
-        setStatus({ type: 'error', message: result.error })
-      } else if (result?.track?.wiki?.summary) {
-        setStatus({ type: 'success', message: 'Found info!' })
+      if (result?.success && result.artworkPath) {
+        setArtworkPreview(api.isElectron ? `file://${result.artworkPath}` : api.artworkURL(track.id))
+        setStatus({ type: 'success', message: 'Artwork found and updated!' })
+        if (onSave) onSave({ ...track, artwork_path: result.artworkPath })
       } else {
-        setStatus({ type: 'error', message: 'No match found' })
+        setStatus({ type: 'error', message: result?.error || 'No artwork found on iTunes' })
       }
     } catch (e) {
       setStatus({ type: 'error', message: e.message })
