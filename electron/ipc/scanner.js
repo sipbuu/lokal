@@ -319,6 +319,21 @@ const tracks = db.prepare(`SELECT t.* FROM tracks t JOIN artist_track_links atl 
     const result = db.prepare(sql).run(...params)
     return { success: true, changes: result.changes }
   })
+  
+  ipcMain.handle('track:fetchExternalArtwork', async (_, trackId, title, artist) => {
+    const db = getDB()
+    try {
+      const result = await fetchExternalMetadata(title, artist, trackId)
+      if (result?.artPath) {
+        db.prepare('UPDATE tracks SET artwork_path = ? WHERE id = ?').run(result.artPath, trackId)
+        return { success: true, artworkPath: result.artPath }
+      }
+      return { success: false, error: 'No artwork found' }
+    } catch (err) {
+      console.error('[track:fetchExternalArtwork]', err.message)
+      return { success: false, error: err.message }
+    }
+  })
   ipcMain.handle('scanner:getTopGenres', () => getDB().prepare(`SELECT genre, COUNT(*) as count FROM tracks WHERE genre IS NOT NULL GROUP BY genre ORDER BY count DESC LIMIT 10`).all())
   ipcMain.handle('scanner:getRandomTrack', () => getDB().prepare('SELECT * FROM tracks ORDER BY RANDOM() LIMIT 1').get())
   ipcMain.handle('db:clearTracks', () => { const db = getDB(); db.prepare('DELETE FROM artist_track_links').run(); db.prepare('DELETE FROM playlist_tracks').run(); db.prepare('DELETE FROM user_likes').run(); db.prepare('DELETE FROM play_history').run(); db.prepare('DELETE FROM lyrics_cache').run(); db.prepare('DELETE FROM tracks').run(); db.prepare('DELETE FROM artists').run() })
