@@ -208,6 +208,19 @@ app.whenReady().then(() => {
 ipcMain.handle('window:minimize', () => mainWindow.minimize())
 ipcMain.handle('window:maximize', () => mainWindow.isMaximized() ? mainWindow.unmaximize() : mainWindow.maximize())
 ipcMain.handle('window:close', () => mainWindow.close())
+ipcMain.handle('window:setAlwaysOnTop', (_, flag) => mainWindow.setAlwaysOnTop(flag))
+ipcMain.handle('window:setSize', (_, width, height) => {
+  if (mainWindow) {
+    mainWindow.setSize(width, height)
+    mainWindow.center()
+  }
+})
+ipcMain.handle('window:getSize', () => {
+  if (mainWindow) {
+    return mainWindow.getSize()
+  }
+  return [1400, 860]
+})
 ipcMain.handle('shell:openExternal', (_, url) => shell.openExternal(url))
 ipcMain.on('open-logs', () => {
   const logFile = log.transports.file.getFile().path;
