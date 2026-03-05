@@ -468,6 +468,46 @@ export const usePlayerStore = create((set, get) => ({
   setIsPlaying: (v) => set({ isPlaying: v }),
   setCrossfade: (v) => set({ crossfadeSeconds: v }),
 
+  sleepTimerMinutes: 0,
+  sleepTimerEndTime: null,
+  sleepTimerInterval: null,
+  setSleepTimer: (minutes) => {
+    const { sleepTimerInterval } = get()
+    if (sleepTimerInterval) {
+      clearInterval(sleepTimerInterval)
+    }
+    
+    if (minutes <= 0) {
+      set({ sleepTimerMinutes: 0, sleepTimerEndTime: null, sleepTimerInterval: null })
+      return
+    }
+    
+    const endTime = Date.now() + (minutes * 60 * 1000)
+    const interval = setInterval(() => {
+      const { sleepTimerEndTime, isPlaying } = get()
+      if (!sleepTimerEndTime) return
+      
+      if (Date.now() >= sleepTimerEndTime) {
+        const { audioRef, cfAudioRef, activeAudioElement } = get()
+        const activeRef = activeAudioElement === 'primary' ? audioRef : cfAudioRef
+        if (activeRef?.current) {
+          activeRef.current.pause()
+        }
+        set({ isPlaying: false, sleepTimerMinutes: 0, sleepTimerEndTime: null, sleepTimerInterval: null })
+        clearInterval(interval)
+      }
+    }, 1000)
+    
+    set({ sleepTimerMinutes: minutes, sleepTimerEndTime: endTime, sleepTimerInterval: interval })
+  },
+  cancelSleepTimer: () => {
+    const { sleepTimerInterval } = get()
+    if (sleepTimerInterval) {
+      clearInterval(sleepTimerInterval)
+    }
+    set({ sleepTimerMinutes: 0, sleepTimerEndTime: null, sleepTimerInterval: null })
+  },
+
   likedIds: new Set(),
   setLiked: (id, liked) => set(s => {
     const next = new Set(s.likedIds)
