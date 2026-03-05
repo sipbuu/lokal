@@ -44,7 +44,6 @@ export default function PlayerBar() {
   const isLiked = currentTrack && likedIds.has(currentTrack.id)
   const RepeatIcon = repeat === 'one' ? Repeat1 : Repeat
 
-  // Update sleep timer display
   useEffect(() => {
     if (!sleepTimerEndTime) {
       setSleepTimerDisplay(null)
