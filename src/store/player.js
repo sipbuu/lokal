@@ -471,6 +471,8 @@ export const usePlayerStore = create((set, get) => ({
   sleepTimerMinutes: 0,
   sleepTimerEndTime: null,
   sleepTimerInterval: null,
+  showMiniPlayer: false,
+  toggleMiniPlayer: () => set(s => ({ showMiniPlayer: !s.showMiniPlayer })),
   setSleepTimer: (minutes) => {
     const { sleepTimerInterval } = get()
     if (sleepTimerInterval) {

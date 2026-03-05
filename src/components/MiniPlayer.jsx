@@ -110,7 +110,6 @@ export default function MiniPlayer() {
           </button>
         </div>
 
-        {/* Volume slider */}
         <input 
           type="range" 
           min={0} 

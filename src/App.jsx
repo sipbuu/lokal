@@ -12,6 +12,7 @@ import AuthModal from './components/AuthModal'
 import ProfileModal from './components/ProfileModal'
 import StatsModal from './components/StatsModal'
 import AddToPlaylistModal from './components/AddToPlaylistModal'
+import MiniPlayer from './components/MiniPlayer'
 import Home from './pages/Home'
 import Library from './pages/Library'
 import Search from './pages/Search'
@@ -92,6 +93,7 @@ export default function App() {
     setAudioRef, setCfAudioRef, initLiked, setCrossfade, crossfadeSeconds,
     setActiveAudioElement,
     shuffle, playNext, addToQueue, skipAhead,
+    showMiniPlayer,
   } = usePlayerStore()
   const { user } = useAppStore()
 
@@ -823,6 +825,7 @@ export default function App() {
           <QueuePanel />
         </div>
         <PlayerBar />
+        {showMiniPlayer && <MiniPlayer />}
         <FullscreenPlayer />
         <LyricsFullscreen />
         <AuthModal />
