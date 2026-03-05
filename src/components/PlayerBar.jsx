@@ -1,10 +1,11 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Play, Pause, SkipBack, SkipForward, Shuffle, Repeat, Repeat1, Volume2, VolumeX, Heart, Mic2, PanelRight, Maximize2, ListMusic, Plus } from 'lucide-react'
+import { Play, Pause, SkipBack, SkipForward, Shuffle, Repeat, Repeat1, Volume2, VolumeX, Heart, Mic2, PanelRight, Maximize2, ListMusic, Plus, Moon, X } from 'lucide-react'
 import { usePlayerStore, useAppStore } from '../store/player'
 import { useNavigate } from 'react-router-dom'
 import { api } from '../api'
 import Waveform from './Waveform'
+import Modal from './Modal'
 
 function fmt(s) { return `${Math.floor((s||0)/60)}:${Math.floor((s||0)%60).toString().padStart(2,'0')}` }
 
@@ -30,15 +31,49 @@ export default function PlayerBar() {
     togglePlay, next, prev, setProgress, setVolume, toggleShuffle, toggleRepeat,
     toggleLyricsFullscreen, toggleRightSidebar, toggleFullscreen, toggleQueue,
     likedIds, setLiked, audioRef, cfAudioRef, activeAudioElement,
+    sleepTimerMinutes, sleepTimerEndTime, setSleepTimer, cancelSleepTimer,
   } = usePlayerStore()
   const { user, openAddToPlaylist } = useAppStore()
   const [likeAnim, setLikeAnim] = useState(false)
   const [keepCommaArtists, setKeepCommaArtists] = useState([])
   const scrubbing = useRef(false)
   const [localProg, setLocalProg] = useState(null)
+  const [showSleepTimer, setShowSleepTimer] = useState(false)
+  const [sleepTimerDisplay, setSleepTimerDisplay] = useState(null)
   const display = localProg ?? progress
   const isLiked = currentTrack && likedIds.has(currentTrack.id)
   const RepeatIcon = repeat === 'one' ? Repeat1 : Repeat
+
+  // Update sleep timer display
+  useEffect(() => {
+    if (!sleepTimerEndTime) {
+      setSleepTimerDisplay(null)
+      return
+    }
+    
+    const updateDisplay = () => {
+      const remaining = sleepTimerEndTime - Date.now()
+      if (remaining <= 0) {
+        setSleepTimerDisplay(null)
+        return
+      }
+      const minutes = Math.floor(remaining / 60000)
+      const seconds = Math.floor((remaining % 60000) / 1000)
+      setSleepTimerDisplay(`${minutes}:${seconds.toString().padStart(2, '0')}`)
+    }
+    
+    updateDisplay()
+    const interval = setInterval(updateDisplay, 1000)
+    return () => clearInterval(interval)
+  }, [sleepTimerEndTime])
+
+  useEffect(() => {
+    return () => {
+      if (sleepTimerEndTime && Date.now() >= sleepTimerEndTime) {
+        cancelSleepTimer()
+      }
+    }
+  }, [])
 
   useEffect(() => {
     api.getKeepCommaArtists().then(artists => {
@@ -174,6 +209,22 @@ export default function PlayerBar() {
         <button onClick={toggleQueue} className={`transition-colors ${showQueue ? 'text-accent' : 'text-subtle hover:text-white'}`} title="Queue"><ListMusic size={16} /></button>
         <button onClick={toggleRightSidebar} className={`transition-colors ${showRightSidebar ? 'text-accent' : 'text-subtle hover:text-white'}`} title="Now Playing"><PanelRight size={16} /></button>
         <button onClick={toggleFullscreen} disabled={!currentTrack} className="text-subtle hover:text-white transition-colors disabled:opacity-30" title="Fullscreen"><Maximize2 size={15} /></button>
+        
+        <div className="relative flex items-center justify-center">
+          <button 
+            onClick={() => setShowSleepTimer(!showSleepTimer)} 
+            className={`flex items-center justify-center transition-colors ${sleepTimerEndTime ? 'text-accent' : 'text-subtle hover:text-white'}`} 
+            title={sleepTimerEndTime ? `Sleep timer: ${sleepTimerDisplay}` : "Sleep Timer"}
+          >
+            <Moon size={16} />
+          </button>
+          {sleepTimerEndTime && (
+            <span className="absolute -top-2 -right-3 text-[8px] text-accent font-mono bg-surface px-1 rounded-full">
+              {sleepTimerDisplay}
+            </span>
+          )}
+        </div>
+        
         <div className="flex items-center gap-1.5 ml-1">
           <button onClick={() => setVolume(volume > 0 ? 0 : 0.8)} className="text-muted hover:text-white transition-colors">
             {volume === 0 ? <VolumeX size={15} /> : <Volume2 size={15} />}
@@ -183,6 +234,51 @@ export default function PlayerBar() {
             className="w-18 accent-accent cursor-pointer h-1" style={{ width: 72 }} />
         </div>
       </div>
+
+      <Modal open={showSleepTimer} onClose={() => setShowSleepTimer(false)} title="Sleep Timer" width="max-w-xs">
+        <div className="space-y-3">
+          <p className="text-xs text-muted">
+            Music will stop after the selected time. Use this if you would like the app to stop while you are sleeping. 
+          </p>
+          
+          <div className="grid grid-cols-2 gap-2">
+            {[5, 10, 15, 30, 45, 60].map(mins => (
+              <button
+                key={mins}
+                onClick={() => { setSleepTimer(mins); setShowSleepTimer(false) }}
+                className={`py-2.5 px-3 rounded-lg text-sm font-medium transition-colors ${
+                  sleepTimerMinutes === mins 
+                    ? 'bg-accent text-base' 
+                    : 'bg-card border border-border text-muted hover:text-white hover:border-accent/30'
+                }`}
+              >
+                {mins} min
+              </button>
+            ))}
+          </div>
+          
+          {sleepTimerEndTime && (
+            <div className="pt-3 border-t border-border">
+              <div className="flex items-center justify-between">
+                <span className="text-sm text-accent">Timer active: {sleepTimerDisplay}</span>
+                <button 
+                  onClick={() => { cancelSleepTimer(); setShowSleepTimer(false) }}
+                  className="text-xs text-red-400 hover:text-red-300 flex items-center gap-1"
+                >
+                  <X size={12} /> Cancel
+                </button>
+              </div>
+            </div>
+          )}
+          
+          <button 
+            onClick={() => setShowSleepTimer(false)}
+            className="w-full py-2 bg-card border border-border rounded-lg text-sm text-muted hover:text-white transition-colors"
+          >
+            Close
+          </button>
+        </div>
+      </Modal>
     </div>
   )
 }
