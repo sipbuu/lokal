@@ -1,6 +1,6 @@
 import React, { useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Play, Pause, Heart, Plus, Camera, Trash2, Music, Clock, ListEnd, GripVertical, X, Check, Edit2 } from 'lucide-react'
+import { Play, Pause, Heart, Plus, Camera, Trash2, Music, LibraryBig, Clock, ListEnd, GripVertical, X, Check, Edit2 } from 'lucide-react'
 import { usePlayerStore, useAppStore } from '../store/player'
 import { api } from '../api'
 import TrackEditModal from './TrackEditModal'
@@ -369,7 +369,7 @@ export default function TrackList({ tracks = [], showAlbum = true, onRemove = nu
                 <div className="relative">
                   <button onClick={e => handleQuickAdd(track, e)}
                     className={`opacity-0 group-hover:opacity-100 transition-all ${quickAddAnim === track.id ? 'text-green-400' : 'text-muted hover:text-green-400'}`}>
-                    {quickAddAnim === track.id ? <Check size={14} /> : <Plus size={14} />}
+                    {quickAddAnim === track.id ? <Check size={14} /> : <LibraryBig size={14} />}
                   </button>
                   <AnimatePresence>
                     {quickAddAnim === track.id && (
