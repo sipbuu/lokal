@@ -113,6 +113,55 @@ router.put('/:id/genre', (req, res) => {
   res.json({ ok: true })
 })
 
+router.put('/:id', (req, res) => {
+  const db = getDB()
+  const { title, artist, album, album_artist, track_num, year, genre } = req.body
+  const updates = []
+  const params = []
+  
+  if (title !== undefined) { updates.push('title = ?'); params.push(title) }
+  if (artist !== undefined) { updates.push('artist = ?'); params.push(artist) }
+  if (album !== undefined) { updates.push('album = ?'); params.push(album) }
+  if (album_artist !== undefined) { updates.push('album_artist = ?'); params.push(album_artist) }
+  if (track_num !== undefined) { updates.push('track_num = ?'); params.push(track_num) }
+  if (year !== undefined) { updates.push('year = ?'); params.push(year) }
+  if (genre !== undefined) { updates.push('genre = ?'); params.push(genre) }
+  
+  if (updates.length === 0) return res.json({ error: 'No fields to update' })
+  
+  params.push(req.params.id)
+  const sql = `UPDATE tracks SET ${updates.join(', ')} WHERE id = ?`
+  const result = db.prepare(sql).run(...params)
+  res.json({ success: true, changes: result.changes })
+})
+
+router.put('/:id/artwork', (req, res) => {
+  const { imageData } = req.body
+  if (!imageData) return res.json({ error: 'No image data provided' })
+  
+  const db = getDB()
+  const path = require('path')
+  const fs = require('fs')
+  const { getStorageDir } = require('../../electron/ipc/db')
+  
+  try {
+    const buf = Buffer.from(imageData.split(',')[1], 'base64')
+    const artPath = path.join(getStorageDir(), 'artwork', `${req.params.id}.jpg`)
+    
+    // Ensure directory exists
+    const dir = path.dirname(artPath)
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true })
+    }
+    
+    fs.writeFileSync(artPath, buf)
+    db.prepare('UPDATE tracks SET artwork_path = ? WHERE id = ?').run(artPath, req.params.id)
+    res.json({ success: true, path: artPath })
+  } catch (e) {
+    res.json({ error: e.message })
+  }
+})
+
 router.post('/:id/like', (req, res) => {
   const db = getDB()
   const { userId = 'guest' } = req.body
