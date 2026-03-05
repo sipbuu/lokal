@@ -1,17 +1,42 @@
-import React from 'react'
-import { motion, AnimatePresence } from 'framer-motion'
+import React, { useEffect, useRef } from 'react'
+import { motion } from 'framer-motion'
 import { Play, Pause, SkipBack, SkipForward, X, Volume2, VolumeX } from 'lucide-react'
 import { usePlayerStore } from '../store/player'
 import { api } from '../api'
 
 function fmt(s) { return `${Math.floor((s||0)/60)}:${Math.floor((s||0)%60).toString().padStart(2,'0')}` }
 
+const MINI_PLAYER_WIDTH = 320
+const MINI_PLAYER_HEIGHT = 180
+
 export default function MiniPlayer() {
   const {
     currentTrack, isPlaying, progress, duration, volume,
-    togglePlay, next, prev, setProgress, setVolume,
+    togglePlay, next, prev, setProgressWithAudioUpdate, setVolume,
     showMiniPlayer, toggleMiniPlayer,
   } = usePlayerStore()
+
+  const prevShowMiniPlayer = useRef(showMiniPlayer)
+  const prevWindowSize = useRef(null)
+
+   useEffect(() => {
+    if (!api.isElectron) return
+
+    if (showMiniPlayer && !prevShowMiniPlayer.current) {
+      window.electron.getWindowSize().then(size => {
+        prevWindowSize.current = size
+        window.electron.setWindowSize(MINI_PLAYER_WIDTH, MINI_PLAYER_HEIGHT)
+        window.electron.setAlwaysOnTop(true)
+      })
+    } else if (!showMiniPlayer && prevShowMiniPlayer.current) {
+       window.electron.setAlwaysOnTop(false)
+      if (prevWindowSize.current) {
+        window.electron.setWindowSize(prevWindowSize.current[0], prevWindowSize.current[1])
+      }
+    }
+
+    prevShowMiniPlayer.current = showMiniPlayer
+  }, [showMiniPlayer])
 
   const artSrc = currentTrack?.artwork_path
     ? (api.isElectron ? `file://${currentTrack.artwork_path}` : api.artworkURL(currentTrack.id))
@@ -21,7 +46,7 @@ export default function MiniPlayer() {
     if (!duration) return
     const r = e.currentTarget.getBoundingClientRect()
     const t = Math.max(0, Math.min(1, (e.clientX - r.left) / r.width)) * duration
-    setProgress(t)
+    setProgressWithAudioUpdate(t)
   }
 
   return (
