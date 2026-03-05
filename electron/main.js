@@ -205,10 +205,12 @@ app.whenReady().then(() => {
   }
 });
 
-ipcMain.handle('window:minimize', () => mainWindow.minimize())
-ipcMain.handle('window:maximize', () => mainWindow.isMaximized() ? mainWindow.unmaximize() : mainWindow.maximize())
-ipcMain.handle('window:close', () => mainWindow.close())
-ipcMain.handle('window:setAlwaysOnTop', (_, flag) => mainWindow.setAlwaysOnTop(flag))
+ipcMain.handle('window:minimize', () => mainWindow?.minimize())
+ipcMain.handle('window:maximize', () => mainWindow?.isMaximized() ? mainWindow.unmaximize() : mainWindow.maximize())
+ipcMain.handle('window:close', () => mainWindow?.close())
+ipcMain.handle('window:setAlwaysOnTop', (_, flag) => { 
+  if (mainWindow) mainWindow.setAlwaysOnTop(flag) 
+})
 ipcMain.handle('window:setSize', (_, width, height) => {
   if (mainWindow) {
     mainWindow.setSize(width, height)
@@ -221,6 +223,9 @@ ipcMain.handle('window:getSize', () => {
   }
   return [1400, 860]
 })
+
+createWindow()
+
 ipcMain.handle('shell:openExternal', (_, url) => shell.openExternal(url))
 ipcMain.on('open-logs', () => {
   const logFile = log.transports.file.getFile().path;
@@ -247,7 +252,6 @@ ipcMain.handle('updater:install', () => {
     return app.getVersion()
   })
 
-  createWindow()
   app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow() })
 
   if (!app.isPackaged) {

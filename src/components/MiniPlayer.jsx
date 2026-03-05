@@ -20,18 +20,27 @@ export default function MiniPlayer() {
   const prevWindowSize = useRef(null)
 
    useEffect(() => {
-    if (!api.isElectron) return
+    const electron = window.electron
+    if (!electron) {
+      console.log('[MiniPlayer] No electron API available')
+      return
+    }
 
     if (showMiniPlayer && !prevShowMiniPlayer.current) {
-      window.electron.getWindowSize().then(size => {
-        prevWindowSize.current = size
-        window.electron.setWindowSize(MINI_PLAYER_WIDTH, MINI_PLAYER_HEIGHT)
-        window.electron.setAlwaysOnTop(true)
-      })
+      console.log('[MiniPlayer] Activating mini player mode')
+      if (electron.getWindowSize) {
+        electron.getWindowSize().then(size => {
+          console.log('[MiniPlayer] Current size:', size)
+          prevWindowSize.current = size
+          if (electron.setWindowSize) electron.setWindowSize(MINI_PLAYER_WIDTH, MINI_PLAYER_HEIGHT)
+          if (electron.setAlwaysOnTop) electron.setAlwaysOnTop(true)
+        }).catch(e => console.error('[MiniPlayer] Error:', e))
+      }
     } else if (!showMiniPlayer && prevShowMiniPlayer.current) {
-       window.electron.setAlwaysOnTop(false)
-      if (prevWindowSize.current) {
-        window.electron.setWindowSize(prevWindowSize.current[0], prevWindowSize.current[1])
+      console.log('[MiniPlayer] Deactivating mini player mode')
+      if (electron.setAlwaysOnTop) electron.setAlwaysOnTop(false)
+      if (prevWindowSize.current && electron.setWindowSize) {
+        electron.setWindowSize(prevWindowSize.current[0], prevWindowSize.current[1])
       }
     }
 
