@@ -146,6 +146,14 @@ export default function TrackEditModal({ track, open, onClose, onSave }) {
                 <Camera size={24} className="text-white" />
               </button>
             </div>
+            <button 
+              onClick={fetchFromiTunes}
+              disabled={saving}
+              className="mt-2 w-full py-1.5 text-xs bg-card border border-border rounded-lg text-muted hover:text-accent hover:border-accent/30 transition-colors flex items-center justify-center gap-1"
+            >
+              {saving ? <RefreshCw size={12} className="animate-spin" /> : null}
+              iTunes Artwork
+            </button>
           </div>
           
           <div className="flex-1 space-y-3">
