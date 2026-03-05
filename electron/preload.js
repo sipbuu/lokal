@@ -67,6 +67,7 @@ contextBridge.exposeInMainWorld('electron', {
   trackSetGenre: (id, genre) => invoke('track:setGenre', id, genre),
   updateTrack: (id, data) => invoke('track:update', id, data),
   updateTrackArtwork: (id, imageData) => invoke('track:setArtwork', id, imageData),
+  fetchExternalArtwork: (id, title, artist) => invoke('track:fetchExternalArtwork', id, title, artist),
   setManualGenre: (data) => invoke('scanner:setManualGenre', data),
   importPhotosDir: (dir) => invoke('artist:importPhotosDir', dir),
 
