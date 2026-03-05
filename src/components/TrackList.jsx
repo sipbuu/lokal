@@ -1,8 +1,9 @@
 import React, { useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Play, Pause, Heart, Plus, Camera, Trash2, Music, Clock, ListEnd, GripVertical, X, Check } from 'lucide-react'
+import { Play, Pause, Heart, Plus, Camera, Trash2, Music, Clock, ListEnd, GripVertical, X, Check, Edit2 } from 'lucide-react'
 import { usePlayerStore, useAppStore } from '../store/player'
 import { api } from '../api'
+import TrackEditModal from './TrackEditModal'
 
 const RECENT_ITEMS_KEY = 'lokal-recent-items'
 const MAX_RECENT = 5
@@ -56,6 +57,7 @@ export default function TrackList({ tracks = [], showAlbum = true, onRemove = nu
   const [selectedIds, setSelectedIds] = useState(new Set())
   const [draggedId, setDraggedId] = useState(null)
   const [dragOverId, setDragOverId] = useState(null)
+  const [editingTrack, setEditingTrack] = useState(null)
 
   const handlePlay = (track, e) => {
     e.stopPropagation()
@@ -241,13 +243,10 @@ export default function TrackList({ tracks = [], showAlbum = true, onRemove = nu
     e?.stopPropagation()
     if (!onQuickAdd) return
     
-    // Trigger animation
     setQuickAddAnim(track.id)
     
-    // Call the quick add callback
     await onQuickAdd(track)
     
-    // Clear animation after a short delay
     setTimeout(() => setQuickAddAnim(null), 600)
   }
 
@@ -366,7 +365,6 @@ export default function TrackList({ tracks = [], showAlbum = true, onRemove = nu
                   )}
                 </AnimatePresence>
               </div>
-              {/* Quick add button - auto-adds to current playlist with animation */}
               {onQuickAdd && (
                 <div className="relative">
                   <button onClick={e => handleQuickAdd(track, e)}
@@ -387,11 +385,17 @@ export default function TrackList({ tracks = [], showAlbum = true, onRemove = nu
                   </AnimatePresence>
                 </div>
               )}
-              {/* Existing button - opens add to playlist modal */}
               <button onClick={e => { e.stopPropagation(); openAddToPlaylist(track) }}
                 className="opacity-0 group-hover:opacity-100 text-muted hover:text-accent transition-all"
                 title="Add to another playlist">
                 <Plus size={14} />
+              </button>
+              <button 
+                onClick={e => { e.stopPropagation(); setEditingTrack(track) }}
+                className="opacity-0 group-hover:opacity-100 text-muted hover:text-accent transition-all"
+                title="Edit track info"
+              >
+                <Edit2 size={14} />
               </button>
               {onRemove && (
                 <button onClick={e => { e.stopPropagation(); onRemove(track) }}
@@ -404,6 +408,12 @@ export default function TrackList({ tracks = [], showAlbum = true, onRemove = nu
           </motion.div>
         )
       })}
+      
+      <TrackEditModal 
+        track={editingTrack} 
+        open={!!editingTrack} 
+        onClose={() => setEditingTrack(null)} 
+      />
     </div>
   )
 }
