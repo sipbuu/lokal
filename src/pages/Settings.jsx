@@ -448,6 +448,11 @@ export default function Settings() {
     await saveOverride('--bg-overlay', val)
   }
 
+  const handleBlurChange = async (e) => {
+    const val = e.target.value
+    await saveOverride('--bg-blur', `${val}px`)
+  }
+
   const filtered = artists.filter(a => a.name.toLowerCase().includes(artistSearch.toLowerCase()))
 
   const exportMenuItems = [
@@ -954,8 +959,16 @@ export default function Settings() {
 
             {bgImage && (
               <div className="space-y-4 mt-4">
-                <div className="h-32 w-full rounded-xl bg-cover bg-center border border-border relative overflow-hidden" style={{ backgroundImage: `url('${bgImage}')` }}>
-                  <div className="absolute inset-0 bg-bg transition-opacity duration-300" style={{ opacity: themeOverrides['--bg-overlay'] || 0 }} />
+                <div className="w-full aspect-video rounded-xl border border-border relative overflow-hidden bg-black">
+                  <div 
+                    className="absolute inset-0 bg-no-repeat"
+                    style={{
+                      backgroundImage: `url('${bgImage}')`,
+                      backgroundSize: themeOverrides['--bg-size'] || 'cover',
+                      backgroundPosition: themeOverrides['--bg-position'] || 'center',
+                    }}
+                  />
+                  <div className="absolute inset-0 bg-bg transition-opacity duration-300" style={{ opacity: themeOverrides['--bg-overlay'] || 0, backdropFilter: `blur(${themeOverrides['--bg-blur'] || '0px'})` }} />
                 </div>
                 
                 <div className="space-y-2">
@@ -973,6 +986,47 @@ export default function Settings() {
                     className="w-full accent-accent h-1 bg-elevated rounded-lg appearance-none cursor-pointer"
                   />
                   <p className="text-[10px] text-muted">Adjusts the visibility of the solid background color over your image.</p>
+                </div>
+
+                <div className="space-y-2">
+                  <div className="flex justify-between text-xs text-muted">
+                    <span>Background Blur</span>
+                    <span>{parseInt(themeOverrides['--bg-blur'] || '0')}px</span>
+                  </div>
+                  <input 
+                    type="range" min="0" max="50" step="1"
+                    value={parseInt(themeOverrides['--bg-blur'] || '0')} onChange={handleBlurChange}
+                    className="w-full accent-accent h-1 bg-elevated rounded-lg appearance-none cursor-pointer"
+                  />
+                </div>
+
+                <div className="grid grid-cols-2 gap-3 pt-1">
+                  <div>
+                    <label className="text-[10px] text-muted uppercase tracking-wider block mb-1.5">Image Fit</label>
+                    <select 
+                      value={themeOverrides['--bg-size'] || 'cover'}
+                      onChange={(e) => saveOverride('--bg-size', e.target.value)}
+                      className="w-full bg-elevated border border-border rounded-lg px-2 py-1.5 text-xs text-white outline-none focus:border-accent/50"
+                    >
+                      <option value="cover">Cover (Fill)</option>
+                      <option value="contain">Contain (Fit)</option>
+                      <option value="auto">Auto (Original)</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="text-[10px] text-muted uppercase tracking-wider block mb-1.5">Position</label>
+                    <select 
+                      value={themeOverrides['--bg-position'] || 'center'}
+                      onChange={(e) => saveOverride('--bg-position', e.target.value)}
+                      className="w-full bg-elevated border border-border rounded-lg px-2 py-1.5 text-xs text-white outline-none focus:border-accent/50"
+                    >
+                      <option value="center">Center</option>
+                      <option value="top">Top</option>
+                      <option value="bottom">Bottom</option>
+                      <option value="left">Left</option>
+                      <option value="right">Right</option>
+                    </select>
+                  </div>
                 </div>
               </div>
             )}
