@@ -4,7 +4,6 @@ import { Home, Search, Library, Download, Plus, Music, Heart, Settings, LogIn, L
 import { useAppStore, usePlayerStore } from '../store/player'
 import { api } from '../api'
 import PlaylistCover from './PlaylistCover'
-import AlbumsModal from './AlbumsModal'
 
 const NAV = [
   { icon: Home, label: 'Home', path: '/' },
@@ -78,7 +77,7 @@ export default function Sidebar() {
   }
 
   return (
-    <aside className="w-56 bg-surface border-r border-border flex flex-col h-full flex-shrink-0 overflow-hidden">
+    <aside className="w-56 border-r border-border flex flex-col h-full flex-shrink-0 overflow-hidden" style={{ backgroundColor: 'rgba(var(--surface-rgb), 0.85)', backdropFilter: 'blur(12px)' }}>
       <div className="px-5 py-4 flex-shrink-0">
         <div className="flex items-center gap-2">
           <img src="lokal-icon.png" alt="Lokal" className="w-7 h-7 rounded-lg flex-shrink-0" />
@@ -190,7 +189,6 @@ export default function Sidebar() {
         </div>
       )}
 
-      <AlbumsModal />
     </aside>
   )
 }
