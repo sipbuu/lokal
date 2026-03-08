@@ -86,11 +86,28 @@ if (!perfSettings.hardwareAcceleration) {
 }
 
 let mainWindow
+const NORMAL_MIN_WIDTH = 960
+const NORMAL_MIN_HEIGHT = 640
+const MINI_DEFAULT_WIDTH = 360
+const MINI_DEFAULT_HEIGHT = 220
+const MINI_MIN_WIDTH = 50
+const MINI_MIN_HEIGHT = 50
+let miniModeRestoreState = null
+let miniModeEnabled = false
+
+function enforceMiniTop() {
+  if (!mainWindow || !miniModeEnabled) return
+  mainWindow.setAlwaysOnTop(true, 'screen-saver', 1)
+  mainWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
+  mainWindow.moveTop()
+}
 
 function createWindow() {
   mainWindow = new BrowserWindow({
     icon: path.join(__dirname, process.platform === 'win32' ? '../public/lokal-icon.ico' : '../public/lokal-icon.png'),
-    width: 1400, height: 860, minWidth: 960, minHeight: 640,
+    width: 1400, height: 860, minWidth: NORMAL_MIN_WIDTH, minHeight: NORMAL_MIN_HEIGHT,
+    useContentSize: true,
+    resizable: true,
     frame: false, backgroundColor: '#0a0a0a',
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
@@ -107,6 +124,11 @@ function createWindow() {
   mainWindow.webContents.on('did-finish-load', () => {
     mainWindow.webContents.send('perf-settings', perfSettings)
   })
+
+  mainWindow.on('focus', enforceMiniTop)
+  mainWindow.on('blur', enforceMiniTop)
+  mainWindow.on('show', enforceMiniTop)
+  mainWindow.on('restore', enforceMiniTop)
   
   
   if (!app.isPackaged) {
@@ -209,13 +231,54 @@ ipcMain.handle('window:minimize', () => mainWindow?.minimize())
 ipcMain.handle('window:maximize', () => mainWindow?.isMaximized() ? mainWindow.unmaximize() : mainWindow.maximize())
 ipcMain.handle('window:close', () => mainWindow?.close())
 ipcMain.handle('window:setAlwaysOnTop', (_, flag) => { 
-  if (mainWindow) mainWindow.setAlwaysOnTop(flag) 
+  if (mainWindow) {
+    if (flag) {
+      mainWindow.setAlwaysOnTop(true, 'screen-saver', 1)
+      mainWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
+      mainWindow.moveTop()
+    } else {
+      mainWindow.setAlwaysOnTop(false)
+      mainWindow.setVisibleOnAllWorkspaces(false)
+    }
+  }
 })
 ipcMain.handle('window:setSize', (_, width, height) => {
   if (mainWindow) {
     mainWindow.setSize(width, height)
     mainWindow.center()
   }
+})
+ipcMain.handle('window:setMiniMode', (_, enabled) => {
+  if (!mainWindow) return false
+  const isEnabled = Boolean(enabled)
+  if (isEnabled) {
+    miniModeEnabled = true
+    if (!miniModeRestoreState) {
+      miniModeRestoreState = {
+        bounds: mainWindow.getBounds(),
+        wasMaximized: mainWindow.isMaximized(),
+      }
+    }
+    if (mainWindow.isMinimized()) mainWindow.restore()
+    if (mainWindow.isMaximized()) mainWindow.unmaximize()
+    mainWindow.show()
+    mainWindow.setAlwaysOnTop(true, 'screen-saver', 1)
+    mainWindow.setMinimumSize(MINI_MIN_WIDTH, MINI_MIN_HEIGHT)
+    mainWindow.setSize(MINI_DEFAULT_WIDTH, MINI_DEFAULT_HEIGHT)
+    mainWindow.center()
+    enforceMiniTop()
+    return true
+  }
+  miniModeEnabled = false
+  mainWindow.setAlwaysOnTop(false)
+  mainWindow.setVisibleOnAllWorkspaces(false)
+  mainWindow.setMinimumSize(NORMAL_MIN_WIDTH, NORMAL_MIN_HEIGHT)
+  if (miniModeRestoreState?.bounds) {
+    mainWindow.setBounds(miniModeRestoreState.bounds)
+    if (miniModeRestoreState.wasMaximized) mainWindow.maximize()
+  }
+  miniModeRestoreState = null
+  return true
 })
 ipcMain.handle('window:getSize', () => {
   if (mainWindow) {
