@@ -14,6 +14,7 @@ import StatsModal from './components/StatsModal'
 import AddToPlaylistModal from './components/AddToPlaylistModal'
 import MiniPlayer from './components/MiniPlayer'
 import Onboarding, { useOnboarding } from './components/Onboarding'
+import PostOnboardingTour from './components/PostOnboardingTour'
 import Home from './pages/Home'
 import Library from './pages/Library'
 import Search from './pages/Search'
@@ -838,6 +839,8 @@ export default function App() {
         {!onboardingLoading && showOnboarding && (
           <Onboarding isOpen={showOnboarding} onComplete={completeOnboarding} />
         )}
+        
+        <PostOnboardingTour />
         
         {renderUpdateToast()}
 
