@@ -1,0 +1,15 @@
+{
+  "name": "Lokal Remote",
+  "short_name": "Lokal Remote",
+  "start_url": "/remote",
+  "display": "standalone",
+  "background_color": "#0b0b0b",
+  "theme_color": "#111111",
+  "icons": [
+    {
+      "src": "/lokal-icon.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}

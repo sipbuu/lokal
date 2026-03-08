@@ -1,0 +1,459 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="theme-color" content="#121212">
+  <title>Lokal Remote</title>
+  <link rel="manifest" href="/remote-manifest.json">
+  <style>
+    :root {
+      color-scheme: dark;
+      --surface: rgba(22, 22, 22, 0.78);
+      --border: rgba(255,255,255,0.11);
+      --text: #f2f2f2;
+      --muted: rgba(255,255,255,0.65);
+      --dim: rgba(255,255,255,0.38);
+      --accent: #d7ff5a;
+      --accent-2: #beef2f;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: "Segoe UI", "Inter", system-ui, sans-serif;
+      color: var(--text);
+      background: radial-gradient(circle at 20% 0%, #2b2b2b 0%, #0b0b0b 52%, #050505 100%);
+    }
+    .bg {
+      position: fixed;
+      inset: 0;
+      z-index: -2;
+      background-size: cover;
+      background-position: center;
+      filter: blur(52px) saturate(1.2) brightness(0.55);
+      transform: scale(1.12);
+      opacity: .92;
+      pointer-events: none;
+    }
+    .veil {
+      position: fixed;
+      inset: 0;
+      z-index: -1;
+      background: linear-gradient(180deg, rgba(0,0,0,.35), rgba(0,0,0,.65));
+      pointer-events: none;
+    }
+    .wrap {
+      max-width: 720px;
+      margin: 0 auto;
+      padding: 14px 14px 24px;
+      display: grid;
+      gap: 12px;
+    }
+    .card {
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      background: var(--surface);
+      backdrop-filter: blur(14px);
+      box-shadow: 0 10px 28px rgba(0,0,0,0.35);
+      padding: 12px;
+    }
+    .row { display: flex; align-items: center; gap: 10px; }
+    .title { font-size: 19px; font-weight: 800; line-height: 1.2; }
+    .sub { font-size: 13px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .tiny { font-size: 11px; color: var(--dim); }
+    .pill {
+      border: 1px solid var(--border);
+      background: rgba(255,255,255,0.08);
+      border-radius: 999px;
+      padding: 4px 8px;
+      font-size: 11px;
+      color: var(--muted);
+    }
+    .hero {
+      display: grid;
+      grid-template-columns: 84px 1fr;
+      gap: 12px;
+      align-items: center;
+    }
+    .art {
+      width: 84px;
+      height: 84px;
+      border-radius: 14px;
+      border: 1px solid var(--border);
+      background: #1f1f1f;
+      overflow: hidden;
+      display: grid;
+      place-items: center;
+      color: var(--dim);
+      font-weight: 700;
+    }
+    .art img { width: 100%; height: 100%; object-fit: cover; }
+    .lyrics {
+      min-height: 58px;
+      display: grid;
+      gap: 4px;
+      align-content: center;
+      margin-top: 8px;
+    }
+    .ly1 { font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .ly2 { font-size: 12px; color: rgba(255,255,255,.42); font-style: italic; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .char-on { color: rgba(255,255,255,.92); font-style: italic; }
+    .char-off { color: rgba(255,255,255,.4); font-style: italic; }
+
+    .controls { padding: 14px 12px; }
+    .transport {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+    }
+    button {
+      min-height: 44px;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      background: rgba(255,255,255,0.08);
+      color: var(--text);
+      font-weight: 700;
+      font-size: 13px;
+      transition: .12s ease;
+      box-shadow: inset 0 1px 0 rgba(255,255,255,.09);
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+    }
+    button:hover { border-color: rgba(255,255,255,.24); }
+    button:active { transform: scale(.98); }
+    button:disabled { opacity: .35; }
+    .play-main {
+      width: 64px;
+      height: 64px;
+      border-radius: 999px;
+      background: linear-gradient(180deg, var(--accent), var(--accent-2));
+      color: #101010;
+      border: 0;
+      box-shadow: 0 8px 24px rgba(190,239,47,.25);
+    }
+    .icon-btn {
+      width: 48px;
+      height: 48px;
+      border-radius: 999px;
+      background: rgba(255,255,255,0.08);
+    }
+    .icon-btn svg, .play-main svg {
+      width: 22px;
+      height: 22px;
+      stroke: currentColor;
+      fill: none;
+      stroke-width: 2.4;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+    .play-main svg { width: 26px; height: 26px; }
+
+    .meter {
+      position: relative;
+      height: 12px;
+      border-radius: 999px;
+      background: rgba(255,255,255,.1);
+      overflow: hidden;
+      border: 1px solid rgba(255,255,255,.1);
+    }
+    .meter-fill {
+      position: absolute;
+      inset: 0 auto 0 0;
+      width: 0%;
+      background: linear-gradient(90deg, var(--accent), var(--accent-2));
+      box-shadow: 0 0 16px rgba(215,255,90,.35);
+      pointer-events: none;
+    }
+    .meter input[type=range] {
+      position: absolute;
+      inset: -5px 0;
+      width: 100%;
+      opacity: 0;
+      cursor: pointer;
+    }
+  </style>
+</head>
+<body>
+  <div id="bg" class="bg"></div>
+  <div class="veil"></div>
+  <main class="wrap">
+    <section class="card hero">
+      <div class="art" id="art">L</div>
+      <div>
+        <div class="row" style="justify-content:space-between">
+          <div>
+            <div id="trackTitle" class="title">No track</div>
+            <div id="trackArtist" class="sub">Open this from your phone on same Wi-Fi</div>
+          </div>
+          <span id="status" class="pill">offline</span>
+        </div>
+        <div class="lyrics">
+          <div id="ly1" class="ly1"></div>
+          <div id="ly2" class="ly2"></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="card controls">
+      <div class="transport">
+        <button id="prevBtn" class="icon-btn" title="Previous" aria-label="Previous"></button>
+        <button id="playBtn" class="play-main" title="Play or Pause" aria-label="Play or Pause"></button>
+        <button id="nextBtn" class="icon-btn" title="Next" aria-label="Next"></button>
+        <button id="likeBtn" class="icon-btn" title="Like" aria-label="Like"></button>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="row" style="justify-content:space-between">
+        <span id="timeCurrent" class="tiny">0:00</span>
+        <span id="timeTotal" class="tiny">0:00</span>
+      </div>
+      <div class="meter" style="margin-top:6px;">
+        <div id="seekFill" class="meter-fill"></div>
+        <input id="seek" type="range" min="0" max="1000" value="0">
+      </div>
+
+      <div class="row" style="justify-content:space-between; margin-top:10px;">
+        <span class="tiny">Volume</span>
+        <span id="volumePct" class="tiny">80%</span>
+      </div>
+      <div class="meter" style="margin-top:6px;">
+        <div id="volumeFill" class="meter-fill"></div>
+        <input id="volume" type="range" min="0" max="100" value="80">
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const els = {
+      bg: document.getElementById('bg'),
+      art: document.getElementById('art'),
+      title: document.getElementById('trackTitle'),
+      artist: document.getElementById('trackArtist'),
+      status: document.getElementById('status'),
+      play: document.getElementById('playBtn'),
+      like: document.getElementById('likeBtn'),
+      seek: document.getElementById('seek'),
+      seekFill: document.getElementById('seekFill'),
+      volume: document.getElementById('volume'),
+      volumeFill: document.getElementById('volumeFill'),
+      volumePct: document.getElementById('volumePct'),
+      timeCurrent: document.getElementById('timeCurrent'),
+      timeTotal: document.getElementById('timeTotal'),
+      ly1: document.getElementById('ly1'),
+      ly2: document.getElementById('ly2')
+    }
+
+    const store = {
+      state: null,
+      lyrics: [],
+      lyricsType: null,
+      lastTrackId: null,
+      seeking: false,
+    }
+    const ICONS = {
+      prev: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 20L9 12L19 4V20Z"></path><path d="M5 19V5"></path></svg>',
+      play: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5L19 12L8 19V5Z"></path></svg>',
+      pause: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 5V19"></path><path d="M15 5V19"></path></svg>',
+      next: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 20L15 12L5 4V20Z"></path><path d="M19 19V5"></path></svg>',
+      heart: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20.8 8.6C20.8 13 12 19.5 12 19.5S3.2 13 3.2 8.6C3.2 6 5.2 4.2 7.7 4.2C9.5 4.2 11 5.1 12 6.6C13 5.1 14.5 4.2 16.3 4.2C18.8 4.2 20.8 6 20.8 8.6Z"></path></svg>'
+    }
+
+    function paintStaticIcons() {
+      els.play.innerHTML = ICONS.play
+      els.like.innerHTML = ICONS.heart
+      document.getElementById('prevBtn').innerHTML = ICONS.prev
+      document.getElementById('nextBtn').innerHTML = ICONS.next
+    }
+
+    const fmt = (s = 0) => {
+      const sec = Math.max(0, Math.floor(Number(s) || 0))
+      return `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, '0')}`
+    }
+
+    const escapeHtml = (s = '') => s
+      .replaceAll('&', '&amp;')
+      .replaceAll('<', '&lt;')
+      .replaceAll('>', '&gt;')
+      .replaceAll('"', '&quot;')
+      .replaceAll("'", '&#39;')
+
+    async function call(path, opts = {}) {
+      const res = await fetch(`/api/remote/${path}`, {
+        method: opts.method || 'GET',
+        headers: { 'Content-Type': 'application/json' },
+        body: opts.body ? JSON.stringify(opts.body) : undefined,
+      })
+      if (!res.ok) throw new Error(await res.text())
+      return res.json()
+    }
+
+    async function loadTheme() {
+      try {
+        const res = await fetch('/api/settings/theme')
+        if (!res.ok) return
+        const theme = await res.json()
+        const overrides = theme?.overrides || {}
+        const accent = overrides['--accent']
+        const accent2 = overrides['--accent-2']
+        const accentRgb = overrides['--accent-rgb']
+        if (accent) document.documentElement.style.setProperty('--accent', accent)
+        if (accent2) document.documentElement.style.setProperty('--accent-2', accent2)
+        if (accentRgb) {
+          const parts = String(accentRgb).split(',').map(v => Number(v.trim())).filter(v => Number.isFinite(v))
+          if (parts.length === 3) {
+            const toHex = (n) => Math.max(0, Math.min(255, n)).toString(16).padStart(2, '0')
+            const hex = `#${toHex(parts[0])}${toHex(parts[1])}${toHex(parts[2])}`
+            document.documentElement.style.setProperty('--accent', hex)
+          }
+        }
+      } catch {}
+    }
+
+    async function callLyrics(track) {
+      if (!track?.id) return null
+      const query = new URLSearchParams({
+        title: track.title || '',
+        artist: track.artist || '',
+        album: track.album || '',
+        duration: String(Math.round(Number(track.duration || store.state?.duration || 0)))
+      })
+      const res = await fetch(`/api/lyrics/${encodeURIComponent(track.id)}?${query}`)
+      if (!res.ok) return null
+      return res.json()
+    }
+
+    async function command(action, value) {
+      try {
+        await call('command', { method: 'POST', body: { action, value } })
+      } catch {}
+    }
+
+    function renderLyrics() {
+      const lines = store.lyrics
+      if (!Array.isArray(lines) || !lines.length || !store.state) {
+        els.ly1.textContent = ''
+        els.ly2.textContent = ''
+        return
+      }
+      const progress = Number(store.state.progress || 0)
+      if (store.lyricsType === 'synced') {
+        let idx = 0
+        for (let i = 0; i < lines.length; i++) {
+          if ((lines[i].time ?? 0) <= progress) idx = i
+          else break
+        }
+        const cur = lines[idx]?.text || ''
+        const next = lines[idx + 1]?.text || ''
+        const lineStart = Number(lines[idx]?.time ?? progress)
+        const lineEnd = Number(lines[idx + 1]?.time ?? (lineStart + 3))
+        const ratio = Math.max(0, Math.min(1, (progress - lineStart) / Math.max(0.01, lineEnd - lineStart)))
+        const chars = Array.from(cur)
+        const activeCount = Math.max(0, Math.min(chars.length, Math.ceil(chars.length * ratio)))
+        els.ly1.innerHTML = chars.map((ch, i) => `<span class="${i < activeCount ? 'char-on' : 'char-off'}">${escapeHtml(ch)}</span>`).join('')
+        els.ly2.textContent = next
+        return
+      }
+      const idx = Math.max(0, Math.min(lines.length - 1, Math.floor(progress / 4)))
+      els.ly1.textContent = lines[idx]?.text || ''
+      els.ly2.textContent = lines[idx + 1]?.text || ''
+    }
+
+    function renderState(s) {
+      store.state = s || {}
+      const track = store.state.currentTrack || {}
+      els.title.textContent = track.title || 'No track'
+      els.artist.textContent = track.artist || 'Open this from your phone on same Wi-Fi'
+      els.play.innerHTML = store.state.isPlaying ? ICONS.pause : ICONS.play
+      els.like.innerHTML = ICONS.heart
+      els.status.textContent = store.state.connected ? 'online' : 'offline'
+      els.like.disabled = !track.id
+
+      const dur = Math.max(0, Number(store.state.duration || 0))
+      const prog = Math.max(0, Math.min(dur, Number(store.state.progress || 0)))
+      const seekPct = dur > 0 ? (prog / dur) * 100 : 0
+      if (!store.seeking) els.seek.value = Math.round(seekPct * 10)
+      els.seekFill.style.width = `${seekPct}%`
+      els.timeCurrent.textContent = fmt(prog)
+      els.timeTotal.textContent = fmt(dur)
+
+      const vol = Math.max(0, Math.min(1, Number(store.state.volume || 0)))
+      const volPct = Math.round(vol * 100)
+      els.volume.value = volPct
+      els.volumeFill.style.width = `${volPct}%`
+      els.volumePct.textContent = `${volPct}%`
+
+      const artwork = track.id ? `/api/artwork/${encodeURIComponent(track.id)}` : ''
+      if (artwork) {
+        els.art.innerHTML = `<img src="${artwork}" alt="art">`
+        els.bg.style.backgroundImage = `url("${artwork}")`
+      } else {
+        els.art.textContent = 'L'
+        els.bg.style.backgroundImage = 'none'
+      }
+
+      if (store.lastTrackId !== (track.id || null)) {
+        store.lastTrackId = track.id || null
+        store.lyrics = []
+        store.lyricsType = null
+        if (track.id) {
+          callLyrics(track).then((r) => {
+            if (!r || store.lastTrackId !== track.id) return
+            store.lyrics = Array.isArray(r.lines) ? r.lines : []
+            store.lyricsType = r.type || null
+            renderLyrics()
+          }).catch(() => {})
+        } else {
+          renderLyrics()
+        }
+      } else {
+        renderLyrics()
+      }
+    }
+
+    async function refreshState() {
+      try {
+        const s = await call('state')
+        renderState(s)
+      } catch {
+        els.status.textContent = 'offline'
+      }
+    }
+
+    document.getElementById('prevBtn').onclick = () => command('prev')
+    document.getElementById('playBtn').onclick = () => command('togglePlay')
+    document.getElementById('nextBtn').onclick = () => command('next')
+    document.getElementById('likeBtn').onclick = () => command('toggleLike')
+
+    els.seek.addEventListener('pointerdown', () => { store.seeking = true })
+    els.seek.addEventListener('input', () => {
+      const pct = Math.max(0, Math.min(1000, Number(els.seek.value || 0))) / 10
+      els.seekFill.style.width = `${pct}%`
+    })
+    els.seek.addEventListener('pointerup', () => {
+      if (!store.state) return
+      const dur = Math.max(0, Number(store.state.duration || 0))
+      const target = (Math.max(0, Math.min(1000, Number(els.seek.value || 0))) / 1000) * dur
+      command('seek', target)
+      store.seeking = false
+    })
+
+    els.volume.addEventListener('input', () => {
+      const volPct = Math.max(0, Math.min(100, Number(els.volume.value || 0)))
+      els.volumeFill.style.width = `${volPct}%`
+      els.volumePct.textContent = `${volPct}%`
+      command('volume', volPct / 100)
+    })
+
+    paintStaticIcons()
+    loadTheme()
+    refreshState()
+    setInterval(refreshState, 1200)
+
+    if ('serviceWorker' in navigator) navigator.serviceWorker.register('/remote-sw.js').catch(() => {})
+  </script>
+</body>
+</html>

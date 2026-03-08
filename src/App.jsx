@@ -94,7 +94,7 @@ export default function App() {
   }, [])
 
   const {
-    currentTrack, isPlaying, volume, repeat,
+    currentTrack, isPlaying, progress, duration, volume, repeat,
     autoNext, setProgress, setDuration, setIsPlaying,
     setAudioRef, setCfAudioRef, initLiked, setCrossfade, crossfadeSeconds,
     setActiveAudioElement,
@@ -391,6 +391,65 @@ export default function App() {
 
   useEffect(() => { userRef.current = user }, [user])
   useEffect(() => { currentTrackRef.current = currentTrack }, [currentTrack])
+
+  useEffect(() => {
+    if (!api.isElectron || !window.electron?.reportRemoteState) return
+    const publish = () => {
+      const state = usePlayerStore.getState()
+      window.electron.reportRemoteState({
+        isPlaying: state.isPlaying,
+        progress: state.progress || 0,
+        duration: state.duration || 0,
+        volume: state.volume ?? 0.8,
+        repeat: state.repeat || 'none',
+        shuffle: !!state.shuffle,
+        currentTrack: state.currentTrack
+          ? {
+              id: state.currentTrack.id,
+              title: state.currentTrack.title,
+              artist: state.currentTrack.artist,
+              album: state.currentTrack.album,
+              artwork_path: state.currentTrack.artwork_path,
+            }
+          : null,
+      })
+    }
+    publish()
+    const interval = setInterval(publish, 1000)
+    return () => clearInterval(interval)
+  }, [currentTrack?.id, isPlaying, progress, duration, volume])
+
+  useEffect(() => {
+    if (!api.isElectron || !window.electron?.onRemoteCommand) return
+    return window.electron.onRemoteCommand(async (command) => {
+      const action = command?.action
+      if (!action) return
+      const state = usePlayerStore.getState()
+      if (action === 'togglePlay') return state.togglePlay()
+      if (action === 'play' && !state.isPlaying) return state.togglePlay()
+      if (action === 'pause' && state.isPlaying) return state.togglePlay()
+      if (action === 'next') return state.next()
+      if (action === 'prev') return state.prev()
+      if (action === 'volume') {
+        const value = Number(command?.value)
+        if (Number.isFinite(value)) state.setVolume(Math.max(0, Math.min(1, value)))
+        return
+      }
+      if (action === 'seek') {
+        const value = Number(command?.value)
+        if (Number.isFinite(value)) {
+          const safeDuration = Math.max(0, state.duration || 0)
+          state.setProgressWithAudioUpdate(Math.max(0, Math.min(safeDuration, value)))
+        }
+        return
+      }
+      if (action === 'toggleLike' && state.currentTrack?.id) {
+        const r = await api.toggleLike(state.currentTrack.id, userRef.current?.id)
+        const liked = typeof r === 'boolean' ? r : r?.liked ?? false
+        state.setLiked(state.currentTrack.id, liked)
+      }
+    })
+  }, [])
 
   useEffect(() => {
     api.getLikedTracks(user?.id).then(t => initLiked((t || []).map(x => x.id)))

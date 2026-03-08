@@ -21,6 +21,7 @@ const { registerDiscordHandlers } = require('./ipc/discord')
 const { registerLastFmHandlers } = require('./ipc/lastfm')
 const { registerToolsHandlers } = require('./ipc/tools')
 const { registerPlaylistHandlers } = require('./ipc/playlists')
+const { setRemoteState, setRemoteCommandHandler } = require('./ipc/remote')
 let isUpdating = false;
 
 const gotTheLock = app.requestSingleInstanceLock()
@@ -143,9 +144,7 @@ function createWindow() {
 app.name = 'Lokal'
 app.whenReady().then(() => {
   if (!gotTheLock) return;
-  if (app.isPackaged) {
-    try { require('../server/index.js') } catch (e) { console.error('Server already running or port blocked:', e.message) }
-  }
+  try { require('../server/index.js') } catch (e) { console.error('Server already running or port blocked:', e.message) }
   app.name = 'Lokal'
   if (process.platform === 'win32') {
     app.setAppUserModelId('com.lokal.music');
@@ -191,6 +190,16 @@ app.whenReady().then(() => {
       log.info(`[Renderer] ${message}`);
     }
   });
+  ipcMain.on('remote:stateUpdate', (_, state) => {
+    setRemoteState(state)
+  })
+  setRemoteCommandHandler(async (command) => {
+    if (!mainWindow || mainWindow.isDestroyed()) {
+      return { error: 'Main window unavailable' }
+    }
+    mainWindow.webContents.send('remote:command', command || {})
+    return { ok: true }
+  })
   ipcMain.handle('dialog:openFolder', async () => {
     const r = await require('electron').dialog.showOpenDialog(mainWindow, { properties: ['openDirectory'] })
     return r.filePaths[0] || null

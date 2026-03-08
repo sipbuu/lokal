@@ -118,6 +118,8 @@ contextBridge.exposeInMainWorld('electron', {
   setKeepCommaArtists: (artists) => invoke('settings:setKeepCommaArtists', artists),
   getTheme: () => invoke('settings:getTheme'),
   saveTheme: (theme, overrides) => invoke('settings:saveTheme', { theme, overrides }),
+  reportRemoteState: (state) => ipcRenderer.send('remote:stateUpdate', state),
+  onRemoteCommand: (fn) => on('remote:command', (_, payload) => fn(payload)),
 
   
   register: (d) => invoke('user:register', d),

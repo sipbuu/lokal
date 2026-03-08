@@ -15,6 +15,8 @@ app.use(express.json({ limit: '10mb' }))
 
 const distPath = path.join(__dirname, '../dist')
 if (fs.existsSync(distPath)) app.use(express.static(distPath))
+const publicPath = path.join(__dirname, '../public')
+if (fs.existsSync(publicPath)) app.use(express.static(publicPath))
 
 
 app.use('/api/tracks', require('./routes/tracks'))
@@ -27,6 +29,7 @@ app.use('/api/settings', require('./routes/settings'))
 app.use('/api/mixes', require('./routes/mixes'))
 app.use('/api/albums', require('./routes/albums'))
 app.use('/api/lastfm', require('./routes/lastfm'))
+app.use('/api/remote', require('./routes/remote'))
 
 app.get('/api/stream/:trackId', (req, res) => {
   const track = getDB().prepare('SELECT file_path FROM tracks WHERE id = ?').get(req.params.trackId)
@@ -83,6 +86,12 @@ app.get('/api/avatar/:userId', (req, res) => {
 
 
 app.use('/api', (req, res) => res.status(404).json({ error: `API route not found: ${req.method} ${req.path}` }))
+
+app.get('/remote', (req, res) => {
+  const p = path.join(publicPath, 'remote.html')
+  if (fs.existsSync(p)) return res.sendFile(p)
+  return res.status(404).send('Remote UI not found')
+})
 
 
 app.get('*', (req, res) => {

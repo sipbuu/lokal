@@ -13,6 +13,30 @@ router.put('/', (req, res) => {
   res.json({ ok: true })
 })
 
+router.get('/theme', (req, res) => {
+  const db = getDB()
+  const theme = db.prepare("SELECT value FROM settings WHERE key = 'theme'").get()
+  const overrides = db.prepare("SELECT value FROM settings WHERE key = 'theme_overrides'").get()
+  let parsedOverrides = {}
+  try { parsedOverrides = overrides?.value ? JSON.parse(overrides.value) : {} } catch {}
+  res.json({
+    theme: theme?.value || 'dark',
+    overrides: parsedOverrides,
+  })
+})
+
+router.put('/theme', (req, res) => {
+  const db = getDB()
+  const { theme, overrides } = req.body || {}
+  if (theme !== undefined) {
+    db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('theme', ?)").run(String(theme))
+  }
+  if (overrides !== undefined) {
+    db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('theme_overrides', ?)").run(JSON.stringify(overrides || {}))
+  }
+  res.json({ ok: true })
+})
+
 router.get('/keep-comma-artists', (req, res) => {
   try {
     const db = getDB()
