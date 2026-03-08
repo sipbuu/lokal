@@ -676,6 +676,20 @@ function registerExtraHandlers(ipcMain) {
   })
   ipcMain.handle('scanner:checkDuplicates', () => getDB().prepare(`SELECT title, artist, COUNT(*) as count, GROUP_CONCAT(id) as ids, GROUP_CONCAT(file_path) as paths FROM tracks GROUP BY LOWER(title), LOWER(artist) HAVING count > 1`).all())
   ipcMain.handle('scanner:deleteTrack', (_, trackId) => { const db = getDB(); db.prepare('DELETE FROM artist_track_links WHERE track_id = ?').run(trackId); db.prepare('DELETE FROM playlist_tracks WHERE track_id = ?').run(trackId); db.prepare('DELETE FROM user_likes WHERE track_id = ?').run(trackId); db.prepare('DELETE FROM play_history WHERE track_id = ?').run(trackId); db.prepare('DELETE FROM lyrics_cache WHERE track_id = ?').run(trackId); db.prepare('DELETE FROM tracks WHERE id = ?').run(trackId) })
+  ipcMain.handle('scanner:deleteTrackByPath', (_, filePath) => { 
+    const db = getDB()
+    const track = db.prepare('SELECT id FROM tracks WHERE file_path = ?').get(filePath)
+    if (!track) return { error: 'Track not found' }
+    const trackId = track.id
+    db.prepare('DELETE FROM artist_track_links WHERE track_id = ?').run(trackId)
+    db.prepare('DELETE FROM playlist_tracks WHERE track_id = ?').run(trackId)
+    db.prepare('DELETE FROM user_likes WHERE track_id = ?').run(trackId)
+    db.prepare('DELETE FROM play_history WHERE track_id = ?').run(trackId)
+    db.prepare('DELETE FROM lyrics_cache WHERE track_id = ?').run(trackId)
+    db.prepare('DELETE FROM lyrics_cache WHERE file_path = ?').run(filePath)
+    db.prepare('DELETE FROM tracks WHERE id = ?').run(trackId)
+    return { success: true, trackId }
+  })
 }
 
 function downloadToFile(url, dest) {

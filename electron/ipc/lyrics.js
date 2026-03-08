@@ -267,11 +267,12 @@ function registerLyricsHandlers(ipcMain) {
   try {
     const db = getDB()
     db.exec("ALTER TABLE lyrics_cache ADD COLUMN fetched_at INTEGER DEFAULT 0")
+    db.exec("ALTER TABLE lyrics_cache ADD COLUMN file_path TEXT")
   } catch (e) {
     
   }
 
-  ipcMain.handle('lyrics:import', (_, trackId, content, type) => {
+  ipcMain.handle('lyrics:import', (_, trackId, content, type, filePath) => {
     try {
       const db = getDB();
       let lines, lyricsType;
@@ -292,8 +293,8 @@ function registerLyricsHandlers(ipcMain) {
         lyricsType = 'unsynced';
       }
 
-      db.prepare('INSERT OR REPLACE INTO lyrics_cache (track_id, lyrics_type, content, source, fetched_at) VALUES (?, ?, ?, ?, ?)')
-        .run(trackId, lyricsType, JSON.stringify(lines), 'imported', Date.now());
+      db.prepare('INSERT OR REPLACE INTO lyrics_cache (track_id, lyrics_type, content, source, fetched_at, file_path) VALUES (?, ?, ?, ?, ?, ?)')
+        .run(trackId, lyricsType, JSON.stringify(lines), 'imported', Date.now(), filePath || null);
 
       return { type: lyricsType, lines, source: 'imported' };
     } catch (err) {
@@ -302,14 +303,26 @@ function registerLyricsHandlers(ipcMain) {
     }
   });
 
-  ipcMain.handle('lyrics:get', async (_, trackId, title, artist, album, duration) => {
+  ipcMain.handle('lyrics:get', async (_, trackId, title, artist, album, duration, filePath) => {
     const db = getDB()
-    
     
     const cached = db.prepare('SELECT * FROM lyrics_cache WHERE track_id = ?').get(trackId)
     if (cached) { 
       console.log(`[LYRICS CACHE HIT] track_id: ${trackId}`)
       try { return { type: cached.lyrics_type, lines: JSON.parse(cached.content), source: cached.source } } catch {} 
+    }
+    
+    if (filePath) {
+      const cachedByPath = db.prepare('SELECT * FROM lyrics_cache WHERE file_path = ?').get(filePath)
+      if (cachedByPath) {
+        console.log(`[LYRICS CACHE HIT] file_path: ${filePath}`)
+        if (cachedByPath.track_id !== trackId) {
+          db.prepare('INSERT OR REPLACE INTO lyrics_cache (track_id, lyrics_type, content, source, fetched_at, file_path) VALUES (?, ?, ?, ?, ?, ?)')
+            .run(trackId, cachedByPath.lyrics_type, cachedByPath.content, cachedByPath.source + '-migrated', Date.now(), filePath)
+          console.log(`[LYRICS MIGRATED] from file_path to track_id: ${trackId}`)
+        }
+        try { return { type: cachedByPath.lyrics_type, lines: JSON.parse(cachedByPath.content), source: cachedByPath.source } } catch {}
+      }
     }
     
     if (!title || !artist) return null

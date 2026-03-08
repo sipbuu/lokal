@@ -17,6 +17,8 @@ export const THEMES = {
       '--purple': '#7c6aff',
       '--orange': '#ff9f43',
       '--text-scale': '1',
+      '--bg-image': 'none',
+      '--bg-overlay': '0',
     }
   },
   light: {
@@ -37,6 +39,8 @@ export const THEMES = {
       '--purple': '#5e35b1',
       '--orange': '#fb8c00',
       '--text-scale': '1',
+      '--bg-image': 'none',
+      '--bg-overlay': '0',
     }
   },
   midnight: {
