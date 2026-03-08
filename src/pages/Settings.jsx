@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Save, Tags, FolderOpen, RefreshCw, Trash2, AlertTriangle, Link, CheckCircle, Disc3, Zap, Download, Music2, X, MoreHorizontal, ListMusic, Palette, ChevronDown, ChevronUp, RefreshCcw } from 'lucide-react'
+import { Save, Tags, FolderOpen, RefreshCw, Trash2, AlertTriangle, Link, CheckCircle, Disc3, Zap, Download, Music2, X, MoreHorizontal, ListMusic, Palette, ChevronDown, ChevronUp, RefreshCcw, Image as ImageIcon } from 'lucide-react'
 import { api } from '../api'
 import { useAppStore } from '../store/player'
 import Modal from '../components/Modal'
@@ -120,6 +120,7 @@ export default function Settings() {
   const [updateCheckResult, setUpdateCheckResult] = useState('')
   const [statusMessage, setStatusMessage] = useState('')
   const [manualGenreArtist, setManualGenreArtist] = useState('')
+  const [bgImage, setBgImage] = useState(null)
   const [manualGenreTrack, setManualGenreTrack] = useState('')
   const [manualGenreAlbum, setManualGenreAlbum] = useState('')
   const [manualGenreValue, setManualGenreValue] = useState('')
@@ -163,6 +164,15 @@ export default function Settings() {
     }
 
   }, []) 
+
+  useEffect(() => {
+    if (themeOverrides['--bg-image']) {
+      const match = themeOverrides['--bg-image'].match(/url\(['"]?(.+?)['"]?\)/)
+      if (match) setBgImage(match[1])
+    } else {
+      setBgImage(null)
+    }
+  }, [themeOverrides])
 
   const checkForUpdates = async () => {
     if (!api.isElectron) return
@@ -417,6 +427,25 @@ export default function Settings() {
         setPlaylistImportStatus('Error reading file: ' + e.message)
       }
     }
+  }
+
+  const handleBgUpload = async () => {
+    const file = await api.openFile([{ name: 'Images', extensions: ['jpg', 'jpeg', 'png', 'webp', 'gif'] }])
+    if (file) {
+      const dataUrl = await api.readFileAsDataURL(file)
+      if (dataUrl) {
+        await saveOverride('--bg-image', `url('${dataUrl}')`)
+      }
+    }
+  }
+
+  const handleClearBg = async () => {
+    await saveOverride('--bg-image', 'none')
+  }
+
+  const handleOpacityChange = async (e) => {
+    const val = e.target.value
+    await saveOverride('--bg-overlay', val)
   }
 
   const filtered = artists.filter(a => a.name.toLowerCase().includes(artistSearch.toLowerCase()))
@@ -896,6 +925,57 @@ export default function Settings() {
               <span className="text-[10px] text-muted/50">Small</span>
               <span className="text-[10px] text-muted/50">Large</span>
             </div>
+          </div>
+
+          <div className="pt-4 mt-4 border-t border-border">
+            <div className="flex items-center justify-between">
+              <div className="space-y-1">
+                <p className="text-sm text-white font-medium">Custom Background</p>
+                <p className="text-xs text-muted">Set a custom image for the app background.</p>
+              </div>
+              <div className="flex gap-2">
+                {bgImage && (
+                  <button 
+                    onClick={handleClearBg}
+                    className="px-3 py-1.5 bg-red-500/10 text-red-400 border border-red-500/20 rounded-lg text-xs hover:bg-red-500/20 transition-colors"
+                  >
+                    Clear
+                  </button>
+                )}
+                <button 
+                  onClick={handleBgUpload}
+                  className="px-3 py-1.5 bg-card border border-border text-white rounded-lg text-xs hover:bg-elevated/80 transition-colors flex items-center gap-2"
+                >
+                  <ImageIcon size={14} />
+                  {bgImage ? 'Change Image' : 'Upload Image'}
+                </button>
+              </div>
+            </div>
+
+            {bgImage && (
+              <div className="space-y-4 mt-4">
+                <div className="h-32 w-full rounded-xl bg-cover bg-center border border-border relative overflow-hidden" style={{ backgroundImage: `url('${bgImage}')` }}>
+                  <div className="absolute inset-0 bg-bg transition-opacity duration-300" style={{ opacity: themeOverrides['--bg-overlay'] || 0 }} />
+                </div>
+                
+                <div className="space-y-2">
+                  <div className="flex justify-between text-xs text-muted">
+                    <span>Background Fade / Overlay</span>
+                    <span>{Math.round((themeOverrides['--bg-overlay'] || 0) * 100)}%</span>
+                  </div>
+                  <input 
+                    type="range" 
+                    min="0" 
+                    max="1" 
+                    step="0.05"
+                    value={themeOverrides['--bg-overlay'] || 0}
+                    onChange={handleOpacityChange}
+                    className="w-full accent-accent h-1 bg-elevated rounded-lg appearance-none cursor-pointer"
+                  />
+                  <p className="text-[10px] text-muted">Adjusts the visibility of the solid background color over your image.</p>
+                </div>
+              </div>
+            )}
           </div>
 
           <button
