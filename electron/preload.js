@@ -10,6 +10,7 @@ contextBridge.exposeInMainWorld('electron', {
   close: () => invoke('window:close'),
   setAlwaysOnTop: (flag) => invoke('window:setAlwaysOnTop', flag),
   setWindowSize: (width, height) => invoke('window:setSize', width, height),
+  setMiniMode: (enabled) => invoke('window:setMiniMode', enabled),
   getWindowSize: () => invoke('window:getSize'),
   openExternal: (url) => invoke('shell:openExternal', url),
   openFolder: () => invoke('dialog:openFolder'),
