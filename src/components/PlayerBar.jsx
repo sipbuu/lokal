@@ -119,7 +119,7 @@ export default function PlayerBar() {
   }
 
   return (
-    <div className="h-20 bg-surface border-t border-border flex items-center px-4 gap-4 flex-shrink-0 z-10">
+    <div className="h-20 border-t border-border flex items-center px-4 gap-4 flex-shrink-0 z-10" style={{ backgroundColor: 'rgba(var(--surface-rgb), 0.9)', backdropFilter: 'blur(12px)' }}>
       <div className="flex items-center gap-3 w-60 min-w-0">
         <button onClick={toggleFullscreen} disabled={!currentTrack}
           className="w-12 h-12 rounded-md overflow-hidden flex-shrink-0 bg-elevated hover:ring-2 ring-accent/30 transition-all disabled:cursor-default">

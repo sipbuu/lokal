@@ -33,8 +33,8 @@ export default function RightSidebar() {
           animate={{ width: 300, opacity: 1 }}
           exit={{ width: 0, opacity: 0 }}
           transition={{ type: 'spring', stiffness: 320, damping: 32 }}
-          className="bg-surface border-l border-border overflow-hidden flex-shrink-0 flex flex-col"
-          style={{ minWidth: 300 }}
+          className="border-l border-border overflow-hidden flex-shrink-0 flex flex-col"
+          style={{ minWidth: 300, backgroundColor: 'rgba(var(--surface-rgb), 0.85)', backdropFilter: 'blur(12px)' }}
         >
           <div className="flex items-center justify-between px-4 pt-3 pb-2 flex-shrink-0 border-b border-border">
             <div className="flex gap-0.5 p-0.5 bg-card rounded-lg border border-border/50">
