@@ -4,6 +4,7 @@ import { Play, Pause, Heart, Plus, Camera, Trash2, Music, LibraryBig, Clock, Lis
 import { usePlayerStore, useAppStore } from '../store/player'
 import { api } from '../api'
 import TrackEditModal from './TrackEditModal'
+import Modal from './Modal'
 
 const RECENT_ITEMS_KEY = 'lokal-recent-items'
 const MAX_RECENT = 5
@@ -58,6 +59,7 @@ export default function TrackList({ tracks = [], showAlbum = true, onRemove = nu
   const [draggedId, setDraggedId] = useState(null)
   const [dragOverId, setDragOverId] = useState(null)
   const [editingTrack, setEditingTrack] = useState(null)
+  const [trackToDelete, setTrackToDelete] = useState(null)
 
   const handlePlay = (track, e) => {
     e.stopPropagation()
@@ -403,6 +405,12 @@ export default function TrackList({ tracks = [], showAlbum = true, onRemove = nu
                   <Trash2 size={12} />
                 </button>
               )}
+              {!playlistId && !onRemove && (
+                <button onClick={e => { e.stopPropagation(); setTrackToDelete(track) }}
+                  className="opacity-0 group-hover:opacity-100 text-muted hover:text-red-400 transition-all" title="Delete from Library">
+                  <Trash2 size={12} />
+                </button>
+              )}
             </div>
             <span className="text-xs text-muted text-right font-display">{fmt(track.duration)}</span>
           </motion.div>
@@ -414,6 +422,34 @@ export default function TrackList({ tracks = [], showAlbum = true, onRemove = nu
         open={!!editingTrack} 
         onClose={() => setEditingTrack(null)} 
       />
+
+      <Modal 
+        open={!!trackToDelete} 
+        onClose={() => setTrackToDelete(null)} 
+        title="Delete from Library?" 
+        width="max-w-sm"
+      >
+        <div className="space-y-4">
+          <div className="flex gap-3">
+            <div className="p-3 bg-red-500/10 rounded-full h-fit flex-shrink-0">
+              <Trash2 size={20} className="text-red-400" />
+            </div>
+            <div className="space-y-1">
+              <p className="text-sm text-white font-medium">{trackToDelete?.title}</p>
+              <p className="text-xs text-muted leading-relaxed">
+                Are you sure you want to delete this track? This will remove it from your library, playlists, and play history.
+              </p>
+              <p className="text-[10px] text-muted/60 pt-1">
+                The file on your computer will NOT be deleted.
+              </p>
+            </div>
+          </div>
+          <div className="flex gap-2">
+            <button onClick={() => setTrackToDelete(null)} className="flex-1 py-2.5 bg-card border border-border rounded-xl text-sm text-muted hover:text-white transition-colors">Cancel</button>
+            <button onClick={async () => { if (trackToDelete?.file_path) { await api.deleteTrackByPath(trackToDelete.file_path); window.dispatchEvent(new Event('lokal:refresh')) }; setTrackToDelete(null) }} className="flex-1 py-2.5 bg-red-500/20 border border-red-500/30 text-red-400 rounded-xl text-sm font-medium hover:bg-red-500/30 transition-colors">Delete</button>
+          </div>
+        </div>
+      </Modal>
     </div>
   )
 }
