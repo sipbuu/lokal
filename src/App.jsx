@@ -13,6 +13,7 @@ import ProfileModal from './components/ProfileModal'
 import StatsModal from './components/StatsModal'
 import AddToPlaylistModal from './components/AddToPlaylistModal'
 import MiniPlayer from './components/MiniPlayer'
+import Onboarding, { useOnboarding } from './components/Onboarding'
 import Home from './pages/Home'
 import Library from './pages/Library'
 import Search from './pages/Search'
@@ -96,6 +97,7 @@ export default function App() {
     showMiniPlayer,
   } = usePlayerStore()
   const { user } = useAppStore()
+  const { showOnboarding, completeOnboarding, loading: onboardingLoading } = useOnboarding()
 
   const isEventFromActive = useCallback((e) => {
     const activeSide = usePlayerStore.getState().activeAudioElement
@@ -832,6 +834,10 @@ export default function App() {
         <ProfileModal />
         <StatsModal />
         <AddToPlaylistModal />
+        
+        {!onboardingLoading && showOnboarding && (
+          <Onboarding isOpen={showOnboarding} onComplete={completeOnboarding} />
+        )}
         
         {renderUpdateToast()}
 
