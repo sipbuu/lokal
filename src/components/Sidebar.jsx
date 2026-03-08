@@ -113,13 +113,18 @@ export default function Sidebar() {
 
       <nav className="px-3 space-y-0.5 flex-shrink-0">
         {NAV.map(({ icon: Icon, label, path }) => (
-          <button key={path} onClick={() => nav(path)}
+          <button 
+            key={path} 
+            data-tour={path === '/search' ? 'search' : path === '/library' ? 'library' : path === '/downloader' ? 'downloader' : path === '/settings' ? 'settings' : null}
+            onClick={() => nav(path)}
             className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-all ${loc.pathname === path ? 'bg-accent/15 text-accent' : 'text-muted hover:text-white hover:bg-elevated'}`}>
             <Icon size={15} />{label}
           </button>
         ))}
         
-        <button onClick={() => openAlbums()}
+        <button 
+          data-tour="albums"
+          onClick={() => openAlbums()}
           className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium text-muted hover:text-white hover:bg-elevated transition-all">
           <Disc3 size={15} /> Albums
         </button>
