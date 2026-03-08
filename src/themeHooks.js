@@ -51,6 +51,7 @@ export function useTheme() {
   }
 
   const resetTheme = async () => {
+    if (loading) return
     setThemeOverrides({})
     const vars = THEMES[themeName]?.vars || THEMES.dark.vars
     applyTheme(vars)

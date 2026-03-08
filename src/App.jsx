@@ -25,6 +25,7 @@ import Downloader from './pages/Downloader'
 import Settings from './pages/Settings'
 import { usePlayerStore, useAppStore } from './store/player'
 import { api } from './api'
+import { THEMES, applyTheme } from './theme'
 
 function AnimatedRoutes() {
   const location = useLocation()
@@ -134,6 +135,16 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    api.getTheme().then(t => {
+      if (t) {
+        const baseVars = THEMES[t.theme]?.vars || THEMES.dark.vars
+        applyTheme({ ...baseVars, ...(t.overrides || {}) })
+        if (t.overrides?.['--text-scale']) {
+          document.documentElement.style.setProperty('--text-scale', t.overrides['--text-scale'])
+        }
+      }
+    })
+
     if (!api.isElectron) return
 
     const cleanup = api.onUpdaterEvent((event, data) => {
