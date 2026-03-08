@@ -19,6 +19,9 @@ export const THEMES = {
       '--text-scale': '1',
       '--bg-image': 'none',
       '--bg-overlay': '0',
+      '--bg-blur': '0px',
+      '--bg-size': 'cover',
+      '--bg-position': 'center',
     }
   },
   light: {
@@ -41,6 +44,9 @@ export const THEMES = {
       '--text-scale': '1',
       '--bg-image': 'none',
       '--bg-overlay': '0',
+      '--bg-blur': '0px',
+      '--bg-size': 'cover',
+      '--bg-position': 'center',
     }
   },
   midnight: {
@@ -61,6 +67,11 @@ export const THEMES = {
       '--purple': '#a371f7',
       '--orange': '#d29922',
       '--text-scale': '1',
+      '--bg-image': 'none',
+      '--bg-overlay': '0',
+      '--bg-blur': '0px',
+      '--bg-size': 'cover',
+      '--bg-position': 'center',
     }
   },
   warm: {
@@ -81,6 +92,11 @@ export const THEMES = {
       '--purple': '#9b59b6',
       '--orange': '#e67e22',
       '--text-scale': '1',
+      '--bg-image': 'none',
+      '--bg-overlay': '0',
+      '--bg-blur': '0px',
+      '--bg-size': 'cover',
+      '--bg-position': 'center',
     }
   },
   oled: {
@@ -101,6 +117,11 @@ export const THEMES = {
       '--purple': '#7c6aff',
       '--orange': '#ff9f43',
       '--text-scale': '1',
+      '--bg-image': 'none',
+      '--bg-overlay': '0',
+      '--bg-blur': '0px',
+      '--bg-size': 'cover',
+      '--bg-position': 'center',
     }
   },
   ocean: {
@@ -121,6 +142,11 @@ export const THEMES = {
       '--purple': '#7c6aff',
       '--orange': '#ff9f43',
       '--text-scale': '1',
+      '--bg-image': 'none',
+      '--bg-overlay': '0',
+      '--bg-blur': '0px',
+      '--bg-size': 'cover',
+      '--bg-position': 'center',
     }
   },
   forest: {
@@ -141,6 +167,11 @@ export const THEMES = {
       '--purple': '#7c6aff',
       '--orange': '#ff9f43',
       '--text-scale': '1',
+      '--bg-image': 'none',
+      '--bg-overlay': '0',
+      '--bg-blur': '0px',
+      '--bg-size': 'cover',
+      '--bg-position': 'center',
     }
   },
   cyberpunk: {
@@ -161,6 +192,11 @@ export const THEMES = {
       '--purple': '#9d4edd',
       '--orange': '#ff9100',
       '--text-scale': '1',
+      '--bg-image': 'none',
+      '--bg-overlay': '0',
+      '--bg-blur': '0px',
+      '--bg-size': 'cover',
+      '--bg-position': 'center',
     }
   },
   rosegold: {
@@ -181,6 +217,11 @@ export const THEMES = {
       '--purple': '#d4a5ff',
       '--orange': '#ffb38a',
       '--text-scale': '1',
+      '--bg-image': 'none',
+      '--bg-overlay': '0',
+      '--bg-blur': '0px',
+      '--bg-size': 'cover',
+      '--bg-position': 'center',
     }
   },
   deepContrast: {
@@ -201,6 +242,11 @@ export const THEMES = {
       '--purple': '#bf94ff',
       '--orange': '#ffab40',
       '--text-scale': '1',
+      '--bg-image': 'none',
+      '--bg-overlay': '0',
+      '--bg-blur': '0px',
+      '--bg-size': 'cover',
+      '--bg-position': 'center',
     }
   }
 }
