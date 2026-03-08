@@ -12,6 +12,7 @@ import AuthModal from './components/AuthModal'
 import ProfileModal from './components/ProfileModal'
 import StatsModal from './components/StatsModal'
 import AddToPlaylistModal from './components/AddToPlaylistModal'
+import AlbumsModal from './components/AlbumsModal'
 import MiniPlayer from './components/MiniPlayer'
 import Onboarding, { useOnboarding } from './components/Onboarding'
 import PostOnboardingTour from './components/PostOnboardingTour'
@@ -817,11 +818,26 @@ export default function App() {
 
   return (
     <Router>
-      <div className="flex flex-col h-screen bg-base overflow-hidden" onClick={initAudioCtx}>
+      <div className="flex flex-col h-screen bg-transparent overflow-hidden" onClick={initAudioCtx}>
+        <div 
+          className="fixed inset-0 bg-no-repeat -z-10"
+          style={{ 
+            backgroundImage: 'var(--bg-image)', 
+            filter: 'blur(var(--bg-blur))', 
+            transform: 'scale(1.02)',
+            backgroundSize: 'var(--bg-size)',
+            backgroundPosition: 'var(--bg-position)'
+          }}
+        />
+        <div 
+          className="fixed inset-0 bg-bg -z-10" 
+          style={{ opacity: 'var(--bg-overlay)' }} 
+        />
+
         {api.isElectron && <TitleBar />}
         <div className="flex flex-1 overflow-hidden">
           <Sidebar />
-          <main className="flex-1 overflow-y-auto bg-base">
+          <main className="flex-1 overflow-y-auto bg-transparent">
             <AnimatedRoutes />
           </main>
           <RightSidebar />
@@ -835,6 +851,7 @@ export default function App() {
         <ProfileModal />
         <StatsModal />
         <AddToPlaylistModal />
+        <AlbumsModal />
         
         {!onboardingLoading && showOnboarding && (
           <Onboarding isOpen={showOnboarding} onComplete={completeOnboarding} />
