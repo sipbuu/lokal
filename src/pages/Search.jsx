@@ -243,7 +243,7 @@ export default function Search() {
                     animate={{ opacity: 1, scale: 1 }}
                     transition={{ delay: i * 0.05 }}
                     onClick={() => handleRecentItemClick(item)}
-                    className="flex flex-col items-center gap-2 group"
+                    className="flex flex-col items-center gap-2 group min-w-0"
                   >
                     <div className="w-full aspect-square rounded-xl bg-elevated border border-border overflow-hidden flex items-center justify-center text-muted group-hover:border-accent/40 transition-colors relative">
                       {item.type === 'artist' ? (
@@ -271,10 +271,10 @@ export default function Search() {
                         </div>
                       )}
                     </div>
-                    <div className="text-center">
-                      <p className="text-xs text-white truncate w-full">{item.name || item.title}</p>
+                    <div className="text-center w-full min-w-0">
+                      <p className="text-xs text-white truncate w-full max-w-full">{item.name || item.title}</p>
                       {item.type === 'track' && item.artist && (
-                        <p className="text-[10px] text-muted truncate w-full">{item.artist}</p>
+                        <p className="text-[10px] text-muted truncate w-full max-w-full">{item.artist}</p>
                       )}
                       {item.type === 'artist' && (
                         <p className="text-[10px] text-muted">Artist</p>
