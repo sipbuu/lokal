@@ -3,7 +3,7 @@ import { Minus, Square, X } from 'lucide-react'
 
 export default function TitleBar() {
   return (
-    <div className="titlebar h-10 bg-surface flex items-center justify-between px-4 border-b border-border flex-shrink-0">
+    <div className="titlebar h-10 flex items-center justify-between px-4 border-b border-border flex-shrink-0" style={{ backgroundColor: 'rgba(var(--surface-rgb), 0.85)', backdropFilter: 'blur(12px)' }}>
       <span className="font-display text-xs text-muted tracking-widest uppercase">Lokal Music</span>
 
       <div className="flex gap-1 -webkit-app-region-no-drag">
