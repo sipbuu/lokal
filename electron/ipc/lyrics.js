@@ -260,113 +260,132 @@ async function fetchLyricsOVH(title, artist) {
   return { type: 'unsynced', lines: r.lyrics.split('\n').filter(l => l.trim()).map(text => ({ text })), source: 'lyrics.ovh' }
 }
 
-function registerLyricsHandlers(ipcMain) {
-  console.log("!!! LYRICS IPC LOADING !!!");
+const NEGATIVE_CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000
 
-  
-  try {
-    const db = getDB()
-    db.exec("ALTER TABLE lyrics_cache ADD COLUMN fetched_at INTEGER DEFAULT 0")
-    db.exec("ALTER TABLE lyrics_cache ADD COLUMN file_path TEXT")
-  } catch (e) {
-    
+function registerLyricsHandlers(ipcMain) {
+  console.log("!!! LYRICS IPC LOADING !!!")
+  const db = getDB()
+  try { db.exec("ALTER TABLE lyrics_cache ADD COLUMN fetched_at INTEGER DEFAULT 0") } catch {}
+  try { db.exec("ALTER TABLE lyrics_cache ADD COLUMN file_path TEXT") } catch {}
+  const cacheCols = new Set(db.prepare("PRAGMA table_info(lyrics_cache)").all().map(c => c.name))
+  const hasFetchedAt = cacheCols.has('fetched_at')
+  const hasFilePath = cacheCols.has('file_path')
+
+  const insertCache = (trackId, lyricsType, content, source, fetchedAt, filePath) => {
+    if (hasFetchedAt && hasFilePath) {
+      db.prepare('INSERT OR REPLACE INTO lyrics_cache (track_id, lyrics_type, content, source, fetched_at, file_path) VALUES (?, ?, ?, ?, ?, ?)')
+        .run(trackId, lyricsType, content, source, fetchedAt, filePath || null)
+      return
+    }
+    if (hasFetchedAt) {
+      db.prepare('INSERT OR REPLACE INTO lyrics_cache (track_id, lyrics_type, content, source, fetched_at) VALUES (?, ?, ?, ?, ?)')
+        .run(trackId, lyricsType, content, source, fetchedAt)
+      return
+    }
+    db.prepare('INSERT OR REPLACE INTO lyrics_cache (track_id, lyrics_type, content, source) VALUES (?, ?, ?, ?)')
+      .run(trackId, lyricsType, content, source)
+  }
+
+  const mapCached = (row) => {
+    if (!row) return null
+    const fetchedAt = row.fetched_at || (row.cached_at ? row.cached_at * 1000 : 0)
+    return { ...row, _fetchedAt: fetchedAt }
   }
 
   ipcMain.handle('lyrics:import', (_, trackId, content, type, filePath) => {
     try {
-      const db = getDB();
-      let lines, lyricsType;
+      if (!trackId) return null
+      let normalizedContent = ''
+      if (typeof content === 'string') normalizedContent = content
+      else if (Array.isArray(content)) normalizedContent = content.join('\n')
+      else if (content != null) normalizedContent = String(content)
+      normalizedContent = normalizedContent.replace(/\r\n/g, '\n')
+
+      let lines, lyricsType
 
       if (type === 'ttml') {
-        lines = parseTTML(content);
-        console.log(`Parsed ${lines.length} lines from TTML content. Sample line:`, lines[0]);
-        console.log(lines[0]?.bgWords?.length ? `First line has ${lines[0].bgWords.length} background words.` : 'First line has no background words.');
-        console.log(`Lines with background vocals: ${lines.filter(l => l.bgText).length}`);
-        console.log("Contains x-bg?", content.includes("x-bg"))
-        
-        lyricsType = lines.length > 0 ? 'synced' : 'unsynced';
+        lines = parseTTML(normalizedContent)
+        console.log(`Parsed ${lines.length} lines from TTML content. Sample line:`, lines[0])
+        console.log(lines[0]?.bgWords?.length ? `First line has ${lines[0].bgWords.length} background words.` : 'First line has no background words.')
+        console.log(`Lines with background vocals: ${lines.filter(l => l.bgText).length}`)
+        console.log("Contains x-bg?", normalizedContent.includes("x-bg"))
+        lyricsType = lines.length > 0 ? 'synced' : 'unsynced'
       } else if (type === 'lrc') {
-        lines = parseLRC(content);
-        lyricsType = lines.some(l => l.time != null) ? 'synced' : 'unsynced';
+        lines = parseLRC(normalizedContent)
+        lyricsType = lines.some(l => l.time != null) ? 'synced' : 'unsynced'
       } else {
-        lines = content.split('\n').filter(l => l.trim()).map(text => ({ text }));
-        lyricsType = 'unsynced';
+        lines = normalizedContent.split('\n').filter(l => l.trim()).map(text => ({ text }))
+        lyricsType = 'unsynced'
       }
 
-      db.prepare('INSERT OR REPLACE INTO lyrics_cache (track_id, lyrics_type, content, source, fetched_at, file_path) VALUES (?, ?, ?, ?, ?, ?)')
-        .run(trackId, lyricsType, JSON.stringify(lines), 'imported', Date.now(), filePath || null);
+      insertCache(trackId, lyricsType, JSON.stringify(lines), 'imported', Date.now(), filePath)
 
-      return { type: lyricsType, lines, source: 'imported' };
+      return { type: lyricsType, lines, source: 'imported' }
     } catch (err) {
-      console.error('Error during lyrics import handler:', err);
-      throw err;
+      console.error('Error during lyrics import handler:', err)
+      throw err
     }
-  });
+  })
 
   ipcMain.handle('lyrics:get', async (_, trackId, title, artist, album, duration, filePath) => {
-    const db = getDB()
-    
-    const cached = db.prepare('SELECT * FROM lyrics_cache WHERE track_id = ?').get(trackId)
-    if (cached) { 
+    const cached = mapCached(db.prepare('SELECT * FROM lyrics_cache WHERE track_id = ?').get(trackId))
+    if (cached) {
+      if (cached.source === 'no-results' && cached._fetchedAt && (Date.now() - cached._fetchedAt) < NEGATIVE_CACHE_TTL_MS) {
+        console.log(`[LYRICS NEGATIVE CACHE HIT] track_id: ${trackId}`)
+        return null
+      }
       console.log(`[LYRICS CACHE HIT] track_id: ${trackId}`)
-      try { return { type: cached.lyrics_type, lines: JSON.parse(cached.content), source: cached.source } } catch {} 
+      try { return { type: cached.lyrics_type, lines: JSON.parse(cached.content || '[]'), source: cached.source } } catch {}
     }
-    
-    if (filePath) {
-      const cachedByPath = db.prepare('SELECT * FROM lyrics_cache WHERE file_path = ?').get(filePath)
+
+    if (hasFilePath && filePath) {
+      const cachedByPath = mapCached(db.prepare('SELECT * FROM lyrics_cache WHERE file_path = ?').get(filePath))
       if (cachedByPath) {
+        if (cachedByPath.source === 'no-results' && cachedByPath._fetchedAt && (Date.now() - cachedByPath._fetchedAt) < NEGATIVE_CACHE_TTL_MS) {
+          console.log(`[LYRICS NEGATIVE CACHE HIT] file_path: ${filePath}`)
+          return null
+        }
         console.log(`[LYRICS CACHE HIT] file_path: ${filePath}`)
         if (cachedByPath.track_id !== trackId) {
-          db.prepare('INSERT OR REPLACE INTO lyrics_cache (track_id, lyrics_type, content, source, fetched_at, file_path) VALUES (?, ?, ?, ?, ?, ?)')
-            .run(trackId, cachedByPath.lyrics_type, cachedByPath.content, cachedByPath.source + '-migrated', Date.now(), filePath)
+          insertCache(trackId, cachedByPath.lyrics_type, cachedByPath.content, `${cachedByPath.source}-migrated`, Date.now(), filePath)
           console.log(`[LYRICS MIGRATED] from file_path to track_id: ${trackId}`)
         }
-        try { return { type: cachedByPath.lyrics_type, lines: JSON.parse(cachedByPath.content), source: cachedByPath.source } } catch {}
+        try { return { type: cachedByPath.lyrics_type, lines: JSON.parse(cachedByPath.content || '[]'), source: cachedByPath.source } } catch {}
       }
     }
-    
-    if (!title || !artist) return null
 
-    
-    
-    
+    if (!title || !artist) return null
     const keepCommaSetting = db.prepare('SELECT value FROM settings WHERE key = ?').get('keep_comma_artists')
     let keepCommaArtists = []
     try {
       const val = keepCommaSetting?.value || ""
-      
       keepCommaArtists = val.startsWith('[') ? JSON.parse(val) : val.split('\n').map(s => s.trim())
-    } catch (e) {
+    } catch {
       keepCommaArtists = []
     }
 
-    
     const isProtected = keepCommaArtists.some(a => a.toLowerCase() === artist.toLowerCase())
-    
-    
     const searchArtist = isProtected 
       ? artist 
       : artist.split(/,| feat\.?| & | ft\.?|;/i)[0].trim()
-    
-    
 
     const settings = Object.fromEntries(db.prepare('SELECT key, value FROM settings').all().map(r => [r.key, r.value]))
     const source = settings.lyrics_source || 'lrclib'
 
     let result = null
-    
     if (source !== 'lyricsovh') result = await fetchLRCLIB(title, searchArtist, album, duration)
     if (!result) result = await fetchLyricsOVH(title, searchArtist)
     if (!result && source === 'lyricsovh') result = await fetchLRCLIB(title, searchArtist, album, duration)
 
     if (result) {
       console.log(`[LYRICS FETCHED] source: ${result.source}, type: ${result.type}`)
-      db.prepare('INSERT OR REPLACE INTO lyrics_cache (track_id, lyrics_type, content, source, fetched_at) VALUES (?, ?, ?, ?, ?)').run(trackId, result.type, JSON.stringify(result.lines), result.source, Date.now())
+      insertCache(trackId, result.type, JSON.stringify(result.lines), result.source, Date.now(), filePath)
     } else {
       console.log(`[LYRICS NOT FOUND] title: ${title}, artist: ${searchArtist}`)
+      insertCache(trackId, null, '[]', 'no-results', Date.now(), filePath)
     }
     return result
-  });
+  })
 }
 
 module.exports = { registerLyricsHandlers }

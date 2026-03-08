@@ -16,7 +16,8 @@ export default function MiniPlayer({ windowed = false }) {
   const prevWindowSize = useRef(null)
   const [lyricsLines, setLyricsLines] = useState([])
   const [lyricsType, setLyricsType] = useState(null)
-  const [lyricsPreview, setLyricsPreview] = useState('')
+  const [lyricsCurrent, setLyricsCurrent] = useState('')
+  const [lyricsNext, setLyricsNext] = useState('')
 
   useEffect(() => {
     const electron = window.electron
@@ -32,7 +33,7 @@ export default function MiniPlayer({ windowed = false }) {
       electron.setMiniMode(true).catch(() => {})
     } else {
       if (electron.setAlwaysOnTop) electron.setAlwaysOnTop(true).catch(() => {})
-      if (electron.setWindowSize) electron.setWindowSize(540, 320).catch(() => {})
+      if (electron.setWindowSize) electron.setWindowSize(360, 220).catch(() => {})
     }
     return () => {
       if (electron.setMiniMode) {
@@ -50,7 +51,8 @@ export default function MiniPlayer({ windowed = false }) {
     if (!currentTrack?.id) {
       setLyricsLines([])
       setLyricsType(null)
-      setLyricsPreview('')
+      setLyricsCurrent('')
+      setLyricsNext('')
       return
     }
     let active = true
@@ -66,7 +68,8 @@ export default function MiniPlayer({ windowed = false }) {
       if (!Array.isArray(r?.lines) || r.lines.length === 0) {
         setLyricsLines([])
         setLyricsType(null)
-        setLyricsPreview('')
+        setLyricsCurrent('')
+        setLyricsNext('')
         return
       }
       setLyricsLines(r.lines)
@@ -75,14 +78,16 @@ export default function MiniPlayer({ windowed = false }) {
       if (!active) return
       setLyricsLines([])
       setLyricsType(null)
-      setLyricsPreview('')
+      setLyricsCurrent('')
+      setLyricsNext('')
     })
     return () => { active = false }
   }, [currentTrack?.id])
 
   useEffect(() => {
     if (!lyricsLines.length) {
-      setLyricsPreview('')
+      setLyricsCurrent('')
+      setLyricsNext('')
       return
     }
     if (lyricsType === 'synced') {
@@ -91,11 +96,13 @@ export default function MiniPlayer({ windowed = false }) {
         if ((lyricsLines[i].time ?? 0) <= progress) idx = i
         else break
       }
-      setLyricsPreview(lyricsLines[idx]?.text || '')
+      setLyricsCurrent(lyricsLines[idx]?.text || '')
+      setLyricsNext(lyricsLines[idx + 1]?.text || '')
       return
     }
     const idx = Math.max(0, Math.min(lyricsLines.length - 1, Math.floor(progress / 4)))
-    setLyricsPreview(lyricsLines[idx]?.text || lyricsLines[0]?.text || '')
+    setLyricsCurrent(lyricsLines[idx]?.text || lyricsLines[0]?.text || '')
+    setLyricsNext(lyricsLines[idx + 1]?.text || '')
   }, [lyricsLines, lyricsType, progress])
 
   const artSrc = currentTrack?.artwork_path
@@ -141,9 +148,8 @@ export default function MiniPlayer({ windowed = false }) {
         <div className="min-w-0 flex-1">
           <p className={`${windowed ? 'text-base' : 'text-sm'} font-medium truncate text-white`}>{currentTrack?.title || '-'}</p>
           <p className={`${windowed ? 'text-sm' : 'text-xs'} text-muted truncate`}>{currentTrack?.artist || 'No track'}</p>
-          {lyricsPreview && (
-            <p className={`${windowed ? 'text-xs mt-1' : 'text-[10px] mt-0.5'} text-white/55 truncate italic`}>{lyricsPreview}</p>
-          )}
+          {lyricsCurrent ? <p className={`${windowed ? 'text-xs mt-1' : 'text-[10px] mt-0.5'} text-white/75 truncate italic`}>{lyricsCurrent}</p> : null}
+          {lyricsNext ? <p className={`${windowed ? 'text-[11px]' : 'text-[9px]'} text-white/35 truncate italic`}>{lyricsNext}</p> : null}
         </div>
       </div>
 
