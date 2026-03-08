@@ -60,9 +60,11 @@ export default function App() {
   const prevTrackIdRef = useRef(null)
   const artworkCacheRef = useRef({})
   const eqFiltersRef = useRef([])
-  const justCrossfadedRef = useRef(false)
   const activeElementRef = useRef('primary')
   const pauseSuppressRef = useRef(false)
+  const crossfadeTokenRef = useRef(0)
+  const crossfadeTimeoutRef = useRef(null)
+  const expectedCrossfadeTrackIdRef = useRef(null)
 
   const [updateState, setUpdateState] = useState({
     status: 'idle',
@@ -417,12 +419,39 @@ export default function App() {
     if (secs >= 10 && trackId) api.incrementPlayTime(trackId, userRef.current?.id, secs)
   }, [])
 
+  const cancelCrossfade = useCallback(() => {
+    crossfadeTokenRef.current += 1
+    isCrossfadingRef.current = false
+    expectedCrossfadeTrackIdRef.current = null
+    if (crossfadeTimeoutRef.current) {
+      clearTimeout(crossfadeTimeoutRef.current)
+      crossfadeTimeoutRef.current = null
+    }
+    const ctx = audioCtxRef.current
+    const now = ctx?.currentTime
+    const activeSide = usePlayerStore.getState().activeAudioElement
+    const activeGain = activeSide === 'primary' ? gainNodeRef.current : cfGainNodeRef.current
+    const inactiveGain = activeSide === 'primary' ? cfGainNodeRef.current : gainNodeRef.current
+    if (activeGain?.gain) {
+      activeGain.gain.cancelScheduledValues(now || 0)
+      if (ctx && now !== undefined) activeGain.gain.setValueAtTime(volume, now)
+      else activeGain.gain.value = volume
+    }
+    if (inactiveGain?.gain) {
+      inactiveGain.gain.cancelScheduledValues(now || 0)
+      if (ctx && now !== undefined) inactiveGain.gain.setValueAtTime(0, now)
+      else inactiveGain.gain.value = 0
+    }
+  }, [volume])
+
   const triggerCrossfade = useCallback((nextTrack) => {
     if (isCrossfadingRef.current) return
     if (!cfAudioRef.current || !audioRef.current || !nextTrack || !audioCtxRef.current) return
     if (!gainNodeRef.current || !cfGainNodeRef.current) return
 
     isCrossfadingRef.current = true
+    const token = ++crossfadeTokenRef.current
+    expectedCrossfadeTrackIdRef.current = nextTrack.id
     const ctx = audioCtxRef.current
     const cfDuration = usePlayerStore.getState().crossfadeSeconds || 3
 
@@ -448,7 +477,7 @@ export default function App() {
     })
 
     waitForCanplay.then(() => {
-      if (!isCrossfadingRef.current) return
+      if (!isCrossfadingRef.current || token !== crossfadeTokenRef.current) return
 
       flushTime(currentTrackRef.current?.id)
 
@@ -458,11 +487,14 @@ export default function App() {
 
       const state = usePlayerStore.getState()
       const nextIdx = state.shuffle ? state.shuffleIndex + 1 : state.queueIndex + 1
+      const nextHistory = [...(state.playHistory || []), nextTrack.id]
       usePlayerStore.setState({
         currentTrack: nextTrack,
         queueIndex: !state.shuffle ? nextIdx : state.queueIndex,
         shuffleIndex: state.shuffle ? nextIdx : state.shuffleIndex,
         isPlaying: true,
+        playHistory: nextHistory,
+        futureHistory: [],
       })
 
       if (fadeInEl.readyState >= 2) {
@@ -477,8 +509,8 @@ export default function App() {
       fadeInGain.gain.setValueAtTime(0, rampNow)
       fadeInGain.gain.linearRampToValueAtTime(volume, rampNow + cfDuration)
 
-      setTimeout(() => {
-        if (!isCrossfadingRef.current) return
+      crossfadeTimeoutRef.current = setTimeout(() => {
+        if (!isCrossfadingRef.current || token !== crossfadeTokenRef.current) return
 
         const endNow = ctx.currentTime
         fadeInGain.gain.cancelScheduledValues(endNow)
@@ -492,8 +524,9 @@ export default function App() {
           gainNodeRef.current.gain.setValueAtTime(0, endNow)
         }
 
-        justCrossfadedRef.current = true
         isCrossfadingRef.current = false
+        expectedCrossfadeTrackIdRef.current = null
+        crossfadeTimeoutRef.current = null
 
         pauseSuppressRef.current = true
         try { fadeOutEl.pause() } catch {}
@@ -505,16 +538,9 @@ export default function App() {
   }, [volume, flushTime])
 
   useEffect(() => {
-    if (isCrossfadingRef.current) return
-
-    if (justCrossfadedRef.current) {
-      justCrossfadedRef.current = false
-      const activeSide = usePlayerStore.getState().activeAudioElement
-      const inactiveGain = activeSide === 'primary' ? cfGainNodeRef.current : gainNodeRef.current
-      if (inactiveGain && audioCtxRef.current) {
-        inactiveGain.gain.setValueAtTime(0, audioCtxRef.current.currentTime)
-      }
-      return
+    if (isCrossfadingRef.current) {
+      if (currentTrack?.id && currentTrack.id === expectedCrossfadeTrackIdRef.current) return
+      cancelCrossfade()
     }
 
     if (!audioRef.current || !currentTrack) return
@@ -544,7 +570,7 @@ export default function App() {
     audioRef.current.src = src
     if (isPlaying) audioRef.current.play().catch(() => {})
     if (api.isElectron) api.discordSetActivity(currentTrack, true).catch(() => {})
-  }, [currentTrack?.id])
+  }, [currentTrack?.id, cancelCrossfade])
 
   useEffect(() => {
     if (isCrossfadingRef.current) return
