@@ -18,69 +18,80 @@ function WaveLoader() {
   )
 }
 
-function WaveDots({ duration = 3, isActive = false, id = 0 }) {
+function WaveDots({ duration = 3, isActive = false, id = 0, phase = 0, hasNextLine = false }) {
   if (!isActive) return null;
-
-  const times = [0, 0.33, 0.66, 0.99, 1];
-
-  const makeGlow = (i) => [
-    "0 0 0px rgba(255,255,255,0)",
-    i <= 0 ? "0 0 20px rgba(255,255,255,0.9)" : "0 0 0px rgba(255,255,255,0)",
-    i <= 1 ? "0 0 20px rgba(255,255,255,0.9)" : "0 0 0px rgba(255,255,255,0)",
-    i <= 2 ? "0 0 20px rgba(255,255,255,0.9)" : "0 0 0px rgba(255,255,255,0)",
-    "0 0 0px rgba(255,255,255,0)",
-  ];
-
-  const makeOpacity = (i) => [
-    0.2,
-    i <= 0 ? 1 : 0.2,
-    i <= 1 ? 1 : 0.2,
-    i <= 2 ? 1 : 0.2,
-    0.2,
-  ];
+  const baseDelay = -(Math.max(0, Math.min(1, phase)) * duration)
+  const waveTimes = hasNextLine ? [0, 0.18, 0.42, 0.72, 1] : [0, 0.22, 0.46, 0.72, 1]
+  const dotOffsets = [0, 0.09, 0.18]
+  const groupX = hasNextLine ? [0, 5, 10, 12, 12] : [0, 6, 12, 6, 0]
+  const groupOpacity = hasNextLine ? [0.45, 0.82, 1, 0.92, 0.86] : [0.45, 0.8, 1, 0.7, 0.45]
+  const dotY = hasNextLine ? [0, -2, -14, -8, -5] : [0, -3, -14, -5, 0]
+  const dotScale = hasNextLine ? [0.94, 1.1, 1.58, 1.28, 1.16] : [0.92, 1.08, 1.58, 1.1, 0.92]
+  const dotOpacity = hasNextLine ? [0.24, 0.66, 1, 0.92, 0.82] : [0.24, 0.62, 1, 0.66, 0.24]
+  const dotGlow = hasNextLine
+    ? [
+        "0 0 0px rgba(255,255,255,0)",
+        "0 0 10px rgba(255,255,255,0.28)",
+        "0 0 22px rgba(255,255,255,0.9)",
+        "0 0 16px rgba(255,255,255,0.62)",
+        "0 0 13px rgba(255,255,255,0.56)",
+      ]
+    : [
+        "0 0 0px rgba(255,255,255,0)",
+        "0 0 10px rgba(255,255,255,0.24)",
+        "0 0 22px rgba(255,255,255,0.88)",
+        "0 0 10px rgba(255,255,255,0.32)",
+        "0 0 0px rgba(255,255,255,0)",
+      ]
 
   return (
     <motion.div
-      className="flex items-center justify-center gap-5 h-12 my-4"
+      className="flex items-center justify-center gap-4 h-12 my-4"
       initial={{ x: 20, opacity: 0 }}
       animate={{ x: 0, opacity: 1 }}
       exit={{
-        x: -40,
+        x: -52,
         opacity: 0,
-        transition: { duration: 0.6, ease: "easeIn" },
+        scale: 0.92,
+        filter: "blur(1px)",
+        transition: { duration: 0.55, ease: "easeIn" },
       }}
     >
-      {[0, 1, 2].map((i) => {
-        const activePhase = i + 1;
-        const scaleKF = times.map((_, phaseIdx) => (phaseIdx === activePhase ? 1.6 : 1));
-
-        const yKF = times.map((_, phaseIdx) => (phaseIdx === activePhase ? -14 : 0));
-
-        const xKF = times.map((_, phaseIdx) => (phaseIdx === activePhase ? 10 : 0));
-
-        return (
+      <motion.div className="flex items-center justify-center gap-4"
+        animate={{
+          x: groupX,
+          opacity: groupOpacity,
+        }}
+        transition={{
+          duration,
+          repeat: Infinity,
+          ease: [0.4, 0, 0.2, 1],
+          times: waveTimes,
+          delay: baseDelay,
+        }}
+        style={{ willChange: "transform, opacity" }}
+      >
+        {[0, 1, 2].map((i) => (
           <motion.span
             key={`wavedot-${id}-${i}`}
             className="w-3 h-3 bg-white rounded-full"
             animate={{
-              y: yKF,
-              scale: scaleKF,
-              x: xKF,
-
-
-              opacity: makeOpacity(i),
-              boxShadow: makeGlow(i),
+              y: dotY,
+              scale: dotScale,
+              opacity: dotOpacity,
+              boxShadow: dotGlow,
             }}
             transition={{
               duration,
               repeat: Infinity,
               ease: [0.4, 0, 0.2, 1],
-              times,
+              times: waveTimes,
+              delay: baseDelay + dotOffsets[i] * duration,
             }}
-            style={{ willChange: "transform, box-shadow, opacity" }}
+            style={{ willChange: "transform, opacity, box-shadow" }}
           />
-        );
-      })}
+        ))}
+      </motion.div>
     </motion.div>
   );
 }
@@ -198,7 +209,7 @@ function RAFWordLine({ words, bgWords, liveProgressRef }) {
 }
 
 const Line = React.memo(function Line({
-  line, isActive, isPast, fullscreen, darkMode, wordSync, lyricsType, liveProgressRef, onRef, distanceFromActive, textScale = 1, index,
+  line, isActive, isPast, fullscreen, darkMode, wordSync, lyricsType, liveProgressRef, onRef, distanceFromActive, textScale = 1, index, progress = 0, hasNextLine = false,
 }) {
   const useRAF = wordSync && lyricsType === 'synced' && isActive && line.words?.length > 0
 
@@ -214,6 +225,15 @@ const Line = React.memo(function Line({
     if (line.end && line.time) return Math.max(1, line.end - line.time)
     return 3 
   }, [line.end, line.time])
+  const waveDuration = useMemo(() => {
+    return lineDuration
+  }, [lineDuration])
+  const wavePhase = useMemo(() => {
+    if (!line.end || line.time == null) return 0
+    const total = Math.max(0.01, line.end - line.time)
+    const ratio = (progress - line.time) / total
+    return Math.max(0, Math.min(1, ratio))
+  }, [line.end, line.time, progress])
 
   return (
     <motion.div
@@ -248,7 +268,9 @@ const Line = React.memo(function Line({
             <WaveDots
               key={`wavedots-line-${index}`}
               id={index}
-              duration={lineDuration}
+              duration={waveDuration}
+              phase={wavePhase}
+              hasNextLine={hasNextLine}
               isActive={isActive}
             />
           )}
@@ -263,7 +285,8 @@ const Line = React.memo(function Line({
   prev.darkMode === next.darkMode &&
   prev.wordSync === next.wordSync &&
   prev.lyricsType === next.lyricsType &&
-  prev.distanceFromActive === next.distanceFromActive
+  prev.distanceFromActive === next.distanceFromActive &&
+  prev.hasNextLine === next.hasNextLine
 )
 
 export default function LyricsPanel({
@@ -333,7 +356,7 @@ export default function LyricsPanel({
     if (!lines.length) return []
     return lines.map((line, li, arr) => {
       const nextLine = arr[li + 1]
-      const lineEnd = line.end ?? (nextLine ? nextLine.time : (line.time ?? 0) + 3.0)
+      const lineEnd = line.end ?? (nextLine ? nextLine.time : (track?.duration || (line.time ?? 0) + 3.0))
 
       const words = line.words?.length
         ? line.words.map((w, wi) => {
@@ -358,7 +381,7 @@ export default function LyricsPanel({
 
       return { ...line, end: lineEnd, words, bgWords }
     })
-  }, [lines])
+  }, [lines, track?.duration])
 
   useEffect(() => {
     if (!processedLines.length) return
@@ -454,6 +477,8 @@ export default function LyricsPanel({
           onRef={el => lineRefs.current[i] = el}
           distanceFromActive={activeIdx >= 0 ? Math.abs(i - activeIdx) : 0}
           textScale={textScale}
+          progress={progress}
+          hasNextLine={i < processedLines.length - 1}
         />
       ))}
 

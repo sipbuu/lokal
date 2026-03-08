@@ -31,7 +31,7 @@ function buildCharTimeline(wordText, start, end) {
   })
 }
 
-function parseLRC(lrc) {
+function parseLRC(lrc, totalDuration = 0) {
   if (!lrc) return []
   const base = lrc.split('\n').map(raw => {
     const m = raw.match(/\[(\d+):(\d+\.?\d*)\](.*)/)
@@ -41,7 +41,7 @@ function parseLRC(lrc) {
 
   const lines = base.map((line, i, arr) => {
     const nextLine = arr[i + 1]
-    const lineEnd = line.end ?? (nextLine ? nextLine.time : (line.time + 3.0))
+    const lineEnd = line.end ?? (nextLine ? nextLine.time : (totalDuration > line.time ? totalDuration : (line.time + 3.0)))
     const lineDuration = Math.max(0.01, (lineEnd - line.time))
     const rawWords = line.text.split(' ').filter(Boolean)
     const words = rawWords.map((w, wi) => {
@@ -249,7 +249,7 @@ async function fetchLRCLIB(title, artist, album, duration) {
   if (duration) q.set('duration', Math.round(duration))
   const r = await httpGet(`https://lrclib.net/api/get?${q}`)
   if (!r || typeof r === 'string') return null
-  if (r.syncedLyrics) return { type: 'synced', lines: parseLRC(r.syncedLyrics), source: 'lrclib' }
+  if (r.syncedLyrics) return { type: 'synced', lines: parseLRC(r.syncedLyrics, duration || 0), source: 'lrclib' }
   if (r.plainLyrics) return { type: 'unsynced', lines: r.plainLyrics.split('\n').filter(l => l.trim()).map(text => ({ text })), source: 'lrclib' }
   return null
 }
