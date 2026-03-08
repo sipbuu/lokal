@@ -277,10 +277,14 @@ export const usePlayerStore = create((set, get) => ({
   },
 
   prev: () => {
-    const { shuffle, shuffleQueue, shuffleIndex, queue, queueIndex, progress, audioRef, playHistory, futureHistory } = get()
+    const {
+      shuffle, shuffleQueue, shuffleIndex, queue, queueIndex,
+      progress, audioRef, cfAudioRef, activeAudioElement, playHistory, futureHistory
+    } = get()
+    const activeRef = activeAudioElement === 'primary' ? audioRef : cfAudioRef
     
-    if (progress > 3 && audioRef?.current) {
-      audioRef.current.currentTime = 0
+    if (progress > 3 && activeRef?.current) {
+      activeRef.current.currentTime = 0
       return
     }
     
