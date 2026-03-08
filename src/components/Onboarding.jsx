@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { Music, FolderOpen, Disc3, Sparkles, ChevronRight, SkipForward, Play, Check, User, AlertCircle, Download, Settings, Zap, Palette } from 'lucide-react'
 import { api } from '../api'
 import { useAppStore } from '../store/player'
-import { THEMES } from '../theme'
+import { THEMES, applyTheme } from '../theme'
 
 const steps = [
   {
@@ -158,6 +158,12 @@ export default function Onboarding({ isOpen, onComplete }) {
   }
 
   const handleGetStarted = () => {
+    if (settings.theme) {
+      const selectedTheme = THEMES[settings.theme]
+      if (selectedTheme) {
+        applyTheme(selectedTheme.vars)
+      }
+    }
     localStorage.setItem('lokal-onboarding-complete', 'true')
     onComplete()
   }
@@ -165,6 +171,12 @@ export default function Onboarding({ isOpen, onComplete }) {
   const handleNext = async () => {
     if (currentStep === 2 && Object.keys(settings).length > 0) {
       await api.saveSettings(settings)
+      if (settings.theme) {
+        const selectedTheme = THEMES[settings.theme]
+        if (selectedTheme) {
+          applyTheme(selectedTheme.vars)
+        }
+      }
     }
     if (currentStep < steps.length - 1) {
       if (steps[currentStep + 1].isElectron && !api.isElectron) {
