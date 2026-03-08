@@ -37,6 +37,7 @@ contextBridge.exposeInMainWorld('electron', {
   mergeDuplicates: (keepId, removeIds) => invoke('scanner:mergeDuplicates', keepId, removeIds),
   mergeAllDuplicates: () => invoke('scanner:mergeAllDuplicates'),
   deleteTracks: (ids) => invoke('scanner:deleteTracks', ids),
+  deleteTrackByPath: (filePath) => invoke('scanner:deleteTrackByPath', filePath),
   incrementPlayTime: (id, uid, secs) => invoke('scanner:incrementPlayTime', id, uid, secs),
   getRandomTrack: () => invoke('scanner:getRandomTrack'),
   getTopGenres: () => invoke('scanner:getTopGenres'),
@@ -75,9 +76,9 @@ contextBridge.exposeInMainWorld('electron', {
   importPhotosDir: (dir) => invoke('artist:importPhotosDir', dir),
 
   
-  getLyrics: (id, ti, ar, al, d) => invoke('lyrics:get', id, ti, ar, al, d),
+  getLyrics: (id, ti, ar, al, d, fp) => invoke('lyrics:get', id, ti, ar, al, d, fp),
   clearLyricsCache: (id) => invoke('lyrics:clearCache', id),
-  importLyrics: (id, c, t) => invoke('lyrics:import', id, c, t),
+  importLyrics: (id, c, t, fp) => invoke('lyrics:import', id, c, t, fp),
   clearLyricsDb: () => invoke('db:clearLyrics'),
 
   
