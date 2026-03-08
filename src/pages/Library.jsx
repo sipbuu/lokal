@@ -13,8 +13,14 @@ export default function Library() {
   const { openAlbums } = useAppStore()
   const { playQueue } = usePlayerStore()
 
-  useEffect(() => {
+  const load = () => {
     api.getTracks({ sort, limit: 500 }).then(t => setTracks(Array.isArray(t) ? t : []))
+  }
+
+  useEffect(() => {
+    load()
+    window.addEventListener('lokal:refresh', load)
+    return () => window.removeEventListener('lokal:refresh', load)
   }, [sort])
 
   const artSrc = (t) => t.artwork_path
