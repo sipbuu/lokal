@@ -100,6 +100,26 @@ function isDrumKit(title, album, genre) {
   return false
 }
 
+function getSkipDrumKit() {
+  try {
+    const db = getDB()
+    const setting = db.prepare("SELECT value FROM settings WHERE key = 'skip_drumkit_pattern'").get()
+    return setting?.value !== '0'
+  } catch {}
+  return true
+}
+
+function extractTitleFromFilename(filePath) {
+  const basename = path.basename(filePath, path.extname(filePath))
+  const cleaned = basename
+    .replace(/^\d+[\s._-]*/, '')
+    .replace(/[\[\(]\d+[\]\)]/, '')
+    .replace(/\s*[-_]\s*$/, '')
+    .trim()
+  if (cleaned.length > 2) return cleaned
+  return null
+}
+
 async function scanFolder(folderPath) {
   const db = getDB()
   try { db.exec("ALTER TABLE tracks ADD COLUMN replaygain TEXT") } catch {}
@@ -148,10 +168,12 @@ async function scanFolder(folderPath) {
       const title = c.title?.trim()
       const artist = (c.artist || c.albumartist)?.trim()
       const duration = meta.format.duration || 0
-      if (!title || !artist) { console.log(`[scanFolder] Skipped: ${filePath} - Missing title/artist`); scanStatus.skipped++; scanStatus.done++; emit('scanner:progress', { ...scanStatus }); continue }
+      if (!title && !artist) { console.log(`[scanFolder] Skipped: ${filePath} - Missing title and artist (no metadata found)`); scanStatus.skipped++; scanStatus.done++; emit('scanner:progress', { ...scanStatus }); continue }
+      if (!title) { console.log(`[scanFolder] Skipped: ${filePath} - Missing title (found artist: "${artist || 'none'}")`); scanStatus.skipped++; scanStatus.done++; emit('scanner:progress', { ...scanStatus }); continue }
+      if (!artist) { console.log(`[scanFolder] Skipped: ${filePath} - Missing artist (found title: "${title}")`); scanStatus.skipped++; scanStatus.done++; emit('scanner:progress', { ...scanStatus }); continue }
       const minDuration = getMinDuration()
       if (duration < minDuration) { console.log(`[scanFolder] Skipped: ${filePath} - Too short (${duration}s)`); scanStatus.skipped++; scanStatus.done++; emit('scanner:progress', { ...scanStatus }); continue }
-      if (isDrumKit(title, c.album, c.genre?.[0])) { console.log(`[scanFolder] Skipped: ${filePath} - Drumkit pattern detected`); scanStatus.skipped++; scanStatus.done++; emit('scanner:progress', { ...scanStatus }); continue }
+      if (getSkipDrumKit() && isDrumKit(title, c.album, c.genre?.[0])) { console.log(`[scanFolder] Skipped: ${filePath} - Drumkit pattern detected`); scanStatus.skipped++; scanStatus.done++; emit('scanner:progress', { ...scanStatus }); continue }
       const artwork = await extractArtwork(meta, trackId)
       const replaygain = c.replaygain_track_gain || null
       batch.push({ id: trackId, file_path: filePath, file_hash: trackId, title, artist, album: c.album?.trim() || null, album_artist: c.albumartist?.trim() || null, track_num: c.track?.no || null, year: c.year || null, genre: c.genre?.[0] || null, duration, artwork_path: artwork, bitrate: meta.format.bitrate ? Math.round(meta.format.bitrate / 1000) : null, last_modified: stat.mtimeMs, replaygain })
@@ -568,7 +590,7 @@ async function indexSingleFile(filePath, opts = {}) {
   const duration = meta.format.duration || 0
   if (!title || !artist) return { error: 'Missing title/artist' }
   if (duration < getMinDuration()) return { error: 'Too short' }
-  if (isDrumKit(title, c.album, c.genre?.[0])) return { error: 'Filtered drumkit' }
+  if (getSkipDrumKit() && isDrumKit(title, c.album, c.genre?.[0])) return { error: 'Filtered drumkit' }
   
   let artwork = await extractArtwork(meta, trackId)
   

@@ -525,6 +525,13 @@ export default function Settings() {
             )}
           </div>
         </Row>
+        <Row label="Skip Drum-kit Pattern" desc="Skip tracks with drum-kit/loop/sample keywords in title">
+          <button
+            onClick={() => set('skip_drumkit_pattern', settings.skip_drumkit_pattern === '0' ? '1' : '0')}
+            className={`px-4 py-1.5 rounded-lg text-xs font-display uppercase tracking-wider border transition-colors ${settings.skip_drumkit_pattern !== '0' ? 'bg-accent/20 border-accent/50 text-accent' : 'border-border text-muted hover:text-white'}`}>
+            {settings.skip_drumkit_pattern !== '0' ? 'On' : 'Off'}
+          </button>
+        </Row>
         <Row label="Min. Duration" desc="Skip tracks shorter than this (filters sample packs)">
           <div className="flex items-center gap-2">
             <input type="number" min={0} max={300} value={settings.min_duration || 60} onChange={e => set('min_duration', e.target.value)}
