@@ -1,6 +1,6 @@
 ﻿import React, { useEffect, useState, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Save, Tags, FolderOpen, RefreshCw, Trash2, AlertTriangle, Link, CheckCircle, Disc3, Zap, Download, Music2, X, MoreHorizontal, ListMusic, Palette, ChevronDown, ChevronUp, RefreshCcw, Image as ImageIcon } from 'lucide-react'
+import { Save, Tags, FolderOpen, RefreshCw, Trash2, AlertTriangle, Link, CheckCircle, Disc3, Zap, Download, Music2, X, MoreHorizontal, ListMusic, Palette, ChevronDown, ChevronUp, RefreshCcw, Image as ImageIcon, Puzzle } from 'lucide-react'
 import { api } from '../api'
 import { useAppStore } from '../store/player'
 import Modal from '../components/Modal'
@@ -15,6 +15,7 @@ const SETTINGS_CATEGORIES = [
   { key: 'artists', label: 'Artists', icon: Tags },
   { key: 'playback', label: 'Playback', icon: Disc3 },
   { key: 'integrations', label: 'Integrations', icon: Zap },
+  { key: 'plugins', label: 'Plugins', icon: Puzzle },
   { key: 'appearance', label: 'Appearance', icon: Palette },
   { key: 'data', label: 'Data', icon: Download },
 ]
@@ -133,6 +134,10 @@ export default function Settings() {
   const [manualGenreTrack, setManualGenreTrack] = useState('')
   const [manualGenreAlbum, setManualGenreAlbum] = useState('')
   const [manualGenreValue, setManualGenreValue] = useState('')
+  const [plugins, setPlugins] = useState([])
+  const [pluginsLoading, setPluginsLoading] = useState(false)
+  const [pluginStatus, setPluginStatus] = useState('')
+  const [pluginInstallFolder, setPluginInstallFolder] = useState('')
   const [activeCategory, setActiveCategory] = useState('library')
 
   
@@ -182,9 +187,28 @@ export default function Settings() {
     setArtists(Array.isArray(a) ? a : [])
   }
 
+  const loadPlugins = async () => {
+    setPluginsLoading(true)
+    const result = await api.pluginsList()
+    if (Array.isArray(result)) {
+      setPlugins(result)
+      setPluginStatus('')
+    } else {
+      setPlugins([])
+      setPluginStatus(result?.error || 'Failed to load plugins')
+    }
+    setPluginsLoading(false)
+  }
+
   useEffect(() => {
     if (activeCategory === 'artists' && artists.length === 0) {
       loadArtists()
+    }
+  }, [activeCategory])
+
+  useEffect(() => {
+    if (activeCategory === 'plugins') {
+      loadPlugins()
     }
   }, [activeCategory])
 
@@ -479,6 +503,60 @@ export default function Settings() {
   const handleBlurChange = async (e) => {
     const val = e.target.value
     await saveOverride('--bg-blur', `${val}px`)
+  }
+
+  const handlePluginReload = async () => {
+    setPluginsLoading(true)
+    const result = await api.pluginsReload()
+    if (result?.error) {
+      setPluginStatus(result.error)
+    } else {
+      const list = Array.isArray(result?.plugins) ? result.plugins : await api.pluginsList()
+      setPlugins(Array.isArray(list) ? list : [])
+      setPluginStatus('Plugins reloaded')
+      setTimeout(() => setPluginStatus(''), 2500)
+    }
+    setPluginsLoading(false)
+  }
+
+  const handlePluginEnableToggle = async (plugin) => {
+    const action = plugin.enabled ? api.pluginsDisable : api.pluginsEnable
+    const result = await action(plugin.id)
+    if (result?.error) {
+      setPluginStatus(result.error)
+      return
+    }
+    await loadPlugins()
+  }
+
+  const handlePluginRemove = async (pluginId) => {
+    const result = await api.pluginsRemove(pluginId)
+    if (result?.error) {
+      setPluginStatus(result.error)
+      return
+    }
+    setPluginStatus('Plugin removed')
+    await loadPlugins()
+  }
+
+  const choosePluginFolder = async () => {
+    const selected = await api.openFolder()
+    if (selected) setPluginInstallFolder(selected)
+  }
+
+  const handlePluginInstall = async () => {
+    if (!pluginInstallFolder.trim()) {
+      setPluginStatus('Enter a plugin folder path')
+      return
+    }
+    const result = await api.pluginsInstallFromFolder(pluginInstallFolder.trim())
+    if (result?.error) {
+      setPluginStatus(result.error)
+      return
+    }
+    setPluginStatus('Plugin installed')
+    setPluginInstallFolder('')
+    await loadPlugins()
   }
 
   const filtered = artists.filter(a => a.name.toLowerCase().includes(artistSearch.toLowerCase()))
@@ -940,6 +1018,108 @@ export default function Settings() {
             )}
           </div>
         </Row>
+      </Section>
+      )}
+
+      {inCategory('plugins') && (
+      <Section title="Plugins">
+        <div className="space-y-3">
+          <div className="flex gap-2">
+            <input
+              value={pluginInstallFolder}
+              onChange={e => setPluginInstallFolder(e.target.value)}
+              placeholder="C:\\Users\\you\\MyPluginFolder"
+              className="flex-1 bg-card border border-border rounded-lg px-3 py-2 text-xs text-white outline-none focus:border-accent/50"
+            />
+            {api.isElectron && (
+              <button
+                onClick={choosePluginFolder}
+                className="px-3 py-2 bg-card border border-border rounded-lg text-xs text-muted hover:text-white transition-colors"
+              >
+                Browse
+              </button>
+            )}
+            <button
+              onClick={handlePluginInstall}
+              className="px-3 py-2 bg-card border border-border rounded-lg text-xs text-muted hover:text-white transition-colors"
+            >
+              Install
+            </button>
+            <button
+              onClick={handlePluginReload}
+              disabled={pluginsLoading}
+              className="px-3 py-2 bg-card border border-border rounded-lg text-xs text-muted hover:text-white disabled:opacity-40 transition-colors"
+            >
+              {pluginsLoading ? 'Loading...' : 'Reload'}
+            </button>
+          </div>
+          {pluginStatus && <p className="text-xs text-muted">{pluginStatus}</p>}
+        </div>
+
+        <div className="space-y-2">
+          <p className="text-sm text-white font-medium">Installed Plugins</p>
+          {pluginsLoading && <p className="text-xs text-muted">Loading plugins...</p>}
+          {!pluginsLoading && plugins.length === 0 && (
+            <p className="text-xs text-muted">No plugins installed yet.</p>
+          )}
+          {!pluginsLoading && plugins.length > 0 && (
+            <div className="space-y-2">
+              {plugins.map((plugin) => (
+                <div key={plugin.id} className="flex items-center justify-between gap-3 p-3 rounded-lg border border-border bg-card/40">
+                  <div className="min-w-0">
+                    <p className="text-sm text-white truncate">{plugin.name} <span className="text-xs text-muted">v{plugin.version}</span></p>
+                    <p className="text-xs text-muted truncate">{plugin.id}</p>
+                    {plugin.description && <p className="text-xs text-muted/80 truncate">{plugin.description}</p>}
+                    {plugin.loadError && <p className="text-xs text-red-400 truncate">{plugin.loadError}</p>}
+                  </div>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => handlePluginEnableToggle(plugin)}
+                      className={`px-3 py-1.5 rounded-lg text-xs border transition-colors ${plugin.enabled ? 'bg-accent/20 border-accent/50 text-accent' : 'bg-card border-border text-muted hover:text-white'}`}
+                    >
+                      {plugin.enabled ? 'Disable' : 'Enable'}
+                    </button>
+                    <button
+                      onClick={() => handlePluginRemove(plugin.id)}
+                      className="px-3 py-1.5 rounded-lg text-xs border border-red-500/30 text-red-400 hover:bg-red-500/10 transition-colors"
+                    >
+                      Remove
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div className="space-y-2 pt-2 border-t border-border">
+          <p className="text-sm text-white font-medium">Developer Setup</p>
+          <div className="text-xs text-muted space-y-1">
+            <p>1. Create a folder with plugin.json and index.js.</p>
+            <p>2. Use Install with that folder path.</p>
+            <p>3. Reload plugins after edits.</p>
+          </div>
+          <pre className="bg-card border border-border rounded-lg p-3 text-[11px] text-muted overflow-x-auto">
+{`plugin.json
+{
+  "id": "my-plugin",
+  "name": "My Plugin",
+  "version": "0.1.0",
+  "entry": "index.js",
+  "hooks": ["onTrackIndexed"]
+}
+
+index.js
+module.exports = {
+  async onTrackIndexed(track, sdk) {
+    const state = sdk.storage.get()
+    sdk.storage.set({ ...state, lastTrack: track.id })
+    sdk.log("Indexed", track.title)
+  }
+}`}
+          </pre>
+          <p className="text-xs text-muted">Hook payload includes id, title, artist, album, genre, duration, and filePath.</p>
+        </div>
       </Section>
       )}
 
