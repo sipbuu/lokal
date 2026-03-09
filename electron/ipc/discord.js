@@ -11,6 +11,7 @@ let lastTrackId = null
 const artworkCache = new Map()
 
 let keepCommaArtistsCache = null
+const DEFAULT_DISCORD_CLIENT_ID = '1473597925581131919'
 
 function getFirstArtist(artistString) {
   if (!artistString) return null
@@ -193,7 +194,7 @@ function registerDiscordHandlers(ipcMain) {
         return null
       }
     })()
-    return tryConnect(id)
+    return tryConnect(id || DEFAULT_DISCORD_CLIENT_ID)
   })
 
   ipcMain.handle('discord:setActivity', async (_, track, isPlaying) => {

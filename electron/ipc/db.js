@@ -211,6 +211,7 @@ function initDB() {
   try {
     db.prepare("INSERT OR IGNORE INTO settings (key, value) VALUES ('lyrics_auto_translate', '0')").run()
     db.prepare("INSERT OR IGNORE INTO settings (key, value) VALUES ('lyrics_translate_target', 'en')").run()
+    db.prepare("INSERT OR IGNORE INTO settings (key, value) VALUES ('prefer_media_keys', '1')").run()
   } catch {}
 
   return db

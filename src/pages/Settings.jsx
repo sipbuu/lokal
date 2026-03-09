@@ -9,6 +9,15 @@ import { THEMES, ACCENT_COLORS, applyTheme } from '../theme'
 import { useTheme } from '../themeHooks'
 
 const EQ_BANDS = ['64Hz', '250Hz', '1kHz', '4kHz', '16kHz']
+const DEFAULT_DISCORD_CLIENT_ID = '1473597925581131919'
+const SETTINGS_CATEGORIES = [
+  { key: 'library', label: 'Library', icon: Music2 },
+  { key: 'artists', label: 'Artists', icon: Tags },
+  { key: 'playback', label: 'Playback', icon: Disc3 },
+  { key: 'integrations', label: 'Integrations', icon: Zap },
+  { key: 'appearance', label: 'Appearance', icon: Palette },
+  { key: 'data', label: 'Data', icon: Download },
+]
 
 function Section({ title, children }) {
   return (
@@ -124,6 +133,7 @@ export default function Settings() {
   const [manualGenreTrack, setManualGenreTrack] = useState('')
   const [manualGenreAlbum, setManualGenreAlbum] = useState('')
   const [manualGenreValue, setManualGenreValue] = useState('')
+  const [activeCategory, setActiveCategory] = useState('library')
 
   
   const { openAlbums, user } = useAppStore()
@@ -132,9 +142,11 @@ export default function Settings() {
 
   useEffect(() => {
 
-    api.getSettings().then(s => setSettings(s || {}))
-
-    api.getArtists().then(a => setArtists(Array.isArray(a) ? a : []))
+    api.getSettings().then(s => setSettings({
+      ...(s || {}),
+      discord_use_default_app_id: s?.discord_use_default_app_id ?? '1',
+      discord_client_id: s?.discord_client_id || DEFAULT_DISCORD_CLIENT_ID
+    }))
 
     api.getKeepCommaArtists().then(a => {
 
@@ -164,6 +176,17 @@ export default function Settings() {
     }
 
   }, []) 
+
+  const loadArtists = async () => {
+    const a = await api.getArtists()
+    setArtists(Array.isArray(a) ? a : [])
+  }
+
+  useEffect(() => {
+    if (activeCategory === 'artists' && artists.length === 0) {
+      loadArtists()
+    }
+  }, [activeCategory])
 
   useEffect(() => {
     if (themeOverrides['--bg-image']) {
@@ -221,11 +244,15 @@ export default function Settings() {
     setScanning(true)
     await api.scanFolder(settings.music_folder)
     setScanning(false)
-    api.getArtists().then(a => setArtists(Array.isArray(a) ? a : []))
+    if (activeCategory === 'artists') {
+      loadArtists()
+    }
   }
 
   const connectDiscord = async () => {
-    const id = settings.discord_client_id
+    const id = settings.discord_use_default_app_id === '0'
+      ? settings.discord_client_id
+      : DEFAULT_DISCORD_CLIENT_ID
     if (!id) { setDiscordStatus('Enter a Client ID first'); return }
     await api.saveSettings({ discord_client_id: id })
     setDiscordStatus('Connecting…')
@@ -248,7 +275,7 @@ export default function Settings() {
     if (urlTarget.type === 'artist') await api.artistSetImageUrl(urlTarget.id, urlTarget.url)
     setShowUrlModal(false)
     setUrlTarget({ type: '', id: '', url: '' })
-    api.getArtists().then(a => setArtists(Array.isArray(a) ? a : []))
+    loadArtists()
   }
 
   const checkDuplicates = async () => {
@@ -460,12 +487,50 @@ export default function Settings() {
     { label: 'Export as JSON', icon: <Download size={14} />, onClick: () => handleHistoryExport('json') },
     { label: 'Export as CSV', icon: <Download size={14} />, onClick: () => handleHistoryExport('csv') },
   ]
+  const inCategory = (key) => activeCategory === key
+  const usingDefaultDiscordId = settings.discord_use_default_app_id !== '0'
 
   return (
     <div className="p-6 max-w-2xl space-y-6 pb-10">
-      <h1 className="font-display text-lg uppercase tracking-widest text-white">Settings</h1>
+      <div className="space-y-3 sticky top-0 z-10 bg-bg/80 backdrop-blur-sm py-2">
+        <div className="flex items-center justify-between gap-3">
+          <h1 className="font-display text-lg uppercase tracking-widest text-white">Settings</h1>
+          <div className="flex items-center gap-3">
+            <button onClick={save}
+              className="flex items-center gap-2 px-5 py-2.5 bg-accent text-base rounded-xl text-sm font-medium hover:bg-accent/80 transition-colors">
+              <Save size={14} /> Save Settings
+            </button>
+            <AnimatePresence>
+              {saved && (
+                <motion.span initial={{ opacity: 0, x: -8 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0 }}
+                  className="text-xs text-accent flex items-center gap-1">
+                  <CheckCircle size={12} /> Saved
+                </motion.span>
+              )}
+            </AnimatePresence>
+          </div>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {SETTINGS_CATEGORIES.map((item) => {
+            const Icon = item.icon
+            const active = activeCategory === item.key
+            return (
+              <button
+                key={item.key}
+                onClick={() => setActiveCategory(item.key)}
+                className={`px-3 py-1.5 rounded-lg border text-xs font-display uppercase tracking-wider transition-colors flex items-center gap-1.5 ${
+                  active ? 'bg-accent/20 border-accent/50 text-accent' : 'border-border text-muted hover:text-white hover:border-accent/30'
+                }`}
+              >
+                <Icon size={13} />
+                {item.label}
+              </button>
+            )
+          })}
+        </div>
+      </div>
 
-      {api.isElectron && (
+      {api.isElectron && inCategory('library') && (
         <Section title="About">
           <Row label="Version" desc="Current app version">
             <span className="text-sm text-muted font-mono">{appVersion || '1.0.0'}</span>
@@ -496,35 +561,34 @@ export default function Settings() {
         </Section>
       )}
 
+      {inCategory('library') && (
       <Section title="Library">
+        <Row label="Music Folder">
+          <div className="flex items-center gap-2">
+            <input value={settings.music_folder || ''} onChange={e => set('music_folder', e.target.value)}
+              placeholder="C:\Users\sipbuu\Music"
+              className="w-52 bg-card border border-border rounded-lg px-3 py-1.5 text-xs text-white outline-none focus:border-accent/50" />
+            {api.isElectron && (
+              <button onClick={async () => { const f = await api.openFolder(); if (f) set('music_folder', f) }}
+                className="p-1.5 bg-card border border-border rounded-lg text-muted hover:text-white transition-colors">
+                <FolderOpen size={14} />
+              </button>
+            )}
+          </div>
+        </Row>
         <Row label="Fetch Online Artwork" desc="Try iTunes/MusicBrainz if no embedded artwork found">
           <button
             onClick={() => set('fetch_online_artwork', settings.fetch_online_artwork === '0' ? '1' : '0')}
             className={`px-4 py-1.5 rounded-lg text-xs font-display uppercase tracking-wider border transition-colors ${settings.fetch_online_artwork !== '0' ? 'bg-accent/20 border-accent/50 text-accent' : 'border-border text-muted hover:text-white'}`}>
-            {settings.fetch_online_artwork !== '0' ? 'On' : 'Off'}
+            {settings.fetch_online_artwork !== '0' ? 'Yes' : 'No'}
           </button>
         </Row>
-        <Row label="Auto-fetch Genres" desc="Fill in missing genres from iTunes for tracks without one">
-          <button onClick={async () => { const result = await api.fetchMissingGenres(); setStatusMessage(`Updated ${result?.updated || 0} of ${result?.total || 0} tracks`) }}
-            className="px-4 py-2 bg-card border border-border rounded-lg text-sm text-muted hover:text-white transition-colors">
-            Fetch Missing
-          </button>
-        </Row>
-        <Row label="Manual Genre Assignment" desc="Set specific genre overrides for artists, tracks, or albums">
-          <button 
-            onClick={() => setShowGenreModal(true)}
-            className="px-4 py-2 bg-card border border-border rounded-lg text-sm text-muted hover:text-white hover:border-accent/30 transition-colors flex items-center gap-2"
-          >
-            <Tags size={14} /> Configure Overrides
-          </button>
-        </Row>
-        {statusMessage && <p className="text-xs text-accent ml-2">{statusMessage}</p>}
         <Row label="Use YouTube Cookies" desc="Pass cookies to yt-dlp to bypass rate limiting, access private playlists and liked music. Not shared elsewhere.">
           <div className="flex items-center gap-2">
             <button
               onClick={() => set('yt_cookies', settings.yt_cookies === '0' ? '1' : '0')}
               className={`px-4 py-1.5 rounded-lg text-xs font-display uppercase tracking-wider border transition-colors ${settings.yt_cookies === '1' ? 'bg-accent/20 border-accent/50 text-accent' : 'border-border text-muted hover:text-white'}`}>
-              {settings.yt_cookies === '1' ? 'On' : 'Off'}
+              {settings.yt_cookies === '1' ? 'Yes' : 'No'}
             </button>
             {settings.yt_cookies === '1' && (
               <select
@@ -544,29 +608,31 @@ export default function Settings() {
           <button
             onClick={() => set('index_while_downloading', settings.index_while_downloading === '1' ? '0' : '1')}
             className={`px-4 py-1.5 rounded-lg text-xs font-display uppercase tracking-wider border transition-colors ${settings.index_while_downloading === '1' ? 'bg-accent/20 border-accent/50 text-accent' : 'border-border text-muted hover:text-white'}`}>
-            {settings.index_while_downloading === '1' ? 'On' : 'Off'}
+            {settings.index_while_downloading === '1' ? 'Yes' : 'No'}
           </button>
-        </Row>
-        <Row label="Music Folder">
-          <div className="flex items-center gap-2">
-            <input value={settings.music_folder || ''} onChange={e => set('music_folder', e.target.value)}
-              placeholder="C:\Users\sipbuu\Music"
-              className="w-52 bg-card border border-border rounded-lg px-3 py-1.5 text-xs text-white outline-none focus:border-accent/50" />
-            {api.isElectron && (
-              <button onClick={async () => { const f = await api.openFolder(); if (f) set('music_folder', f) }}
-                className="p-1.5 bg-card border border-border rounded-lg text-muted hover:text-white transition-colors">
-                <FolderOpen size={14} />
-              </button>
-            )}
-          </div>
         </Row>
         <Row label="Skip Drum-kit Pattern" desc="Skip tracks with drum-kit/loop/sample keywords in title">
           <button
             onClick={() => set('skip_drumkit_pattern', settings.skip_drumkit_pattern === '0' ? '1' : '0')}
             className={`px-4 py-1.5 rounded-lg text-xs font-display uppercase tracking-wider border transition-colors ${settings.skip_drumkit_pattern !== '0' ? 'bg-accent/20 border-accent/50 text-accent' : 'border-border text-muted hover:text-white'}`}>
-            {settings.skip_drumkit_pattern !== '0' ? 'On' : 'Off'}
+            {settings.skip_drumkit_pattern !== '0' ? 'Yes' : 'No'}
           </button>
         </Row>
+        <Row label="Auto-fetch Genres" desc="Fill in missing genres from iTunes for tracks without one">
+          <button onClick={async () => { const result = await api.fetchMissingGenres(); setStatusMessage(`Updated ${result?.updated || 0} of ${result?.total || 0} tracks`) }}
+            className="px-4 py-2 bg-card border border-border rounded-lg text-sm text-muted hover:text-white transition-colors">
+            Fetch Missing
+          </button>
+        </Row>
+        <Row label="Manual Genre Assignment" desc="Set specific genre overrides for artists, tracks, or albums">
+          <button 
+            onClick={() => setShowGenreModal(true)}
+            className="px-4 py-2 bg-card border border-border rounded-lg text-sm text-muted hover:text-white hover:border-accent/30 transition-colors flex items-center gap-2"
+          >
+            <Tags size={14} /> Configure Overrides
+          </button>
+        </Row>
+        {statusMessage && <p className="text-xs text-accent ml-2">{statusMessage}</p>}
         <Row label="Min. Duration" desc="Skip tracks shorter than this (filters sample packs)">
           <div className="flex items-center gap-2">
             <input type="number" min={0} max={300} value={settings.min_duration || 60} onChange={e => set('min_duration', e.target.value)}
@@ -599,7 +665,9 @@ export default function Settings() {
           </button>
         </Row>
       </Section>
+      )}
 
+      {inCategory('artists') && (
       <Section title="Artist Photos">
         <Row label="Photos folder" desc="Folder containing artist images named after artists (Drake.jpg etc)">
           <div className="flex items-center gap-2">
@@ -623,13 +691,15 @@ export default function Settings() {
           </div>
         </Row>
         <Row label="Set Image by URL" desc="Download image from URL, assign to artist">
-          <button onClick={() => setShowUrlModal(true)}
+          <button onClick={async () => { await loadArtists(); setShowUrlModal(true) }}
             className="flex items-center gap-2 px-4 py-2 bg-card border border-border rounded-lg text-sm text-muted hover:text-white transition-colors">
             <Link size={13} /> Set URL
           </button>
         </Row>
       </Section>
+      )}
 
+      {inCategory('data') && (
       <Section title="History">
         <Row label="Export History" desc="Download your listen history">
           <div className="relative">
@@ -659,7 +729,9 @@ export default function Settings() {
           </div>
         </Row>
       </Section>
+      )}
 
+      {inCategory('data') && (
       <Section title="Playlists">
         <Row label="Import Playlist" desc="Create playlist from text entries (Artist - Title per line)">
           <button onClick={() => setShowPlaylistImportModal(true)}
@@ -668,8 +740,9 @@ export default function Settings() {
           </button>
         </Row>
       </Section>
+      )}
 
-      {api.isElectron && (
+      {api.isElectron && inCategory('integrations') && (
         <Section title="External Tools">
           <p className="text-xs text-muted mb-4">Manage yt-dlp and ffmpeg for downloading YouTube videos.</p>
           <div className="space-y-3 mb-4">
@@ -705,6 +778,7 @@ export default function Settings() {
         </Section>
       )}
 
+      {inCategory('artists') && (
       <Section title="Artist Name Filtering">
         <Row label="Keep Comma in Artist Names" desc="Prevents splitting artists like 'Tyler, The Creator'">
           <button onClick={() => setShowCommaModal(true)}
@@ -713,7 +787,9 @@ export default function Settings() {
           </button>
         </Row>
       </Section>
+      )}
 
+      {inCategory('playback') && (
       <Section title="Lyrics">
         <Row label="Source">
           <select value={settings.lyrics_source || 'lrclib'} onChange={e => set('lyrics_source', e.target.value)}
@@ -744,7 +820,9 @@ export default function Settings() {
           </button>
         </Row>
       </Section>
+      )}
 
+      {inCategory('playback') && (
       <Section title="Playback & EQ">
         <Row label="Crossfade" desc="Fades into next track automatically — never on manual skip">
           <div className="flex items-center gap-2">
@@ -776,13 +854,24 @@ export default function Settings() {
           <p className="text-xs text-muted mt-3 text-center opacity-50">Click anywhere in app once to activate EQ</p>
         </div>
       </Section>
+      )}
 
+      {inCategory('integrations') && (
       <Section title="Discord Rich Presence">
-        <Row label="App Client ID" desc="Create at discord.com/developers/applications">
-          <input value={settings.discord_client_id || ''} onChange={e => set('discord_client_id', e.target.value)}
-            placeholder="1473597925581131919"
-            className="w-48 bg-card border border-border rounded-lg px-3 py-1.5 text-xs text-white outline-none focus:border-accent/50" />
+        <Row label="Use Default App ID" desc="Uses your built-in Discord app ID by default">
+          <button
+            onClick={() => set('discord_use_default_app_id', usingDefaultDiscordId ? '0' : '1')}
+            className={`px-4 py-1.5 rounded-lg text-xs font-display uppercase tracking-wider border transition-colors ${usingDefaultDiscordId ? 'bg-accent/20 border-accent/50 text-accent' : 'border-border text-muted hover:text-white'}`}>
+            {usingDefaultDiscordId ? 'Yes' : 'No'}
+          </button>
         </Row>
+        {!usingDefaultDiscordId && (
+          <Row label="Custom App Client ID" desc="Optional override if you want to use your own Discord app">
+            <input value={settings.discord_client_id || ''} onChange={e => set('discord_client_id', e.target.value)}
+              placeholder={DEFAULT_DISCORD_CLIENT_ID}
+              className="w-56 bg-card border border-border rounded-lg px-3 py-1.5 text-xs text-white outline-none focus:border-accent/50" />
+          </Row>
+        )}
         <Row label="Connect">
           <div className="flex items-center gap-3">
             <button onClick={connectDiscord}
@@ -797,7 +886,9 @@ export default function Settings() {
           </div>
         </Row>
       </Section>
+      )}
 
+      {inCategory('integrations') && (
       <Section title="Last.fm">
         <Row label="API Key" desc="Get from last.fm/api">
           <input value={settings.lastfm_api_key || ''} onChange={e => set('lastfm_api_key', e.target.value)}
@@ -856,7 +947,9 @@ export default function Settings() {
           </div>
         </Row>
       </Section>
+      )}
 
+      {inCategory('appearance') && (
       <Section title="Theme">
         <div className="space-y-4">
           <div>
@@ -1066,7 +1159,9 @@ export default function Settings() {
           )}
         </div>
       </Section>
+      )}
 
+      {inCategory('artists') && (
       <Section title="Artist Management">
         <input value={artistSearch} onChange={e => setArtistSearch(e.target.value)}
           placeholder="Search artists…"
@@ -1086,21 +1181,7 @@ export default function Settings() {
           ))}
         </div>
       </Section>
-
-      <div className="flex items-center gap-3 pt-2">
-        <button onClick={save}
-          className="flex items-center gap-2 px-5 py-2.5 bg-accent text-base rounded-xl text-sm font-medium hover:bg-accent/80 transition-colors">
-          <Save size={14} /> Save Settings
-        </button>
-        <AnimatePresence>
-          {saved && (
-            <motion.span initial={{ opacity: 0, x: -8 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0 }}
-              className="text-xs text-accent flex items-center gap-1">
-              <CheckCircle size={12} /> Saved
-            </motion.span>
-          )}
-        </AnimatePresence>
-      </div>
+      )}
 
       <Modal open={showClearModal} onClose={() => setShowClearModal(false)} title="Clear All Library Data?" width="max-w-sm">
         <div className="space-y-4">
@@ -1422,7 +1503,7 @@ Stairway to Heaven"
         allArtists={artists}
         open={!!manageArtist}
         onClose={() => setManageArtist(null)}
-        onChanged={() => { api.getArtists().then(a => setArtists(Array.isArray(a) ? a : [])); setManageArtist(null) }}
+        onChanged={() => { loadArtists(); setManageArtist(null) }}
       />
     </div>
   )

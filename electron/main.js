@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, shell } = require('electron')
+const { app, BrowserWindow, ipcMain, shell, globalShortcut } = require('electron')
 const path = require('path')
 const fs = require('fs')
 const log = require('electron-log')
@@ -10,7 +10,7 @@ log.errorHandler.startCatching()
 Object.assign(console, log.functions)
 
 const { autoUpdater } = require('electron-updater')
-const { initDB } = require('./ipc/db')
+const { initDB, getDB } = require('./ipc/db')
 const { registerScannerHandlers, registerExtraHandlers, registerV4Handlers } = require('./ipc/scanner')
 const { registerMixesHandlers } = require('./ipc/mixes')
 const { registerPlayerHandlers } = require('./ipc/player')
@@ -95,12 +95,56 @@ const MINI_MIN_WIDTH = 50
 const MINI_MIN_HEIGHT = 50
 let miniModeRestoreState = null
 let miniModeEnabled = false
+let mediaKeysPreferred = false
+const MEDIA_SHORTCUTS = ['MediaPlayPause', 'MediaNextTrack', 'MediaPreviousTrack']
 
 function enforceMiniTop() {
   if (!mainWindow || !miniModeEnabled) return
   mainWindow.setAlwaysOnTop(true, 'screen-saver', 1)
   mainWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
   mainWindow.moveTop()
+}
+
+function emitPlayerCommand(action) {
+  if (!mainWindow || mainWindow.isDestroyed()) return
+  mainWindow.webContents.send('remote:command', { action })
+}
+
+function unregisterMediaShortcuts() {
+  for (const accelerator of MEDIA_SHORTCUTS) {
+    try { globalShortcut.unregister(accelerator) } catch {}
+  }
+}
+
+function registerMediaShortcuts() {
+  unregisterMediaShortcuts()
+  const handlers = {
+    MediaPlayPause: () => emitPlayerCommand('togglePlay'),
+    MediaNextTrack: () => emitPlayerCommand('next'),
+    MediaPreviousTrack: () => emitPlayerCommand('prev'),
+  }
+  let allRegistered = true
+  for (const accelerator of MEDIA_SHORTCUTS) {
+    try {
+      const ok = globalShortcut.register(accelerator, handlers[accelerator])
+      if (!ok) allRegistered = false
+    } catch {
+      allRegistered = false
+    }
+  }
+  return allRegistered
+}
+
+function setPreferredMediaKeys(enabled) {
+  const next = Boolean(enabled)
+  if (next) {
+    const ok = registerMediaShortcuts()
+    mediaKeysPreferred = ok
+    return { ok, enabled: mediaKeysPreferred }
+  }
+  unregisterMediaShortcuts()
+  mediaKeysPreferred = false
+  return { ok: true, enabled: false }
 }
 
 function createWindow() {
@@ -150,6 +194,14 @@ app.whenReady().then(() => {
     app.setAppUserModelId('com.lokal.music');
   }
   try { initDB() } catch (e) { console.error('DB:', e.message) }
+  try {
+    const db = getDB()
+    const setting = db.prepare("SELECT value FROM settings WHERE key = 'prefer_media_keys'").get()
+    const preferred = setting?.value === '1'
+    setPreferredMediaKeys(preferred)
+  } catch (e) {
+    console.warn('media key preference load failed:', e.message)
+  }
 
   for (const fn of [
     registerScannerHandlers, registerPlayerHandlers, registerDownloaderHandlers,
@@ -182,6 +234,13 @@ app.whenReady().then(() => {
 
   ipcMain.handle('perf:load', async () => {
     return perfSettings
+  })
+  ipcMain.handle('mediaKeys:setPreferred', async (_, flag) => {
+    const result = setPreferredMediaKeys(flag)
+    try {
+      getDB().prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('prefer_media_keys', ?)").run(result.enabled ? '1' : '0')
+    } catch {}
+    return result
   })
   ipcMain.on('app-log', (event, { level, message }) => {
     if (log[level]) {
@@ -340,6 +399,10 @@ app.on('window-all-closed', () => {
   if (process.platform !== 'darwin' || isUpdating) {
     app.quit();
   }
+})
+
+app.on('will-quit', () => {
+  unregisterMediaShortcuts()
 })
 
 app.on('before-quit', () => {

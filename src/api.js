@@ -139,6 +139,7 @@ export const api = {
   log: (level, message) => isE() ? el().log(level, message) : console.log(`[${level}] ${message}`),
   getPerfSettings: () => isE() ? el().getPerfSettings() : Promise.resolve({ hardwareAcceleration: true, performanceMode: false }),
   savePerfSettings: (s) => isE() ? el().savePerfSettings(s) : Promise.resolve({}),
+  setMediaKeyPreference: (enabled) => (isE() && typeof el().setMediaKeyPreference === 'function') ? el().setMediaKeyPreference(enabled) : Promise.resolve({ ok: false, enabled: false }),
   relaunchApp: () => isE() ? el().relaunchApp() : Promise.resolve(),
   onPerfSettings: (fn) => { if (isE()) return el().onPerfSettings(fn); return () => {} },
   updaterInstall: () => isE() ? el().updaterInstall() : Promise.resolve(),
