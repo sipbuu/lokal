@@ -8,7 +8,7 @@ import ArtistManageModal from '../components/ArtistManageModal'
 import { THEMES, ACCENT_COLORS, applyTheme } from '../theme'
 import { useTheme } from '../themeHooks'
 
-const EQ_BANDS = ['60Hz', '230Hz', '910Hz', '3.6kHz', '14kHz']
+const EQ_BANDS = ['64Hz', '250Hz', '1kHz', '4kHz', '16kHz']
 
 function Section({ title, children }) {
   return (
@@ -211,6 +211,7 @@ export default function Settings() {
   }
 
   const setEQ = (i, v) => {
+    window.__lokalInitAudio?.()
     const next = [...eqGains]; next[i] = v; setEqGains(next)
     window.__lokaleq?.setGain(i, v)
   }
@@ -754,7 +755,7 @@ export default function Settings() {
         </Row>
         <div>
           <div className="flex items-center justify-between mb-4">
-            <p className="text-sm text-white font-medium">5-Band EQ</p>
+            <p className="text-sm text-white font-medium">Apple-Style 5-Band EQ</p>
             <button onClick={() => { setEqGains([0,0,0,0,0]); [0,0,0,0,0].forEach((_,i) => window.__lokaleq?.setGain(i,0)) }}
               className="text-xs text-muted hover:text-white transition-colors">Reset</button>
           </div>
@@ -764,7 +765,7 @@ export default function Settings() {
                 <span className="text-xs font-display" style={{ color: '#e8ff57', fontSize: 10 }}>
                   {eqGains[i] > 0 ? '+' : ''}{Math.round(eqGains[i] || 0)}
                 </span>
-                <input type="range" min={-12} max={12} step={0.5} value={eqGains[i] || 0}
+                <input type="range" min={-10} max={10} step={0.5} value={eqGains[i] || 0}
                   onChange={e => setEQ(i, parseFloat(e.target.value))}
                   className="accent-accent"
                   style={{ writingMode: 'vertical-lr', direction: 'rtl', width: 24, height: 88, cursor: 'pointer' }} />

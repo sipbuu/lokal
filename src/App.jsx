@@ -74,6 +74,8 @@ export default function App() {
   })
   const [changelog, setChangelog] = useState('')
   const [loadingChangelog, setLoadingChangelog] = useState(false)
+  const clampEq = (v) => Math.max(-12, Math.min(12, Number(v) || 0))
+  const shapeEqGain = (v) => clampEq(v) * 0.72
 
   const getArtworkDataURL = useCallback(async (artworkPath) => {
     if (!artworkPath) return null
@@ -101,8 +103,13 @@ export default function App() {
     shuffle, playNext, addToQueue, skipAhead,
     showMiniPlayer,
   } = usePlayerStore()
+  const volumeRef = useRef(volume)
   const { user } = useAppStore()
   const { showOnboarding, completeOnboarding, loading: onboardingLoading } = useOnboarding()
+
+  useEffect(() => {
+    volumeRef.current = volume
+  }, [volume])
 
   const isEventFromActive = useCallback((e) => {
     const activeSide = usePlayerStore.getState().activeAudioElement
@@ -215,21 +222,27 @@ export default function App() {
     const ctx = new (window.AudioContext || window.webkitAudioContext)()
     audioCtxRef.current = ctx
 
-    const bands = [60, 230, 910, 3600, 14000]
-    const nodes = bands.map(freq => {
+    const bands = [
+      { frequency: 64, type: 'lowshelf', q: 0.7 },
+      { frequency: 250, type: 'peaking', q: 0.95 },
+      { frequency: 1000, type: 'peaking', q: 0.95 },
+      { frequency: 4000, type: 'peaking', q: 0.9 },
+      { frequency: 16000, type: 'highshelf', q: 0.7 },
+    ]
+    const nodes = bands.map((band) => {
       const f = ctx.createBiquadFilter()
-      f.type = 'peaking'
-      f.frequency.value = freq
-      f.Q.value = 1.4
+      f.type = band.type
+      f.frequency.value = band.frequency
+      f.Q.value = band.q
       f.gain.value = 0
       return f
     })
 
-    const cfNodes = bands.map((freq, i) => {
+    const cfNodes = bands.map((band, i) => {
       const f = ctx.createBiquadFilter()
-      f.type = 'peaking'
-      f.frequency.value = freq
-      f.Q.value = 1.4
+      f.type = band.type
+      f.frequency.value = band.frequency
+      f.Q.value = band.q
       f.gain.value = nodes[i].gain.value
       return f
     })
@@ -244,7 +257,7 @@ export default function App() {
     gainNodeRef.current = primaryGain
     cfGainNodeRef.current = cfGain
 
-    primaryGain.gain.value = volume
+    primaryGain.gain.value = volumeRef.current
     cfGain.gain.value = 0
 
     const analyser = ctx.createAnalyser()
@@ -266,22 +279,24 @@ export default function App() {
       let cfPrev = cfSource
       for (const n of cfNodes) { cfPrev.connect(n); cfPrev = n }
       cfPrev.connect(cfGain)
-      cfGain.connect(ctx.destination)
+      cfGain.connect(analyser)
     }
 
     try {
       const stored = JSON.parse(localStorage.getItem('lokal-eq') || '[]')
       stored.forEach((v, i) => {
-        if (nodes[i]) nodes[i].gain.value = v
-        if (cfNodes[i]) cfNodes[i].gain.value = v
+        const shaped = shapeEqGain(v)
+        if (nodes[i]) nodes[i].gain.value = shaped
+        if (cfNodes[i]) cfNodes[i].gain.value = shaped
       })
     } catch (err) {
     }
 
     window.__lokaleq = {
       setGain: (i, v) => {
-        if (nodes[i]) nodes[i].gain.value = v
-        if (cfNodes[i]) cfNodes[i].gain.value = v
+        const shaped = shapeEqGain(v)
+        if (nodes[i]) nodes[i].gain.value = shaped
+        if (cfNodes[i]) cfNodes[i].gain.value = shaped
       }
     }
 
@@ -289,7 +304,16 @@ export default function App() {
   } catch (e) {
     console.error('Failed to initialize AudioContext:', e)
   }
-}, [volume])
+}, [])
+
+  useEffect(() => {
+    window.__lokalInitAudio = initAudioCtx
+    return () => {
+      if (window.__lokalInitAudio === initAudioCtx) {
+        delete window.__lokalInitAudio
+      }
+    }
+  }, [initAudioCtx])
 
   useEffect(() => {
     const resumeAudio = () => {
@@ -493,15 +517,15 @@ export default function App() {
     const inactiveGain = activeSide === 'primary' ? cfGainNodeRef.current : gainNodeRef.current
     if (activeGain?.gain) {
       activeGain.gain.cancelScheduledValues(now || 0)
-      if (ctx && now !== undefined) activeGain.gain.setValueAtTime(volume, now)
-      else activeGain.gain.value = volume
+      if (ctx && now !== undefined) activeGain.gain.setValueAtTime(volumeRef.current, now)
+      else activeGain.gain.value = volumeRef.current
     }
     if (inactiveGain?.gain) {
       inactiveGain.gain.cancelScheduledValues(now || 0)
       if (ctx && now !== undefined) inactiveGain.gain.setValueAtTime(0, now)
       else inactiveGain.gain.value = 0
     }
-  }, [volume])
+  }, [])
 
   const triggerCrossfade = useCallback((nextTrack) => {
     if (isCrossfadingRef.current) return
@@ -566,7 +590,7 @@ export default function App() {
       fadeOutGain.gain.linearRampToValueAtTime(0, rampNow + cfDuration)
       fadeInGain.gain.cancelScheduledValues(rampNow)
       fadeInGain.gain.setValueAtTime(0, rampNow)
-      fadeInGain.gain.linearRampToValueAtTime(volume, rampNow + cfDuration)
+      fadeInGain.gain.linearRampToValueAtTime(volumeRef.current, rampNow + cfDuration)
 
       crossfadeTimeoutRef.current = setTimeout(() => {
         if (!isCrossfadingRef.current || token !== crossfadeTokenRef.current) return
@@ -576,10 +600,10 @@ export default function App() {
         fadeOutGain.gain.cancelScheduledValues(endNow)
         
         if (fadeInGain === gainNodeRef.current) {
-          gainNodeRef.current.gain.setValueAtTime(volume, endNow)
+          gainNodeRef.current.gain.setValueAtTime(volumeRef.current, endNow)
           cfGainNodeRef.current.gain.setValueAtTime(0, endNow)
         } else {
-          cfGainNodeRef.current.gain.setValueAtTime(volume, endNow)
+          cfGainNodeRef.current.gain.setValueAtTime(volumeRef.current, endNow)
           gainNodeRef.current.gain.setValueAtTime(0, endNow)
         }
 
@@ -594,7 +618,7 @@ export default function App() {
         setTimeout(() => { pauseSuppressRef.current = false }, 200)
       }, cfDuration * 1000)
     })
-  }, [volume, flushTime])
+  }, [flushTime, setActiveAudioElement])
 
   useEffect(() => {
     if (isCrossfadingRef.current) {
@@ -650,11 +674,30 @@ export default function App() {
   }, [isPlaying])
 
   useEffect(() => {
-    if (gainNodeRef.current && audioCtxRef.current) {
-      try {
-        gainNodeRef.current.gain.setValueAtTime(volume, audioCtxRef.current.currentTime)
-      } catch {}
-    }
+    const ctx = audioCtxRef.current
+    const primary = gainNodeRef.current?.gain
+    const secondary = cfGainNodeRef.current?.gain
+    if (!ctx || !primary || !secondary) return
+    try {
+      const now = ctx.currentTime
+      if (isCrossfadingRef.current) {
+        const maxCurrent = Math.max(primary.value, secondary.value, 0.0001)
+        const nextPrimary = (primary.value / maxCurrent) * volume
+        const nextSecondary = (secondary.value / maxCurrent) * volume
+        primary.cancelScheduledValues(now)
+        secondary.cancelScheduledValues(now)
+        primary.setValueAtTime(nextPrimary, now)
+        secondary.setValueAtTime(nextSecondary, now)
+        return
+      }
+      const activeSide = usePlayerStore.getState().activeAudioElement
+      const activeGain = activeSide === 'primary' ? primary : secondary
+      const inactiveGain = activeSide === 'primary' ? secondary : primary
+      activeGain.cancelScheduledValues(now)
+      inactiveGain.cancelScheduledValues(now)
+      activeGain.setValueAtTime(volume, now)
+      inactiveGain.setValueAtTime(0, now)
+    } catch {}
   }, [volume])
 
   const handleTimeUpdate = useCallback((e) => {

@@ -78,6 +78,8 @@ contextBridge.exposeInMainWorld('electron', {
 
   
   getLyrics: (id, ti, ar, al, d, fp) => invoke('lyrics:get', id, ti, ar, al, d, fp),
+  detectLyricsLanguage: (id, lines) => invoke('lyrics:detectLanguage', id, lines),
+  translateLyrics: (id, lines, targetLang) => invoke('lyrics:translate', id, lines, targetLang),
   clearLyricsCache: (id) => invoke('lyrics:clearCache', id),
   importLyrics: (id, c, t, fp) => invoke('lyrics:import', id, c, t, fp),
   clearLyricsDb: () => invoke('db:clearLyrics'),

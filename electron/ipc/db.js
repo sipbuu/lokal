@@ -96,6 +96,16 @@ function initDB() {
       source TEXT,
       cached_at INTEGER DEFAULT (unixepoch())
     );
+    CREATE TABLE IF NOT EXISTS lyrics_translations (
+      track_id TEXT NOT NULL,
+      target_lang TEXT NOT NULL,
+      source_hash TEXT NOT NULL,
+      detected_lang TEXT,
+      content TEXT,
+      provider TEXT,
+      fetched_at INTEGER DEFAULT 0,
+      PRIMARY KEY (track_id, target_lang, source_hash)
+    );
     CREATE TABLE IF NOT EXISTS users (
       id TEXT PRIMARY KEY,
       username TEXT UNIQUE NOT NULL,
@@ -197,6 +207,11 @@ function initDB() {
       db.exec(m)
     } catch {}
   }
+
+  try {
+    db.prepare("INSERT OR IGNORE INTO settings (key, value) VALUES ('lyrics_auto_translate', '0')").run()
+    db.prepare("INSERT OR IGNORE INTO settings (key, value) VALUES ('lyrics_translate_target', 'en')").run()
+  } catch {}
 
   return db
 }

@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useRef, useMemo } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Mic2, Search } from 'lucide-react'
+import { Mic2, Search, Languages } from 'lucide-react'
 import { api } from '../api'
 
 function WaveLoader() {
@@ -246,7 +246,7 @@ const Line = React.memo(function Line({
         duration: 0.5,
         ease: [0.16, 1, 0.3, 1]
       }}
-      className="text-center w-full max-w-2xl my-1.5 font-medium cursor-default select-none"
+      className="text-center w-full max-w-2xl my-1.5 font-medium cursor-default select-text"
       style={{
         color: isActive ? (darkMode ? '#fff' : '#e8ff57') : '#666',
         fontWeight: isActive ? 700 : 500,
@@ -298,6 +298,14 @@ export default function LyricsPanel({
   const [loading, setLoading] = useState(false)
   const [activeIdx, setActiveIdx] = useState(-1)
   const [isOnline, setIsOnline] = useState(typeof navigator !== 'undefined' ? navigator.onLine : true)
+  const [autoTranslate, setAutoTranslate] = useState(false)
+  const [targetLang, setTargetLang] = useState('en')
+  const [detectedLang, setDetectedLang] = useState('unknown')
+  const [translatedLines, setTranslatedLines] = useState([])
+  const [translationView, setTranslationView] = useState('original')
+  const [translating, setTranslating] = useState(false)
+  const [selectionText, setSelectionText] = useState('')
+  const [selectionPos, setSelectionPos] = useState(null)
   const containerRef = useRef(null)
   const lineRefs = useRef([])
 
@@ -332,8 +340,15 @@ export default function LyricsPanel({
   }, [])
 
   useEffect(() => {
+    api.getSettings().then(s => {
+      setAutoTranslate(s?.lyrics_auto_translate === '1')
+      if (s?.lyrics_translate_target) setTargetLang(String(s.lyrics_translate_target).toLowerCase())
+    }).catch(() => {})
+  }, [])
+
+  useEffect(() => {
     if (!track?.id) return
-    setLoading(true); setLines([]); setActiveIdx(-1); setLyricsType(null); setSource(null)
+    setLoading(true); setLines([]); setActiveIdx(-1); setLyricsType(null); setSource(null); setDetectedLang('unknown'); setTranslatedLines([]); setTranslationView('original'); setTranslating(false)
     api.getLyrics(track.id, track.title, track.artist, track.album, track.duration).then(r => {
       if (r?.lines) {
         setLines(r.lines);
@@ -383,18 +398,61 @@ export default function LyricsPanel({
     })
   }, [lines, track?.duration])
 
+  const translationInputLines = useMemo(() => {
+    return processedLines.map(line => ({
+      text: line.text || '',
+      time: line.time,
+      end: line.end,
+      words: line.words || undefined,
+      bgText: line.bgText,
+      bgWords: line.bgWords,
+    }))
+  }, [processedLines])
+
   useEffect(() => {
-    if (!processedLines.length) return
+    if (!track?.id || !translationInputLines.length) return
+    let cancelled = false
+    api.detectLyricsLanguage(track.id, translationInputLines).then(result => {
+      if (cancelled) return
+      const lang = String(result?.lang || 'unknown').toLowerCase()
+      setDetectedLang(lang)
+      if (autoTranslate && lang !== 'unknown' && lang !== targetLang) {
+        setTranslating(true)
+        api.translateLyrics(track.id, translationInputLines, targetLang).then(t => {
+          if (cancelled) return
+          if (Array.isArray(t?.lines) && t.lines.length) {
+            setTranslatedLines(t.lines)
+            setTranslationView('translated')
+          }
+          if (t?.detectedLang) setDetectedLang(String(t.detectedLang).toLowerCase())
+          setTranslating(false)
+        }).catch(() => {
+          if (!cancelled) setTranslating(false)
+        })
+      }
+    }).catch(() => {})
+    return () => { cancelled = true }
+  }, [track?.id, translationInputLines, autoTranslate, targetLang])
+
+  const displayedLines = useMemo(() => {
+    if (translationView === 'translated' && translatedLines.length === processedLines.length) return translatedLines
+    return processedLines
+  }, [translationView, translatedLines, processedLines])
+
+  const effectiveWordSync = translationView === 'translated' ? false : wordSync
+
+  useEffect(() => {
+    if (!displayedLines.length) return
     if (lyricsType === 'synced') {
       let idx = 0
-      for (let i = 0; i < processedLines.length; i++) {
-        if ((processedLines[i].time ?? 0) <= progress) idx = i; else break
+      for (let i = 0; i < displayedLines.length; i++) {
+        if ((displayedLines[i].time ?? 0) <= progress) idx = i; else break
       }
       setActiveIdx(idx)
     } else if (isAutoSynced) {
-      setActiveIdx(Math.min(Math.floor(progress / 4), processedLines.length - 1))
+      setActiveIdx(Math.min(Math.floor(progress / 4), displayedLines.length - 1))
     }
-  }, [progress, processedLines, lyricsType, isAutoSynced])
+  }, [progress, displayedLines, lyricsType, isAutoSynced])
 
   useEffect(() => {
     const el = lineRefs.current[activeIdx]
@@ -417,8 +475,76 @@ export default function LyricsPanel({
     return () => cancelAnimationFrame(raf)
   }, [activeIdx])
 
-  const hasSyncedLyrics = processedLines.some(l => l.time != null)
-  const showUnsyncedMessage = !hasSyncedLyrics && processedLines.length > 0
+  const hasSyncedLyrics = displayedLines.some(l => l.time != null)
+  const showUnsyncedMessage = !hasSyncedLyrics && displayedLines.length > 0
+  const updateSelectionState = useMemo(() => {
+    return () => {
+      const container = containerRef.current
+      if (!container) return
+      const selection = window.getSelection?.()
+      if (!selection || selection.rangeCount === 0 || selection.isCollapsed) {
+        setSelectionText('')
+        setSelectionPos(null)
+        return
+      }
+      const selected = selection.toString().trim()
+      if (!selected) {
+        setSelectionText('')
+        setSelectionPos(null)
+        return
+      }
+      const range = selection.getRangeAt(0)
+      const common = range.commonAncestorContainer
+      const node = common?.nodeType === 3 ? common.parentNode : common
+      if (!node || !container.contains(node)) {
+        setSelectionText('')
+        setSelectionPos(null)
+        return
+      }
+      const rect = range.getBoundingClientRect()
+      setSelectionText(selected.slice(0, 400))
+      setSelectionPos({
+        x: rect.left + rect.width / 2,
+        y: rect.top - 10,
+      })
+    }
+  }, [])
+
+  useEffect(() => {
+    const onSelectionChange = () => updateSelectionState()
+    const onScroll = () => {
+      if (selectionText) updateSelectionState()
+    }
+    document.addEventListener('selectionchange', onSelectionChange)
+    window.addEventListener('scroll', onScroll, true)
+    return () => {
+      document.removeEventListener('selectionchange', onSelectionChange)
+      window.removeEventListener('scroll', onScroll, true)
+    }
+  }, [selectionText, updateSelectionState])
+
+  useEffect(() => {
+    setSelectionText('')
+    setSelectionPos(null)
+  }, [track?.id])
+
+  const translateSelection = () => {
+    if (!selectionText) return
+    const url = `https://translate.google.com/?sl=auto&tl=en&text=${encodeURIComponent(selectionText)}&op=translate`
+    if (api.isElectron && window.electron?.openExternal) {
+      window.electron.openExternal(url)
+    } else {
+      window.open(url, '_blank', 'noopener,noreferrer')
+    }
+  }
+
+  const toggleAutoTranslate = () => {
+    setAutoTranslate(prev => {
+      const next = !prev
+      api.saveSettings({ lyrics_auto_translate: next ? '1' : '0' }).catch(() => {})
+      return next
+    })
+  }
 
   return (
     <div ref={containerRef}
@@ -427,7 +553,7 @@ export default function LyricsPanel({
 
       {loading && <WaveLoader />}
 
-      {!loading && !processedLines.length && (
+      {!loading && !displayedLines.length && (
         <div className="flex flex-col items-center justify-center flex-1 gap-3 opacity-30 select-none">
           <Mic2 size={fullscreen ? 40 : 28} />
           {!isOnline ? (
@@ -451,8 +577,46 @@ export default function LyricsPanel({
         </div>
       )}
 
-      {processedLines.length > 0 && (
+      {displayedLines.length > 0 && (
         <>
+          <div className="mb-3 flex items-center gap-2">
+            <button
+              onClick={toggleAutoTranslate}
+              className={`text-[10px] uppercase tracking-wider px-2.5 py-1 rounded-full border transition-colors ${autoTranslate ? 'border-accent/50 text-accent bg-accent/10' : 'border-border text-muted hover:text-white'}`}
+            >
+              Auto Translate {autoTranslate ? 'On' : 'Off'}
+            </button>
+            <button
+              onClick={() => setTranslationView('original')}
+              className={`text-[10px] uppercase tracking-wider px-2.5 py-1 rounded-full border transition-colors ${translationView === 'original' ? 'border-accent/50 text-accent bg-accent/10' : 'border-border text-muted hover:text-white'}`}
+            >
+              Original
+            </button>
+            <button
+              onClick={() => {
+                if (translatedLines.length === processedLines.length) {
+                  setTranslationView('translated')
+                  return
+                }
+                if (!track?.id || !translationInputLines.length) return
+                setTranslating(true)
+                api.translateLyrics(track.id, translationInputLines, targetLang).then(t => {
+                  if (Array.isArray(t?.lines) && t.lines.length) {
+                    setTranslatedLines(t.lines)
+                    setTranslationView('translated')
+                  }
+                  if (t?.detectedLang) setDetectedLang(String(t.detectedLang).toLowerCase())
+                  setTranslating(false)
+                }).catch(() => setTranslating(false))
+              }}
+              className={`text-[10px] uppercase tracking-wider px-2.5 py-1 rounded-full border transition-colors ${(translationView === 'translated' && translatedLines.length === processedLines.length) ? 'border-accent/50 text-accent bg-accent/10' : 'border-border text-muted hover:text-white'}`}
+            >
+              {translating ? 'Translating...' : 'Translated'}
+            </button>
+            {detectedLang !== 'unknown' && (
+              <span className="text-[10px] text-white/35 uppercase tracking-wider">Detected: {detectedLang}</span>
+            )}
+          </div>
           {showUnsyncedMessage && (
             <p className="text-[10px] text-white/25 italic mb-4 mt-2">
               these lyrics are unsynced! :3
@@ -462,7 +626,7 @@ export default function LyricsPanel({
         </>
       )}
 
-      {processedLines.map((line, i) => (
+      {displayedLines.map((line, i) => (
         <Line
           key={`line-${i}`}
           index={i}
@@ -471,21 +635,40 @@ export default function LyricsPanel({
           isPast={i < activeIdx}
           fullscreen={fullscreen}
           darkMode={darkMode}
-          wordSync={wordSync}
+          wordSync={effectiveWordSync}
           lyricsType={lyricsType}
           liveProgressRef={liveProgressRef}
           onRef={el => lineRefs.current[i] = el}
           distanceFromActive={activeIdx >= 0 ? Math.abs(i - activeIdx) : 0}
           textScale={textScale}
           progress={progress}
-          hasNextLine={i < processedLines.length - 1}
+          hasNextLine={i < displayedLines.length - 1}
         />
       ))}
 
-      {processedLines.length > 0 && <div style={{ height: fullscreen ? '40vh' : '40%', flexShrink: 0 }} />}
-      {source && processedLines.length > 0 && (
-        <p className="text-xs opacity-20 mt-2 mb-8">via {source}</p>
+      {displayedLines.length > 0 && <div style={{ height: fullscreen ? '40vh' : '40%', flexShrink: 0 }} />}
+      {source && displayedLines.length > 0 && (
+        <p className="text-xs opacity-20 mt-2 mb-8">
+          via {source}{translationView === 'translated' ? ` · translated to ${targetLang}` : ''}
+        </p>
       )}
+
+      <AnimatePresence>
+        {selectionText && selectionPos && (
+          <motion.button
+            initial={{ opacity: 0, y: 6, scale: 0.96 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 6, scale: 0.96 }}
+            transition={{ duration: 0.14 }}
+            onClick={translateSelection}
+            className="fixed z-50 px-3 py-1.5 rounded-full bg-card border border-border text-white text-xs hover:border-accent/50 hover:text-accent transition-colors flex items-center gap-1.5"
+            style={{ left: selectionPos.x, top: selectionPos.y, transform: 'translate(-50%, -100%)' }}
+          >
+            <Languages size={12} />
+            Translate selection
+          </motion.button>
+        )}
+      </AnimatePresence>
     </div>
   )
 }

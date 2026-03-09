@@ -1,5 +1,6 @@
 const { getDB } = require('./db')
 const https = require('https')
+const crypto = require('crypto')
 
 function httpGet(url) {
   return new Promise((res) => {
@@ -261,12 +262,104 @@ async function fetchLyricsOVH(title, artist) {
 }
 
 const NEGATIVE_CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000
+const ENGLISH_COMMON_WORDS = new Set(['the', 'and', 'you', 'that', 'for', 'with', 'love', 'this', 'not', 'are', 'have', 'all', 'your', 'me', 'my', 'we', 'it', 'to', 'of', 'in', 'on', 'at', 'is', 'be'])
+
+function normalizeLang(lang) {
+  const l = String(lang || '').trim().toLowerCase()
+  if (!l) return 'unknown'
+  if (l.startsWith('en')) return 'en'
+  if (l.startsWith('zh')) return 'zh'
+  if (l.startsWith('ja')) return 'ja'
+  if (l.startsWith('ko')) return 'ko'
+  if (l === 'und' || l === 'auto') return 'unknown'
+  return l
+}
+
+function lineToText(line) {
+  if (!line) return ''
+  if (typeof line.text === 'string' && line.text.trim()) return line.text.trim()
+  if (Array.isArray(line.words) && line.words.length) {
+    const merged = line.words.map((w, i) => {
+      const word = String(w?.word || '')
+      if (i === 0) return word
+      const prev = String(line.words[i - 1]?.word || '')
+      return prev.endsWith('-') ? word : ` ${word}`
+    }).join('')
+    return merged.trim()
+  }
+  return ''
+}
+
+function buildSourceHash(lines) {
+  const payload = JSON.stringify((Array.isArray(lines) ? lines : []).map(lineToText))
+  return crypto.createHash('sha1').update(payload).digest('hex')
+}
+
+function heuristicLanguage(lines) {
+  const sample = (Array.isArray(lines) ? lines : [])
+    .slice(0, 24)
+    .map(lineToText)
+    .join(' ')
+    .trim()
+  if (!sample) return { lang: 'unknown', confidence: 0 }
+  const hasHangul = /[\uac00-\ud7af]/.test(sample)
+  const hasHiraganaKatakana = /[\u3040-\u30ff]/.test(sample)
+  const hasHan = /[\u3400-\u9fff\uf900-\ufaff]/.test(sample)
+  if (hasHangul) return { lang: 'ko', confidence: 0.96 }
+  if (hasHiraganaKatakana) return { lang: 'ja', confidence: 0.96 }
+  if (hasHan) return { lang: 'zh', confidence: 0.9 }
+  const letters = sample.match(/[A-Za-z]/g)?.length || 0
+  const latinLike = sample.match(/[A-Za-z0-9\s'".,!?-]/g)?.length || 0
+  const ratio = sample.length > 0 ? latinLike / sample.length : 0
+  const words = sample.toLowerCase().split(/\s+/).filter(Boolean)
+  const englishHits = words.filter(w => ENGLISH_COMMON_WORDS.has(w.replace(/[^a-z]/g, ''))).length
+  if (letters >= 30 && ratio > 0.92 && englishHits >= Math.max(3, Math.floor(words.length * 0.08))) {
+    return { lang: 'en', confidence: 0.78 }
+  }
+  return { lang: 'unknown', confidence: 0.2 }
+}
+
+async function detectLanguageViaGoogle(text) {
+  if (!text) return null
+  const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=en&dt=t&q=${encodeURIComponent(text)}`
+  const data = await httpGet(url)
+  if (!Array.isArray(data)) return null
+  if (typeof data[2] === 'string') return normalizeLang(data[2])
+  if (Array.isArray(data[8]) && Array.isArray(data[8][0]) && typeof data[8][0][0] === 'string') {
+    return normalizeLang(data[8][0][0])
+  }
+  return null
+}
+
+async function translateTextViaGoogle(text, targetLang) {
+  if (!text) return { text: '', lang: 'unknown' }
+  const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=${encodeURIComponent(targetLang)}&dt=t&q=${encodeURIComponent(text)}`
+  const data = await httpGet(url)
+  if (!Array.isArray(data) || !Array.isArray(data[0])) return { text, lang: 'unknown' }
+  const translated = data[0].map(chunk => Array.isArray(chunk) ? (chunk[0] || '') : '').join('').trim()
+  const lang = normalizeLang(data[2])
+  return { text: translated || text, lang }
+}
 
 function registerLyricsHandlers(ipcMain) {
   console.log("!!! LYRICS IPC LOADING !!!")
   const db = getDB()
   try { db.exec("ALTER TABLE lyrics_cache ADD COLUMN fetched_at INTEGER DEFAULT 0") } catch {}
   try { db.exec("ALTER TABLE lyrics_cache ADD COLUMN file_path TEXT") } catch {}
+  try {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS lyrics_translations (
+        track_id TEXT NOT NULL,
+        target_lang TEXT NOT NULL,
+        source_hash TEXT NOT NULL,
+        detected_lang TEXT,
+        content TEXT,
+        provider TEXT,
+        fetched_at INTEGER DEFAULT 0,
+        PRIMARY KEY (track_id, target_lang, source_hash)
+      )
+    `)
+  } catch {}
   const cacheCols = new Set(db.prepare("PRAGMA table_info(lyrics_cache)").all().map(c => c.name))
   const hasFetchedAt = cacheCols.has('fetched_at')
   const hasFilePath = cacheCols.has('file_path')
@@ -385,6 +478,94 @@ function registerLyricsHandlers(ipcMain) {
       insertCache(trackId, null, '[]', 'no-results', Date.now(), filePath)
     }
     return result
+  })
+
+  ipcMain.handle('lyrics:clearCache', (_, trackId) => {
+    if (!trackId) return { ok: false }
+    db.prepare('DELETE FROM lyrics_cache WHERE track_id = ?').run(trackId)
+    db.prepare('DELETE FROM lyrics_translations WHERE track_id = ?').run(trackId)
+    return { ok: true }
+  })
+
+  ipcMain.handle('lyrics:detectLanguage', async (_, trackId, lines) => {
+    const normalizedLines = Array.isArray(lines) ? lines : []
+    if (!normalizedLines.length) return { lang: 'unknown', confidence: 0, source: 'empty' }
+    const heuristic = heuristicLanguage(normalizedLines)
+    const sourceHash = buildSourceHash(normalizedLines)
+    const cached = db.prepare('SELECT detected_lang FROM lyrics_translations WHERE track_id = ? AND target_lang = ? AND source_hash = ?').get(trackId || 'unknown-track', 'en', sourceHash)
+    if (cached?.detected_lang) {
+      const lang = normalizeLang(cached.detected_lang)
+      if (heuristic.lang !== 'unknown' && heuristic.lang !== lang) {
+        return { ...heuristic, source: 'heuristic-override' }
+      }
+      return { lang, confidence: 1, source: 'cache' }
+    }
+    if (heuristic.lang === 'en' && heuristic.confidence >= 0.75) {
+      return { ...heuristic, source: 'heuristic' }
+    }
+    const sample = normalizedLines.slice(0, 18).map(lineToText).filter(Boolean).join('\n').slice(0, 1800)
+    const remote = await detectLanguageViaGoogle(sample)
+    if (remote) return { lang: remote, confidence: 0.86, source: 'remote' }
+    return { ...heuristic, source: 'fallback' }
+  })
+
+  ipcMain.handle('lyrics:translate', async (_, trackId, lines, targetLang = 'en') => {
+    const normalizedLines = Array.isArray(lines) ? lines : []
+    const target = normalizeLang(targetLang || 'en')
+    if (!normalizedLines.length) return { lines: [], detectedLang: 'unknown', targetLang: target, translated: false, source: 'empty' }
+    const safeTrackId = trackId || 'unknown-track'
+    const sourceHash = buildSourceHash(normalizedLines)
+    const cached = db.prepare('SELECT * FROM lyrics_translations WHERE track_id = ? AND target_lang = ? AND source_hash = ?').get(safeTrackId, target, sourceHash)
+    if (cached?.content) {
+      try {
+        const parsed = JSON.parse(cached.content)
+        return {
+          lines: Array.isArray(parsed) ? parsed : normalizedLines,
+          detectedLang: normalizeLang(cached.detected_lang),
+          targetLang: target,
+          translated: true,
+          source: 'cache',
+        }
+      } catch {}
+    }
+
+    const sample = normalizedLines.slice(0, 18).map(lineToText).filter(Boolean).join('\n').slice(0, 1800)
+    let detectedLang = await detectLanguageViaGoogle(sample)
+    if (!detectedLang || detectedLang === 'unknown') {
+      detectedLang = heuristicLanguage(normalizedLines).lang
+    }
+    const heuristic = heuristicLanguage(normalizedLines)
+    if (heuristic.lang !== 'unknown' && heuristic.lang !== normalizeLang(detectedLang)) {
+      detectedLang = heuristic.lang
+    }
+    detectedLang = normalizeLang(detectedLang)
+    if (detectedLang === target || (target === 'en' && detectedLang === 'en')) {
+      return { lines: normalizedLines, detectedLang, targetLang: target, translated: false, source: 'same-language' }
+    }
+
+    const translatedLines = []
+    let remoteDetected = detectedLang
+    for (const line of normalizedLines) {
+      const raw = lineToText(line)
+      if (!raw) {
+        translatedLines.push({ ...line, text: '' })
+        continue
+      }
+      const translated = await translateTextViaGoogle(raw, target)
+      if (translated.lang && translated.lang !== 'unknown') remoteDetected = translated.lang
+      translatedLines.push({ ...line, text: translated.text || raw })
+    }
+
+    db.prepare('INSERT OR REPLACE INTO lyrics_translations (track_id, target_lang, source_hash, detected_lang, content, provider, fetched_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
+      .run(safeTrackId, target, sourceHash, remoteDetected, JSON.stringify(translatedLines), 'google-gtx', Date.now())
+
+    return {
+      lines: translatedLines,
+      detectedLang: normalizeLang(remoteDetected),
+      targetLang: target,
+      translated: true,
+      source: 'remote',
+    }
   })
 }
 

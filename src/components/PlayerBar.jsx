@@ -151,7 +151,7 @@ export default function PlayerBar() {
         {currentTrack && (
           <div className="relative flex-shrink-0">
             <motion.button onClick={toggleLike} whileTap={{ scale: 0.75 }}
-              className={`transition-colors ${isLiked ? 'text-accent' : 'text-subtle hover:text-white'}`}>
+              className={`w-5 h-5 flex items-center justify-center leading-none transition-colors ${isLiked ? 'text-accent' : 'text-subtle hover:text-white'}`}>
               <Heart size={16} fill={isLiked ? 'currentColor' : 'none'} />
             </motion.button>
             <AnimatePresence>
