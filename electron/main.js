@@ -21,6 +21,7 @@ const { registerDiscordHandlers } = require('./ipc/discord')
 const { registerLastFmHandlers } = require('./ipc/lastfm')
 const { registerToolsHandlers } = require('./ipc/tools')
 const { registerPlaylistHandlers } = require('./ipc/playlists')
+const { initPlugins, registerPluginHandlers } = require('./ipc/plugins')
 const { setRemoteState, setRemoteCommandHandler } = require('./ipc/remote')
 let isUpdating = false;
 
@@ -194,6 +195,7 @@ app.whenReady().then(() => {
     app.setAppUserModelId('com.lokal.music');
   }
   try { initDB() } catch (e) { console.error('DB:', e.message) }
+  try { initPlugins() } catch (e) { console.error('Plugins:', e.message) }
   try {
     const db = getDB()
     const setting = db.prepare("SELECT value FROM settings WHERE key = 'prefer_media_keys'").get()
@@ -207,7 +209,7 @@ app.whenReady().then(() => {
     registerScannerHandlers, registerPlayerHandlers, registerDownloaderHandlers,
     registerExtraDownloaderHandlers, registerPlaylistArchiveHandlers, registerLyricsHandlers, registerUserHandlers,
     registerDiscordHandlers, registerExtraHandlers, registerV4Handlers, registerLastFmHandlers,
-    registerToolsHandlers, registerPlaylistHandlers, registerMixesHandlers
+    registerToolsHandlers, registerPlaylistHandlers, registerMixesHandlers, registerPluginHandlers
   ]) {
     try { fn(ipcMain) } catch (e) { console.error(fn.name + ':', e.message) }
   }

@@ -6,7 +6,9 @@ const fs = require('fs-extra')
 try { require('dotenv').config() } catch {}
 
 const { initDB, getDB, getStorageDir } = require('../electron/ipc/db')
+const { initPlugins } = require('../electron/ipc/plugins')
 initDB()
+initPlugins()
 console.log(`DB: ${getStorageDir()}`)
 
 const app = express()
@@ -30,6 +32,7 @@ app.use('/api/mixes', require('./routes/mixes'))
 app.use('/api/albums', require('./routes/albums'))
 app.use('/api/lastfm', require('./routes/lastfm'))
 app.use('/api/remote', require('./routes/remote'))
+app.use('/api/plugins', require('./routes/plugins'))
 
 app.get('/api/stream/:trackId', (req, res) => {
   const track = getDB().prepare('SELECT file_path FROM tracks WHERE id = ?').get(req.params.trackId)

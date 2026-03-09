@@ -126,6 +126,12 @@ export const api = {
   lastfmGetSimilarArtists: (artist, limit) => isE() ? el().lastfmGetSimilarArtists(artist, limit) : apiFetch(`/lastfm/similar/${encodeURIComponent(artist)}?limit=${limit || 5}`),
   lastfmScrobble: (artist, track, album, duration, timestamp) => isE() ? el().lastfmScrobble(artist, track, album, duration, timestamp) : apiFetch('/lastfm/scrobble', { method:'POST', body:{artist, track, album, duration, timestamp} }),
   lastfmUpdateNowPlaying: (artist, track, album, duration) => isE() ? el().lastfmUpdateNowPlaying(artist, track, album, duration) : apiFetch('/lastfm/update-now-playing', { method:'POST', body:{artist, track, album, duration} }),
+  pluginsList: () => isE() ? el().pluginsList() : apiFetch('/plugins'),
+  pluginsReload: () => isE() ? el().pluginsReload() : apiFetch('/plugins/reload', { method: 'POST' }),
+  pluginsEnable: (pluginId) => isE() ? el().pluginsEnable(pluginId) : apiFetch(`/plugins/${encodeURIComponent(pluginId)}/enable`, { method: 'POST' }),
+  pluginsDisable: (pluginId) => isE() ? el().pluginsDisable(pluginId) : apiFetch(`/plugins/${encodeURIComponent(pluginId)}/disable`, { method: 'POST' }),
+  pluginsInstallFromFolder: (sourceFolderPath) => isE() ? el().pluginsInstallFromFolder(sourceFolderPath) : apiFetch('/plugins/install-folder', { method: 'POST', body: { sourceFolderPath } }),
+  pluginsRemove: (pluginId) => isE() ? el().pluginsRemove(pluginId) : apiFetch(`/plugins/${encodeURIComponent(pluginId)}`, { method: 'DELETE' }),
   onScanProgress: (fn) => { if (isE()) return el().onScanProgress(fn); return () => {} },
   onDownloadProgress: (fn) => { if (isE()) return el().onDownloadProgress(fn); return () => {} },
   getAvatarSrc: (user) => {

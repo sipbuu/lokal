@@ -6,6 +6,7 @@ const http = require('http')
 const mm = require('music-metadata')
 const { getDB, getStorageDir } = require('./db')
 const { ipcMain } = require('electron')
+const { emitPluginHook } = require('./plugins')
 
 const DEFAULT_MUSIC_PATH = 'C:\\Users\\sipbuu\\Music'
 const AUDIO_EXTS = new Set(['.mp3', '.flac', '.m4a', '.ogg', '.wav', '.aac', '.opus', '.wma', '.alac', '.ape'])
@@ -136,8 +137,8 @@ async function scanFolder(folderPath) {
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `)
 
-  const insertBatch = db.transaction((batch) => {
-    for (const item of batch) {
+  const insertBatchTransaction = db.transaction((items) => {
+    for (const item of items) {
       upsertTrack.run(item.id, item.file_path, item.file_hash, item.title, item.artist, item.album, item.album_artist, item.track_num, item.year, item.genre, item.duration, item.artwork_path, item.bitrate, item.last_modified, item.replaygain)
       const artistNames = splitArtists(item.artist)
       for (const name of artistNames) {
@@ -151,6 +152,20 @@ async function scanFolder(folderPath) {
       }
     }
   })
+  const insertBatch = async (items) => {
+    insertBatchTransaction(items)
+    for (const item of items) {
+      await emitPluginHook('onTrackIndexed', {
+        id: item.id,
+        title: item.title,
+        artist: item.artist,
+        album: item.album,
+        genre: item.genre,
+        duration: item.duration,
+        filePath: item.file_path,
+      })
+    }
+  }
 
   const BATCH = 20
   let batch = []
@@ -177,11 +192,11 @@ async function scanFolder(folderPath) {
       const artwork = await extractArtwork(meta, trackId)
       const replaygain = c.replaygain_track_gain || null
       batch.push({ id: trackId, file_path: filePath, file_hash: trackId, title, artist, album: c.album?.trim() || null, album_artist: c.albumartist?.trim() || null, track_num: c.track?.no || null, year: c.year || null, genre: c.genre?.[0] || null, duration, artwork_path: artwork, bitrate: meta.format.bitrate ? Math.round(meta.format.bitrate / 1000) : null, last_modified: stat.mtimeMs, replaygain })
-      if (batch.length >= BATCH) { insertBatch(batch); batch = [] }
+      if (batch.length >= BATCH) { await insertBatch(batch); batch = [] }
     } catch { scanStatus.errors++ }
     scanStatus.done++; emit('scanner:progress', { ...scanStatus })
   }
-  if (batch.length > 0) insertBatch(batch)
+  if (batch.length > 0) await insertBatch(batch)
   scanStatus.scanning = false; emit('scanner:progress', { ...scanStatus, complete: true })
   return scanStatus
 }
@@ -650,6 +665,15 @@ async function indexSingleFile(filePath, opts = {}) {
   })
   
   insertTransaction()
+  await emitPluginHook('onTrackIndexed', {
+    id: trackId,
+    title,
+    artist,
+    album: c.album?.trim() || null,
+    genre,
+    duration,
+    filePath,
+  })
   return { success: true, id: trackId }
 }
 
