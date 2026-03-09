@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useRef } from 'react'
+﻿import React, { useEffect, useState, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Save, Tags, FolderOpen, RefreshCw, Trash2, AlertTriangle, Link, CheckCircle, Disc3, Zap, Download, Music2, X, MoreHorizontal, ListMusic, Palette, ChevronDown, ChevronUp, RefreshCcw, Image as ImageIcon } from 'lucide-react'
 import { api } from '../api'
@@ -644,12 +644,6 @@ export default function Settings() {
           <button onClick={rescan} disabled={scanning || !settings.music_folder}
             className="flex items-center gap-2 px-4 py-2 bg-card border border-border rounded-lg text-sm text-white hover:border-accent/30 disabled:opacity-40 transition-colors">
             <RefreshCw size={13} className={scanning ? 'animate-spin' : ''} />{scanning ? 'Scanning…' : 'Rescan'}
-          </button>
-        </Row>
-        <Row label="Albums Browser" desc="Browse all albums in your library">
-          <button onClick={openAlbums}
-            className="flex items-center gap-2 px-4 py-2 bg-card border border-border rounded-lg text-sm text-muted hover:text-white hover:border-accent/30 transition-colors">
-            <Disc3 size={14} /> Browse Albums
           </button>
         </Row>
         <Row label="Check Duplicates" desc="Find tracks with same title & artist">
