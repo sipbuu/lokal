@@ -207,6 +207,48 @@ function addArtistFallback(db, artist) {
   return { ...artist, image_path: firstTrack?.artwork_path || null }
 }
 
+function getArtistsPage(db, opts = {}) {
+  const limit = Math.max(1, Math.min(200, parseInt(opts.limit, 10) || 60))
+  const offset = Math.max(0, parseInt(opts.offset, 10) || 0)
+  const rawSearch = typeof opts.search === 'string' ? opts.search.trim() : ''
+  const params = []
+  let where = 'WHERE track_count > 0'
+
+  if (rawSearch) {
+    where += ' AND a.name LIKE ?'
+    params.push(`%${rawSearch}%`)
+  }
+
+  const baseSql = `
+    FROM artists a
+    LEFT JOIN artist_track_links atl ON atl.artist_id = a.id
+    GROUP BY a.id
+  `
+  const rows = db.prepare(`
+    SELECT a.*, COUNT(DISTINCT atl.track_id) as track_count
+    ${baseSql}
+    ${where}
+    ORDER BY a.name
+    LIMIT ? OFFSET ?
+  `).all(...params, limit, offset)
+  const totalRow = db.prepare(`
+    SELECT COUNT(*) as total
+    FROM (
+      SELECT a.id
+      ${baseSql}
+      ${where}
+    ) grouped_artists
+  `).get(...params)
+
+  return {
+    items: rows.map(artist => addArtistFallback(db, artist)),
+    total: totalRow?.total || 0,
+    limit,
+    offset,
+    hasMore: offset + rows.length < (totalRow?.total || 0),
+  }
+}
+
 function scoreTrack(track) {
   let score = 0
   if (track.bitrate) score += track.bitrate / 100
@@ -235,6 +277,10 @@ function registerScannerHandlers(ipcMain) {
     const db = getDB()
     const artists = db.prepare(`SELECT a.*, COUNT(DISTINCT atl.track_id) as track_count FROM artists a LEFT JOIN artist_track_links atl ON atl.artist_id = a.id GROUP BY a.id HAVING track_count > 0 ORDER BY a.name`).all()
     return artists.map(artist => addArtistFallback(db, artist))
+  })
+  ipcMain.handle('scanner:getArtistsPage', (_, opts = {}) => {
+    const db = getDB()
+    return getArtistsPage(db, opts)
   })
   ipcMain.handle('scanner:getArtist', (_, id) => {
     const db = getDB()
