@@ -115,10 +115,7 @@ async function tryConnect(clientId) {
   if (!clientId) return false
   try {
     const DiscordRPC = require('discord-rpc')
-    if (rpcClient) {
-      try { rpcClient.destroy() } catch {}
-      rpcClient = null
-    }
+    await disconnectRpc()
     rpcClient = new DiscordRPC.Client({ transport: 'ipc' })
     rpcClient.on('error', () => { rpcClient = null })
     await Promise.race([
@@ -129,6 +126,23 @@ async function tryConnect(clientId) {
   } catch (e) {
     rpcClient = null
     return false
+  }
+}
+
+async function disconnectRpc() {
+  if (rpcClient) {
+    try {
+      await rpcClient.clearActivity()
+    } catch {}
+    try {
+      rpcClient.destroy()
+    } catch {}
+    rpcClient = null
+  }
+  if (artworkServer) {
+    try { artworkServer.close() } catch {}
+    artworkServer = null
+    artworkPort = null
   }
 }
 
@@ -202,18 +216,8 @@ function registerDiscordHandlers(ipcMain) {
   })
 
   ipcMain.handle('discord:disconnect', async () => {
-    if (rpcClient) {
-      try {
-        await rpcClient.clearActivity()
-        rpcClient.destroy()
-      } catch {}
-      rpcClient = null
-    }
-    if (artworkServer) {
-      try { artworkServer.close() } catch {}
-      artworkServer = null
-      artworkPort = null
-    }
+    await disconnectRpc()
+    return true
   })
 }
 
