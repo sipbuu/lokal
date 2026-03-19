@@ -15,14 +15,58 @@ function addArtistFallback(db, artist) {
 
 router.get('/', (req, res) => {
   const db = getDB()
-  const artists = db.prepare(`
+  const search = typeof req.query.search === 'string' ? req.query.search.trim() : ''
+  const hasPaging = !!search || req.query.limit !== undefined || req.query.offset !== undefined
+  const limit = hasPaging ? Math.max(1, Math.min(200, parseInt(req.query.limit, 10) || 60)) : null
+  const offset = hasPaging ? Math.max(0, parseInt(req.query.offset, 10) || 0) : 0
+  const params = []
+  let where = 'WHERE track_count > 0'
+
+  if (search) {
+    where += ' AND a.name LIKE ?'
+    params.push(`%${search}%`)
+  }
+
+  const baseSql = `
+    FROM artists a
+    LEFT JOIN artist_track_links atl ON atl.artist_id = a.id
+    GROUP BY a.id
+  `
+  const selectSql = `
     SELECT a.*, COUNT(t.id) as track_count FROM artists a
     JOIN tracks t ON t.artist = a.name GROUP BY a.id ORDER BY a.name
-  `).all()
-  
-  
-  const artistsWithFallback = artists.map(artist => addArtistFallback(db, artist))
-  res.json(artistsWithFallback)
+  `
+
+  if (!hasPaging) {
+    const artists = db.prepare(selectSql).all()
+    const artistsWithFallback = artists.map(artist => addArtistFallback(db, artist))
+    res.json(artistsWithFallback)
+    return
+  }
+
+  const rows = db.prepare(`
+    SELECT a.*, COUNT(DISTINCT atl.track_id) as track_count
+    ${baseSql}
+    ${where}
+    ORDER BY a.name
+    LIMIT ? OFFSET ?
+  `).all(...params, limit, offset)
+  const totalRow = db.prepare(`
+    SELECT COUNT(*) as total
+    FROM (
+      SELECT a.id
+      ${baseSql}
+      ${where}
+    ) grouped_artists
+  `).get(...params)
+
+  res.json({
+    items: rows.map(artist => addArtistFallback(db, artist)),
+    total: totalRow?.total || 0,
+    limit,
+    offset,
+    hasMore: offset + rows.length < (totalRow?.total || 0),
+  })
 })
 
 router.get('/:id', (req, res) => {
