@@ -8,6 +8,15 @@ const isE = () => {
 const el = () => window.electron
 const BASE = '/api'
 
+function normalizeProfilePayload(data = {}) {
+  return {
+    userId: data.userId,
+    displayName: data.displayName ?? data.display_name,
+    bio: data.bio ?? '',
+    avatarData: data.avatarData ?? data.avatar ?? null,
+  }
+}
+
 async function apiFetch(path, opts = {}) {
   try {
     const res = await fetch(BASE + path, {
@@ -122,7 +131,13 @@ export const api = {
   historyExport: (uid, format) => isE() ? el().historyExport(uid, format) : apiFetch(`/tracks/history/export?userId=${uid||'guest'}&format=${format||'json'}`),
   register: (d) => isE() ? el().register(d) : apiFetch('/users/register', { method:'POST', body:d }),
   login: (d) => isE() ? el().login(d) : apiFetch('/users/login', { method:'POST', body:d }),
-  updateProfile: (d) => isE() ? el().updateProfile(d) : apiFetch(`/users/${d.userId}`, { method:'PUT', body:d }),
+  updateProfile: async (d) => {
+    const payload = normalizeProfilePayload(d)
+    const result = isE()
+      ? await el().updateProfile(payload)
+      : await apiFetch(`/users/${payload.userId}`, { method:'PUT', body: payload })
+    return result?.user || result
+  },
   getUserStats: (uid) => isE() ? el().getUserStats(uid) : apiFetch(`/users/${uid}/stats`),
   discordSetActivity: (t, p) => { if (isE() && el().discordSetActivity) return el().discordSetActivity(t, p); return Promise.resolve() },
   discordConnect: (id) => isE() ? el().discordConnect(id) : Promise.resolve(false),
@@ -144,7 +159,8 @@ export const api = {
   getAvatarSrc: (user) => {
     if (!user) return 'fallback_nopfp.png';
     if (user.avatar_path) {
-       return isE() ? `file://${user.avatar_path}` : `${BASE}/avatar/${user.id}`;
+       const version = user.avatar_updated_at ? `?v=${user.avatar_updated_at}` : '';
+       return isE() ? `file://${user.avatar_path}${version}` : `${BASE}/avatar/${user.id}${version}`;
     }
     return 'fallback_nopfp.png';
   },

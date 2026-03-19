@@ -15,7 +15,7 @@ router.post('/register', async (req, res) => {
   const hash = bcrypt.hashSync(password, 10)
   db.prepare('INSERT INTO users (id, username, display_name, password_hash) VALUES (?, ?, ?, ?)')
     .run(id, username.toLowerCase(), displayName?.trim() || username, hash)
-  res.json({ user: { id, username: username.toLowerCase(), display_name: displayName || username, avatar_path: null } })
+  res.json({ user: { id, username: username.toLowerCase(), display_name: displayName || username, avatar_path: null, bio: null } })
 })
 
 router.post('/login', (req, res) => {
@@ -30,10 +30,18 @@ router.post('/login', (req, res) => {
 })
 
 router.put('/:id', async (req, res) => {
-  const { displayName, avatarData } = req.body
+  const payload = req.body || {}
+  const displayName = payload.displayName ?? payload.display_name
+  const avatarData = payload.avatarData ?? payload.avatar
+  const bio = payload.bio
   const db = getDB()
   const updates = []; const params = []
-  if (displayName) { updates.push('display_name = ?'); params.push(displayName) }
+  if (Object.prototype.hasOwnProperty.call(payload, 'displayName') || Object.prototype.hasOwnProperty.call(payload, 'display_name')) {
+    updates.push('display_name = ?'); params.push(displayName)
+  }
+  if (Object.prototype.hasOwnProperty.call(payload, 'bio')) {
+    updates.push('bio = ?'); params.push(bio)
+  }
   if (avatarData) {
     const buf = Buffer.from(avatarData.split(',')[1], 'base64')
     const avPath = path.join(getStorageDir(), 'avatars', `${req.params.id}.jpg`)
@@ -42,8 +50,8 @@ router.put('/:id', async (req, res) => {
     updates.push('avatar_path = ?'); params.push(avPath)
   }
   if (updates.length) { params.push(req.params.id); db.prepare(`UPDATE users SET ${updates.join(', ')} WHERE id = ?`).run(...params) }
-  const updated = db.prepare('SELECT id, username, display_name, avatar_path, created_at FROM users WHERE id = ?').get(req.params.id)
-  res.json({ user: updated })
+  const updated = db.prepare('SELECT id, username, display_name, avatar_path, bio, created_at FROM users WHERE id = ?').get(req.params.id)
+  res.json({ user: updated ? { ...updated, avatar_updated_at: avatarData ? Date.now() : undefined } : updated })
 })
 
 router.get('/:id/settings', (req, res) => {

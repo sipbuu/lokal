@@ -13,7 +13,7 @@ function registerUserHandlers(ipcMain) {
     const hash = bcrypt.hashSync(password, 10)
     db.prepare('INSERT INTO users (id, username, display_name, password_hash) VALUES (?, ?, ?, ?)')
       .run(id, username.toLowerCase(), displayName?.trim() || username, hash)
-    return { user: { id, username: username.toLowerCase(), display_name: displayName || username, avatar_path: null } }
+    return { user: { id, username: username.toLowerCase(), display_name: displayName || username, avatar_path: null, bio: null } }
   })
 
   ipcMain.handle('user:login', async (_, { username, password }) => {
@@ -26,8 +26,12 @@ function registerUserHandlers(ipcMain) {
     return { user: safe }
   })
 
-  ipcMain.handle('user:updateProfile', async (_, { userId, displayName, avatarData }) => {
+  ipcMain.handle('user:updateProfile', async (_, payload = {}) => {
     const db = getDB()
+    const userId = payload.userId
+    const displayName = payload.displayName ?? payload.display_name
+    const bio = payload.bio
+    const avatarData = payload.avatarData ?? payload.avatar
     let avatarPath = null
     if (avatarData) {
       const buf = Buffer.from(avatarData.split(',')[1], 'base64')
@@ -37,14 +41,21 @@ function registerUserHandlers(ipcMain) {
     }
     const updates = []
     const params = []
-    if (displayName) { updates.push('display_name = ?'); params.push(displayName) }
+    if (Object.prototype.hasOwnProperty.call(payload, 'displayName') || Object.prototype.hasOwnProperty.call(payload, 'display_name')) {
+      updates.push('display_name = ?')
+      params.push(displayName)
+    }
+    if (Object.prototype.hasOwnProperty.call(payload, 'bio')) {
+      updates.push('bio = ?')
+      params.push(bio)
+    }
     if (avatarPath) { updates.push('avatar_path = ?'); params.push(avatarPath) }
     if (updates.length) {
       params.push(userId)
       db.prepare(`UPDATE users SET ${updates.join(', ')} WHERE id = ?`).run(...params)
     }
-    const updated = db.prepare('SELECT id, username, display_name, avatar_path, created_at FROM users WHERE id = ?').get(userId)
-    return { user: updated }
+    const updated = db.prepare('SELECT id, username, display_name, avatar_path, bio, created_at FROM users WHERE id = ?').get(userId)
+    return { user: updated ? { ...updated, avatar_updated_at: avatarPath ? Date.now() : undefined } : updated }
   })
 
   ipcMain.handle('user:getUserSettings', (_, userId) => {
