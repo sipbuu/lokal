@@ -39,6 +39,13 @@ export const api = {
   deleteTracks: (ids) => isE() ? el().deleteTracks(ids) : apiFetch('/tracks/batch-delete', { method:'POST', body:{ids} }),
   deleteTrackByPath: (filePath) => isE() ? el().deleteTrackByPath(filePath) : apiFetch('/tracks/delete-by-path', { method:'POST', body:{filePath} }),
   getArtists: () => isE() ? el().getArtists() : apiFetch('/artists'),
+  getArtistsPage: (opts = {}) => isE()
+    ? el().getArtistsPage(opts)
+    : apiFetch(`/artists?${new URLSearchParams({
+        search: opts.search || '',
+        limit: String(opts.limit || 60),
+        offset: String(opts.offset || 0),
+      })}`),
   getArtist: (id) => isE() ? el().getArtist(id) : apiFetch(`/artists/${id}`),
   getAlbumTracks: (a) => isE() ? el().getAlbumTracks(a) : apiFetch(`/tracks?album=${encodeURIComponent(a)}`),
   getAllAlbums: () => isE() ? el().getAllAlbums() : apiFetch('/albums'),
