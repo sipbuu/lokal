@@ -3,6 +3,7 @@ import { motion } from 'framer-motion'
 import { Play, Pause, SkipBack, SkipForward, X, Volume2, VolumeX, Heart } from 'lucide-react'
 import { usePlayerStore, useAppStore } from '../store/player'
 import { api } from '../api'
+import Waveform from './Waveform'
 
 function fmt(s) { return `${Math.floor((s||0)/60)}:${Math.floor((s||0)%60).toString().padStart(2,'0')}` }
 
@@ -297,7 +298,7 @@ export default function MiniPlayer({ windowed = false }) {
         </div>
       </div>
 
-      <div className={`${windowed ? 'px-4 pb-4 pt-3' : 'px-3 pb-3 pt-2'} flex items-center justify-between`}>
+      <div className={`${windowed ? 'px-4 pb-4 pt-3' : 'px-3 pb-3 pt-2'} flex items-center justify-between gap-3`}>
         <div className="flex items-center gap-1">
           <button
             onClick={() => setVolume(volume > 0 ? 0 : 0.8)}
@@ -342,15 +343,27 @@ export default function MiniPlayer({ windowed = false }) {
           </button>
         </div>
 
-        <input
-          type="range"
-          min={0}
-          max={1}
-          step={0.01}
-          value={volume}
-          onChange={(e) => setVolume(parseFloat(e.target.value))}
-          className={windowed ? 'w-24 accent-accent cursor-pointer h-1' : 'w-16 accent-accent cursor-pointer h-1'}
-        />
+        <div className="flex items-center gap-2">
+          {currentTrack && (
+            <div className={windowed ? 'w-12 h-4' : 'w-10 h-4'}>
+              <Waveform
+                isPlaying={isPlaying}
+                barCount={windowed ? 18 : 14}
+                defaultWidth={windowed ? 48 : 40}
+                defaultHeight={16}
+              />
+            </div>
+          )}
+          <input
+            type="range"
+            min={0}
+            max={1}
+            step={0.01}
+            value={volume}
+            onChange={(e) => setVolume(parseFloat(e.target.value))}
+            className={windowed ? 'w-24 accent-accent cursor-pointer h-1' : 'w-16 accent-accent cursor-pointer h-1'}
+          />
+        </div>
       </div>
     </motion.div>
   )

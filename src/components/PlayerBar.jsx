@@ -119,8 +119,9 @@ export default function PlayerBar() {
   }
 
   return (
-    <div className="h-20 border-t border-border flex items-center px-4 gap-4 flex-shrink-0 z-10" style={{ backgroundColor: 'rgba(var(--surface-rgb), 0.9)', backdropFilter: 'blur(12px)' }}>
-      <div className="flex items-center gap-3 w-60 min-w-0">
+    <>
+      <div className="h-20 border-t border-border flex items-center px-4 gap-4 flex-shrink-0 z-10" style={{ backgroundColor: 'rgba(var(--surface-rgb), 0.9)', backdropFilter: 'blur(12px)' }}>
+        <div className="flex items-center gap-3 w-60 min-w-0">
         <button onClick={toggleFullscreen} disabled={!currentTrack}
           className="w-12 h-12 rounded-md overflow-hidden flex-shrink-0 bg-elevated hover:ring-2 ring-accent/30 transition-all disabled:cursor-default">
           <AnimatePresence mode="wait">
@@ -171,9 +172,9 @@ export default function PlayerBar() {
             <Plus size={14} />
           </button>
         )}
-      </div>
+        </div>
 
-      <div className="flex-1 flex flex-col items-center gap-1.5 min-w-0">
+        <div className="flex-1 flex flex-col items-center gap-1.5 min-w-0">
         <div className="flex items-center gap-4">
           <button onClick={toggleShuffle} className={`transition-colors ${shuffle ? 'text-accent' : 'text-subtle hover:text-white'}`} title={shuffle ? "Shuffle on" : "Shuffle off"}><Shuffle size={15} /></button>
           <button onClick={prev} className="text-muted hover:text-white transition-colors" title="Previous"><SkipBack size={18} fill="currentColor" /></button>
@@ -197,42 +198,43 @@ export default function PlayerBar() {
           </div>
           <span className="text-xs text-muted w-8 font-display">{fmt(duration)}</span>
         </div>
-      </div>
-
-      <div className="flex items-center gap-2 w-52 justify-end">
-        {currentTrack && (
-          <div className="flex-shrink-0">
-            <Waveform isPlaying={isPlaying} />
-          </div>
-        )}
-        <button onClick={toggleLyricsFullscreen} className="text-subtle hover:text-accent transition-colors" title="Lyrics"><Mic2 size={16} /></button>
-        <button onClick={toggleQueue} className={`transition-colors ${showQueue ? 'text-accent' : 'text-subtle hover:text-white'}`} title="Queue"><ListMusic size={16} /></button>
-        <button onClick={toggleRightSidebar} className={`transition-colors ${showRightSidebar ? 'text-accent' : 'text-subtle hover:text-white'}`} title="Now Playing">< PanelRight size={16} /></button>
-        <button onClick={toggleMiniPlayer} disabled={!currentTrack} className="text-subtle hover:text-accent transition-colors disabled:opacity-30" title="Mini Player"><Radio size={15} /></button>
-        <button onClick={toggleFullscreen} disabled={!currentTrack} className="text-subtle hover:text-white transition-colors disabled:opacity-30" title="Fullscreen"><Maximize2 size={15} /></button>
-        
-        <div className="relative flex items-center justify-center">
-          <button 
-            onClick={() => setShowSleepTimer(!showSleepTimer)} 
-            className={`flex items-center justify-center transition-colors ${sleepTimerEndTime ? 'text-accent' : 'text-subtle hover:text-white'}`} 
-            title={sleepTimerEndTime ? `Sleep timer: ${sleepTimerDisplay}` : "Sleep Timer"}
-          >
-            <Moon size={16} />
-          </button>
-          {sleepTimerEndTime && (
-            <span className="absolute -top-2 -right-3 text-[8px] text-accent font-mono bg-surface px-1 rounded-full">
-              {sleepTimerDisplay}
-            </span>
-          )}
         </div>
-        
-        <div className="flex items-center gap-1.5 ml-1">
-          <button onClick={() => setVolume(volume > 0 ? 0 : 0.8)} className="text-muted hover:text-white transition-colors">
-            {volume === 0 ? <VolumeX size={15} /> : <Volume2 size={15} />}
-          </button>
-          <input type="range" min={0} max={1} step={0.01} value={volume}
-            onChange={e => setVolume(parseFloat(e.target.value))}
-            className="w-18 accent-accent cursor-pointer h-1" style={{ width: 72 }} />
+
+        <div className="flex items-center gap-2 w-52 justify-end">
+          {currentTrack && (
+            <div className="flex-shrink-0">
+              <Waveform isPlaying={isPlaying} />
+            </div>
+          )}
+          <button onClick={toggleLyricsFullscreen} className="text-subtle hover:text-accent transition-colors" title="Lyrics"><Mic2 size={16} /></button>
+          <button onClick={toggleQueue} className={`transition-colors ${showQueue ? 'text-accent' : 'text-subtle hover:text-white'}`} title="Queue"><ListMusic size={16} /></button>
+          <button onClick={toggleRightSidebar} className={`transition-colors ${showRightSidebar ? 'text-accent' : 'text-subtle hover:text-white'}`} title="Now Playing">< PanelRight size={16} /></button>
+          <button onClick={toggleMiniPlayer} disabled={!currentTrack} className="text-subtle hover:text-accent transition-colors disabled:opacity-30" title="Mini Player"><Radio size={15} /></button>
+          <button onClick={toggleFullscreen} disabled={!currentTrack} className="text-subtle hover:text-white transition-colors disabled:opacity-30" title="Fullscreen"><Maximize2 size={15} /></button>
+          
+          <div className="relative flex items-center justify-center">
+            <button 
+              onClick={() => setShowSleepTimer(!showSleepTimer)} 
+              className={`flex items-center justify-center transition-colors ${sleepTimerEndTime ? 'text-accent' : 'text-subtle hover:text-white'}`} 
+              title={sleepTimerEndTime ? `Sleep timer: ${sleepTimerDisplay}` : "Sleep Timer"}
+            >
+              <Moon size={16} />
+            </button>
+            {sleepTimerEndTime && (
+              <span className="absolute -top-2 -right-3 text-[8px] text-accent font-mono bg-surface px-1 rounded-full">
+                {sleepTimerDisplay}
+              </span>
+            )}
+          </div>
+          
+          <div className="flex items-center gap-1.5 ml-1">
+            <button onClick={() => setVolume(volume > 0 ? 0 : 0.8)} className="text-muted hover:text-white transition-colors">
+              {volume === 0 ? <VolumeX size={15} /> : <Volume2 size={15} />}
+            </button>
+            <input type="range" min={0} max={1} step={0.01} value={volume}
+              onChange={e => setVolume(parseFloat(e.target.value))}
+              className="w-18 accent-accent cursor-pointer h-1" style={{ width: 72 }} />
+          </div>
         </div>
       </div>
 
@@ -280,6 +282,6 @@ export default function PlayerBar() {
           </button>
         </div>
       </Modal>
-    </div>
+    </>
   )
 }
