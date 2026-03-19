@@ -351,10 +351,19 @@ export default function Settings() {
       : DEFAULT_DISCORD_CLIENT_ID
     if (!id) { setDiscordStatus('Enter a Client ID first'); return }
     await api.saveSettings({ discord_client_id: id })
+    setDiscordStatus('Resetting previous session…')
+    await api.discordDisconnect()
     setDiscordStatus('Connecting…')
     const ok = await api.discordConnect(id)
     setDiscordStatus(ok ? '✓ Connected!' : '✗ Failed — is Discord open?')
     setTimeout(() => setDiscordStatus(''), 6000)
+  }
+
+  const disconnectDiscord = async () => {
+    setDiscordStatus('Disconnecting…')
+    await api.discordDisconnect()
+    setDiscordStatus('✓ Disconnected')
+    setTimeout(() => setDiscordStatus(''), 4000)
   }
 
   const importPhotos = async () => {
@@ -1035,6 +1044,10 @@ export default function Settings() {
             <button onClick={connectDiscord}
               className="px-4 py-2 bg-[#5865F2]/20 border border-[#5865F2]/40 text-[#7289da] rounded-lg text-sm hover:bg-[#5865F2]/30 transition-colors">
               Connect
+            </button>
+            <button onClick={disconnectDiscord}
+              className="px-4 py-2 bg-card border border-border text-muted rounded-lg text-sm hover:text-white hover:border-accent/30 transition-colors">
+              Kill Previous
             </button>
             {discordStatus && (
               <span className={`text-xs ${discordStatus.startsWith('✓') ? 'text-accent' : discordStatus.startsWith('✗') ? 'text-red-400' : 'text-muted'}`}>
