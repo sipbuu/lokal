@@ -1,5 +1,6 @@
 ﻿import React, { useEffect, useState, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
+import { useDeferredValue } from 'react'
 import { Save, Tags, FolderOpen, RefreshCw, Trash2, AlertTriangle, Link, CheckCircle, Disc3, Zap, Download, Music2, X, MoreHorizontal, ListMusic, Palette, ChevronDown, ChevronUp, RefreshCcw, Image as ImageIcon, Puzzle } from 'lucide-react'
 import { api } from '../api'
 import { useAppStore } from '../store/player'
@@ -8,7 +9,17 @@ import ArtistManageModal from '../components/ArtistManageModal'
 import { THEMES, ACCENT_COLORS, applyTheme } from '../theme'
 import { useTheme } from '../themeHooks'
 
-const EQ_BANDS = ['64Hz', '250Hz', '1kHz', '4kHz', '16kHz']
+const EQ_BANDS = ['31Hz', '62Hz', '125Hz', '250Hz', '500Hz', '1kHz', '2kHz', '4kHz', '8kHz', '16kHz']
+const EQ_PRESETS = {
+  flat: { label: 'Flat', gains: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0] },
+  bassBoost: { label: 'Bass Boost', gains: [5, 4.5, 3, 1.5, 0.5, 0, -0.5, -1, -1.5, -2] },
+  vocalBoost: { label: 'Vocal Boost', gains: [-1.5, -1, -0.5, 0.5, 1.5, 3, 3.5, 2.5, 1, 0] },
+  bright: { label: 'Bright', gains: [-1, -0.5, 0, 0.5, 1, 1.5, 2.5, 3, 3.5, 3] },
+  electronic: { label: 'Electronic', gains: [4, 3, 1, 0, -1, 1, 2, 3, 4, 4.5] },
+  mellow: { label: 'Mellow', gains: [1.5, 1, 0.5, 0, -0.5, -1, -0.5, 0.5, 1, 1.5] },
+}
+const DEFAULT_EQ_PRESET = 'flat'
+const ARTISTS_PAGE_SIZE = 60
 const DEFAULT_DISCORD_CLIENT_ID = '1473597925581131919'
 const SETTINGS_CATEGORIES = [
   { key: 'library', label: 'Library', icon: Music2 },
@@ -90,14 +101,37 @@ function ThreeDotsMenu({ items = [], align = 'right' }) {
   )
 }
 
+function normalizeEqGains(values) {
+  const safeValues = Array.isArray(values) ? values.map(v => Number(v) || 0) : []
+  if (safeValues.length === EQ_BANDS.length) {
+    return safeValues.slice(0, EQ_BANDS.length)
+  }
+  if (safeValues.length === 5) {
+    return [safeValues[0], safeValues[0], safeValues[1], safeValues[1], safeValues[2], safeValues[2], safeValues[3], safeValues[3], safeValues[4], safeValues[4]]
+  }
+  return EQ_BANDS.map((_, i) => safeValues[i] || 0)
+}
+
+function getEqPresetKey(gains) {
+  const normalized = normalizeEqGains(gains)
+  const match = Object.entries(EQ_PRESETS).find(([, preset]) =>
+    preset.gains.length === normalized.length && preset.gains.every((value, index) => value === normalized[index])
+  )
+  return match?.[0] || 'custom'
+}
+
 export default function Settings() {
   const [settings, setSettings] = useState({})
   const [saved, setSaved] = useState(false)
   const [scanning, setScanning] = useState(false)
   const [showGenreModal, setShowGenreModal] = useState(false)
-  const [eqGains, setEqGains] = useState([0, 0, 0, 0, 0])
+  const [eqGains, setEqGains] = useState(EQ_PRESETS[DEFAULT_EQ_PRESET].gains)
+  const [eqPreset, setEqPreset] = useState(DEFAULT_EQ_PRESET)
   const [showClearModal, setShowClearModal] = useState(false)
   const [artists, setArtists] = useState([])
+  const [artistsLoading, setArtistsLoading] = useState(false)
+  const [artistsHasMore, setArtistsHasMore] = useState(false)
+  const [artistsTotal, setArtistsTotal] = useState(0)
   const [manageArtist, setManageArtist] = useState(null)
   const [artistSearch, setArtistSearch] = useState('')
   const [discordStatus, setDiscordStatus] = useState('')
@@ -143,6 +177,9 @@ export default function Settings() {
   
   const { openAlbums, user } = useAppStore()
   const fileInputRef = useRef(null)
+  const artistOffsetRef = useRef(0)
+  const artistRequestRef = useRef(0)
+  const deferredArtistSearch = useDeferredValue(artistSearch)
   const { themeName, themeOverrides, showAdvanced, setShowAdvanced, selectTheme, setAccent, saveOverride, resetTheme, textScale, setTextScale } = useTheme()
 
   useEffect(() => {
@@ -165,7 +202,11 @@ export default function Settings() {
 
     })
 
-    try { setEqGains(JSON.parse(localStorage.getItem('lokal-eq') || '[]') || [0,0,0,0,0]) } catch {}
+    try {
+      const nextEq = normalizeEqGains(JSON.parse(localStorage.getItem('lokal-eq') || '[]'))
+      setEqGains(nextEq)
+      setEqPreset(getEqPresetKey(nextEq))
+    } catch {}
 
     if (api.isElectron) {
 
@@ -183,8 +224,28 @@ export default function Settings() {
   }, []) 
 
   const loadArtists = async () => {
-    const a = await api.getArtists()
-    setArtists(Array.isArray(a) ? a : [])
+    const requestId = ++artistRequestRef.current
+    const offset = artistOffsetRef.current
+    setArtistsLoading(true)
+    try {
+      const result = await api.getArtistsPage({ search: deferredArtistSearch, limit: ARTISTS_PAGE_SIZE, offset })
+      if (requestId !== artistRequestRef.current) return
+      const nextItems = Array.isArray(result?.items) ? result.items : Array.isArray(result) ? result : []
+      artistOffsetRef.current = offset + nextItems.length
+      setArtists(prev => offset === 0 ? nextItems : [...prev, ...nextItems])
+      setArtistsHasMore(Boolean(result?.hasMore))
+      setArtistsTotal(Number(result?.total) || nextItems.length)
+    } finally {
+      if (requestId === artistRequestRef.current) {
+        setArtistsLoading(false)
+      }
+    }
+  }
+
+  const refreshArtists = async () => {
+    artistOffsetRef.current = 0
+    setArtists([])
+    await loadArtists()
   }
 
   const loadPlugins = async () => {
@@ -201,10 +262,10 @@ export default function Settings() {
   }
 
   useEffect(() => {
-    if (activeCategory === 'artists' && artists.length === 0) {
-      loadArtists()
+    if (activeCategory === 'artists') {
+      refreshArtists()
     }
-  }, [activeCategory])
+  }, [activeCategory, deferredArtistSearch])
 
   useEffect(() => {
     if (activeCategory === 'plugins') {
@@ -253,14 +314,25 @@ export default function Settings() {
   const save = async () => {
     await api.saveSettings(settings)
     localStorage.setItem('lokal-eq', JSON.stringify(eqGains))
+    localStorage.setItem('lokal-eq-preset', eqPreset)
     setSaved(true)
     setTimeout(() => setSaved(false), 2000)
   }
 
-  const setEQ = (i, v) => {
+  const applyEqGains = (nextGains, presetKey = getEqPresetKey(nextGains)) => {
+    const normalized = normalizeEqGains(nextGains)
+    setEqGains(normalized)
+    setEqPreset(presetKey)
     window.__lokalInitAudio?.()
-    const next = [...eqGains]; next[i] = v; setEqGains(next)
-    window.__lokaleq?.setGain(i, v)
+    normalized.forEach((gain, index) => {
+      window.__lokaleq?.setGain(index, gain)
+    })
+  }
+
+  const setEQ = (i, v) => {
+    const next = [...eqGains]
+    next[i] = v
+    applyEqGains(next)
   }
 
   const rescan = async () => {
@@ -269,7 +341,7 @@ export default function Settings() {
     await api.scanFolder(settings.music_folder)
     setScanning(false)
     if (activeCategory === 'artists') {
-      loadArtists()
+      refreshArtists()
     }
   }
 
@@ -299,7 +371,7 @@ export default function Settings() {
     if (urlTarget.type === 'artist') await api.artistSetImageUrl(urlTarget.id, urlTarget.url)
     setShowUrlModal(false)
     setUrlTarget({ type: '', id: '', url: '' })
-    loadArtists()
+    refreshArtists()
   }
 
   const checkDuplicates = async () => {
@@ -559,7 +631,7 @@ export default function Settings() {
     await loadPlugins()
   }
 
-  const filtered = artists.filter(a => a.name.toLowerCase().includes(artistSearch.toLowerCase()))
+  const filtered = artists
 
   const exportMenuItems = [
     { label: 'Export as JSON', icon: <Download size={14} />, onClick: () => handleHistoryExport('json') },
@@ -763,7 +835,7 @@ export default function Settings() {
           </div>
         </Row>
         <Row label="Set Image by URL" desc="Download image from URL, assign to artist">
-          <button onClick={async () => { await loadArtists(); setShowUrlModal(true) }}
+          <button onClick={async () => { if (!artists.length) await refreshArtists(); setShowUrlModal(true) }}
             className="flex items-center gap-2 px-4 py-2 bg-card border border-border rounded-lg text-sm text-muted hover:text-white transition-colors">
             <Link size={13} /> Set URL
           </button>
@@ -903,22 +975,36 @@ export default function Settings() {
             <span className="text-xs text-muted w-10">{settings.crossfade_seconds || 0}s</span>
           </div>
         </Row>
-        <div>
+        <div className="space-y-4">
           <div className="flex items-center justify-between mb-4">
-            <p className="text-sm text-white font-medium">Apple-Style 5-Band EQ</p>
-            <button onClick={() => { setEqGains([0,0,0,0,0]); [0,0,0,0,0].forEach((_,i) => window.__lokaleq?.setGain(i,0)) }}
+            <div>
+              <p className="text-sm text-white font-medium">10-Band EQ</p>
+              <p className="text-xs text-muted mt-1">Preset: {eqPreset === 'custom' ? 'Custom' : EQ_PRESETS[eqPreset]?.label || EQ_PRESETS[DEFAULT_EQ_PRESET].label}</p>
+            </div>
+            <button onClick={() => applyEqGains(EQ_PRESETS[DEFAULT_EQ_PRESET].gains, DEFAULT_EQ_PRESET)}
               className="text-xs text-muted hover:text-white transition-colors">Reset</button>
           </div>
-          <div className="flex items-end justify-center gap-6 h-32">
+          <div className="flex flex-wrap gap-2">
+            {Object.entries(EQ_PRESETS).map(([key, preset]) => (
+              <button
+                key={key}
+                onClick={() => applyEqGains(preset.gains, key)}
+                className={`px-3 py-1.5 rounded-lg text-xs border transition-colors ${eqPreset === key ? 'bg-accent/20 border-accent/50 text-accent' : 'bg-card border-border text-muted hover:text-white'}`}
+              >
+                {preset.label}
+              </button>
+            ))}
+          </div>
+          <div className="flex items-end justify-center gap-3 h-40 overflow-x-auto pb-2">
             {EQ_BANDS.map((band, i) => (
               <div key={band} className="flex flex-col items-center gap-2">
                 <span className="text-xs font-display" style={{ color: '#e8ff57', fontSize: 10 }}>
-                  {eqGains[i] > 0 ? '+' : ''}{Math.round(eqGains[i] || 0)}
+                  {eqGains[i] > 0 ? '+' : ''}{(eqGains[i] || 0).toFixed(1)}
                 </span>
-                <input type="range" min={-10} max={10} step={0.5} value={eqGains[i] || 0}
+                <input type="range" min={-12} max={12} step={0.5} value={eqGains[i] || 0}
                   onChange={e => setEQ(i, parseFloat(e.target.value))}
                   className="accent-accent"
-                  style={{ writingMode: 'vertical-lr', direction: 'rtl', width: 24, height: 88, cursor: 'pointer' }} />
+                  style={{ writingMode: 'vertical-lr', direction: 'rtl', width: 24, height: 104, cursor: 'pointer' }} />
                 <span className="text-muted" style={{ fontSize: 9 }}>{band}</span>
               </div>
             ))}
@@ -1337,11 +1423,17 @@ module.exports = {
 
       {inCategory('artists') && (
       <Section title="Artist Management">
-        <input value={artistSearch} onChange={e => setArtistSearch(e.target.value)}
-          placeholder="Search artists…"
-          className="w-full bg-card border border-border rounded-xl px-4 py-2 text-sm text-white outline-none focus:border-accent/50" />
+        <div className="space-y-3">
+          <input value={artistSearch} onChange={e => setArtistSearch(e.target.value)}
+            placeholder="Search artists…"
+            className="w-full bg-card border border-border rounded-xl px-4 py-2 text-sm text-white outline-none focus:border-accent/50" />
+          <div className="flex items-center justify-between text-xs text-muted">
+            <span>{artistsLoading ? 'Loading artists...' : `${filtered.length} loaded${artistsTotal ? ` of ${artistsTotal}` : ''}`}</span>
+            {!!artistSearch.trim() && <span>Searching server-side</span>}
+          </div>
+        </div>
         <div className="space-y-0.5 max-h-64 overflow-y-auto">
-          {filtered.slice(0, 60).map(a => (
+          {filtered.map(a => (
             <div key={a.id} className="flex items-center justify-between px-3 py-2 rounded-lg hover:bg-card group transition-colors">
               <div>
                 <p className="text-sm text-white">{a.name}</p>
@@ -1354,6 +1446,18 @@ module.exports = {
             </div>
           ))}
         </div>
+        {!artistsLoading && !filtered.length && (
+          <p className="text-sm text-muted text-center py-4">No artists found.</p>
+        )}
+        {artistsHasMore && (
+          <button
+            onClick={loadArtists}
+            disabled={artistsLoading}
+            className="w-full py-2 bg-card border border-border rounded-xl text-sm text-muted hover:text-white transition-colors disabled:opacity-50"
+          >
+            {artistsLoading ? 'Loading...' : 'Load More Artists'}
+          </button>
+        )}
       </Section>
       )}
 
@@ -1674,10 +1778,9 @@ Stairway to Heaven"
 
       <ArtistManageModal
         artist={manageArtist}
-        allArtists={artists}
         open={!!manageArtist}
         onClose={() => setManageArtist(null)}
-        onChanged={() => { loadArtists(); setManageArtist(null) }}
+        onChanged={() => { refreshArtists(); setManageArtist(null) }}
       />
     </div>
   )
