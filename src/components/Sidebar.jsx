@@ -20,13 +20,12 @@ export default function Sidebar() {
   const [showNewPlaylist, setShowNewPlaylist] = useState(false)
   const [newPlName, setNewPlName] = useState('')
   
-  const { user, openAuth, logout, openProfile, openStats, openAlbums } = useAppStore()
+  const { user, openAuth, logout, openStats, openAlbums } = useAppStore()
 
-  const avatarSrc = user?.avatar_path
-    ? (api.isElectron ? `file://${user.avatar_path}` : api.avatarURL(user?.id))
-    : null
-    
   const { currentTrack } = usePlayerStore()
+  const navItems = user
+    ? [{ icon: User, label: 'Profile', path: '/profile' }, ...NAV]
+    : NAV
 
   const loadPlaylists = () => {
     api.getPlaylists(user?.id).then(p => setPlaylists(Array.isArray(p) ? p : []))
@@ -88,16 +87,17 @@ export default function Sidebar() {
       <div className="px-3 mb-2 flex-shrink-0">
         {user ? (
           <div className="flex items-center gap-2 px-2 py-2 rounded-lg">
-            <img 
-              src={api.getAvatarSrc(user)} 
-              alt="Profile" 
-              className="w-7 h-7 rounded-full flex-shrink-0 object-cover" 
-            />
-            
-            <p className="text-xs text-white truncate flex-1">{user.display_name || user.username}</p>
+            <button onClick={() => nav('/profile')} className="flex items-center gap-2 flex-1 min-w-0 text-left">
+              <img 
+                src={api.getAvatarSrc(user)} 
+                alt="Profile" 
+                className="w-7 h-7 rounded-full flex-shrink-0 object-cover" 
+              />
+              <p className="text-xs text-white truncate flex-1">{user.display_name || user.username}</p>
+            </button>
             
             <div className="flex gap-1 flex-shrink-0">
-              <button onClick={openProfile} title="Profile" className="text-muted hover:text-white transition-colors"><User size={13} /></button>
+              <button onClick={() => nav('/profile')} title="Profile" className="text-muted hover:text-white transition-colors"><User size={13} /></button>
               <button onClick={openStats} title="Stats" className="text-muted hover:text-white transition-colors"><BarChart2 size={13} /></button>
               <button onClick={logout} title="Sign out" className="text-muted hover:text-red-400 transition-colors"><LogOut size={13} /></button>
             </div>
@@ -111,7 +111,7 @@ export default function Sidebar() {
       </div>
 
       <nav className="px-3 space-y-0.5 flex-shrink-0">
-        {NAV.map(({ icon: Icon, label, path }) => (
+        {navItems.map(({ icon: Icon, label, path }) => (
           <button 
             key={path} 
             data-tour={path === '/search' ? 'search' : path === '/library' ? 'library' : path === '/downloader' ? 'downloader' : path === '/settings' ? 'settings' : null}
