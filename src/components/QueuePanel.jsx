@@ -83,8 +83,8 @@ export default function QueuePanel() {
           animate={{ width: 320, opacity: 1 }}
           exit={{ width: 0, opacity: 0 }}
           transition={{ type: 'spring', stiffness: 320, damping: 32 }}
-          className="bg-surface border-l border-border overflow-hidden flex-shrink-0 flex flex-col"
-          style={{ minWidth: 320 }}
+          className="border-l border-border overflow-hidden flex-shrink-0 flex flex-col"
+          style={{ minWidth: 320, backgroundColor: 'rgba(var(--surface-rgb), 0.85)', backdropFilter: 'blur(12px)' }}
         >
           <div className="flex items-center justify-between px-4 py-3 border-b border-border flex-shrink-0">
             <div>
