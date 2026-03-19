@@ -212,10 +212,10 @@ function getArtistsPage(db, opts = {}) {
   const offset = Math.max(0, parseInt(opts.offset, 10) || 0)
   const rawSearch = typeof opts.search === 'string' ? opts.search.trim() : ''
   const params = []
-  let where = 'WHERE track_count > 0'
+  const where = rawSearch ? 'WHERE a.name LIKE ?' : ''
+  const having = 'HAVING COUNT(DISTINCT atl.track_id) > 0'
 
   if (rawSearch) {
-    where += ' AND a.name LIKE ?'
     params.push(`%${rawSearch}%`)
   }
 
@@ -228,6 +228,7 @@ function getArtistsPage(db, opts = {}) {
     SELECT a.*, COUNT(DISTINCT atl.track_id) as track_count
     ${baseSql}
     ${where}
+    ${having}
     ORDER BY a.name
     LIMIT ? OFFSET ?
   `).all(...params, limit, offset)
@@ -237,6 +238,7 @@ function getArtistsPage(db, opts = {}) {
       SELECT a.id
       ${baseSql}
       ${where}
+      ${having}
     ) grouped_artists
   `).get(...params)
 
@@ -267,10 +269,12 @@ function registerScannerHandlers(ipcMain) {
     const db = getDB()
     let sql = 'SELECT * FROM tracks'
     const where = []; const params = []
+    const limit = Math.max(1, Math.min(500, parseInt(opts.limit, 10) || 500))
+    const offset = Math.max(0, parseInt(opts.offset, 10) || 0)
     if (opts.artistName) { where.push('artist = ?'); params.push(opts.artistName) }
     if (opts.artistId) { where.push('id IN (SELECT track_id FROM artist_track_links WHERE artist_id = ?)'); params.push(opts.artistId) }
     if (where.length) sql += ' WHERE ' + where.join(' AND ')
-    sql += ` ORDER BY ${opts.sort || 'added_at DESC'} LIMIT ${opts.limit || 500}`
+    sql += ` ORDER BY ${opts.sort || 'added_at DESC'} LIMIT ${limit} OFFSET ${offset}`
     return db.prepare(sql).all(...params)
   })
   ipcMain.handle('scanner:getArtists', () => {

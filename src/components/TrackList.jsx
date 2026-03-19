@@ -49,7 +49,7 @@ function fmtAddedAt(ts) {
   return date.toLocaleDateString()
 }
 
-export default function TrackList({ tracks = [], showAlbum = true, onRemove = null, showPlayNext = true, showAddToQueue = true, playlistId = null, onReorder = null, onQuickAdd = null }) {
+export default function TrackList({ tracks = [], showAlbum = true, onRemove = null, showPlayNext = true, showAddToQueue = true, playlistId = null, onReorder = null, onQuickAdd = null, reduceMotion = false }) {
   const { currentTrack, isPlaying, playTrack, togglePlay, likedIds, setLiked, playNext, addToQueue } = usePlayerStore()
   const { user, openAddToPlaylist, openAddMultipleToPlaylist } = useAppStore()
   const [hoveredId, setHoveredId] = useState(null)
@@ -60,6 +60,7 @@ export default function TrackList({ tracks = [], showAlbum = true, onRemove = nu
   const [dragOverId, setDragOverId] = useState(null)
   const [editingTrack, setEditingTrack] = useState(null)
   const [trackToDelete, setTrackToDelete] = useState(null)
+  const shouldAnimateRows = !reduceMotion && tracks.length <= 120
 
   const handlePlay = (track, e) => {
     e.stopPropagation()
@@ -288,12 +289,16 @@ export default function TrackList({ tracks = [], showAlbum = true, onRemove = nu
         const isDragOver = dragOverId === track.id
         const liked = likedIds.has(track.id)
         const src = artSrc(track)
+        const RowComponent = shouldAnimateRows ? motion.div : 'div'
+        const motionProps = shouldAnimateRows ? {
+          initial: { opacity: 0, y: 2 },
+          animate: { opacity: 1, y: 0 },
+          transition: { delay: Math.min(i * 0.01, 0.2) },
+        } : {}
 
         return (
-          <motion.div key={`${track.id}-${i}`}
-            initial={{ opacity: 0, y: 2 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: Math.min(i * 0.01, 0.2) }}
+          <RowComponent key={`${track.id}-${i}`}
+            {...motionProps}
             draggable={!!playlistId}
             onDragStart={(e) => handleDragStart(e, track)}
             onDragOver={(e) => handleDragOver(e, track)}
@@ -322,7 +327,7 @@ export default function TrackList({ tracks = [], showAlbum = true, onRemove = nu
 
             <div className="min-w-0 flex items-center gap-2.5">
               <div className="w-8 h-8 rounded flex-shrink-0 overflow-hidden bg-card relative">
-                {src ? <img src={src} className="w-full h-full object-cover" alt="" /> : <div className="w-full h-full flex items-center justify-center text-muted"><Music size={11} /></div>}
+                {src ? <img src={src} className="w-full h-full object-cover" alt="" loading="lazy" decoding="async" /> : <div className="w-full h-full flex items-center justify-center text-muted"><Music size={11} /></div>}
                 {api.isElectron && isHov && (
                   <button onClick={e => replaceArtwork(track, e)} className="absolute inset-0 bg-black/60 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
                     <Camera size={10} className="text-white" />
@@ -413,7 +418,7 @@ export default function TrackList({ tracks = [], showAlbum = true, onRemove = nu
               )}
             </div>
             <span className="text-xs text-muted text-right font-display">{fmt(track.duration)}</span>
-          </motion.div>
+          </RowComponent>
         )
       })}
       

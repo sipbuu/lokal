@@ -15,11 +15,11 @@ function scoreTrack(track) {
 
 router.get('/', (req, res) => {
   const db = getDB()
-  const { sort = 'added_at DESC', limit = 500, artistName } = req.query
+  const { sort = 'added_at DESC', limit = 500, offset = 0, artistName } = req.query
   let sql = 'SELECT * FROM tracks'
   const params = []
   if (artistName) { sql += ' WHERE artist = ?'; params.push(artistName) }
-  sql += ` ORDER BY ${sort} LIMIT ${parseInt(limit)}`
+  sql += ` ORDER BY ${sort} LIMIT ${parseInt(limit)} OFFSET ${parseInt(offset)}`
   res.json(db.prepare(sql).all(...params))
 })
 

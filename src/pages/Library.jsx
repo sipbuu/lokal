@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import { motion } from 'framer-motion'
 import { LayoutGrid, List, Music, Disc3 } from 'lucide-react'
 import { usePlayerStore, useAppStore } from '../store/player'
@@ -6,22 +6,71 @@ import TrackList from '../components/TrackList'
 import AlbumsModal from '../components/AlbumsModal'
 import { api } from '../api'
 
+const LIBRARY_PAGE_SIZE = 50
+const HEAVY_GRID_THRESHOLD = 80
+
 export default function Library() {
   const [tracks, setTracks] = useState([])
   const [sort, setSort] = useState('added_at DESC')
   const [view, setView] = useState('list')
+  const [loading, setLoading] = useState(false)
+  const [hasMore, setHasMore] = useState(true)
   const { openAlbums } = useAppStore()
   const { playQueue } = usePlayerStore()
+  const offsetRef = useRef(0)
+  const loadMoreRef = useRef(null)
+  const requestIdRef = useRef(0)
+  const shouldAnimateGrid = tracks.length <= HEAVY_GRID_THRESHOLD
 
-  const load = () => {
-    api.getTracks({ sort, limit: 500 }).then(t => setTracks(Array.isArray(t) ? t : []))
+  const load = async (append = false) => {
+    if (loading && append) return
+    const requestId = ++requestIdRef.current
+    const nextOffset = append ? offsetRef.current : 0
+    setLoading(true)
+    try {
+      const result = await api.getTracks({ sort, limit: LIBRARY_PAGE_SIZE, offset: nextOffset })
+      if (requestId !== requestIdRef.current) return
+      const items = Array.isArray(result) ? result : []
+      offsetRef.current = nextOffset + items.length
+      setTracks(prev => append ? [...prev, ...items] : items)
+      setHasMore(items.length === LIBRARY_PAGE_SIZE)
+    } finally {
+      if (requestId === requestIdRef.current) {
+        setLoading(false)
+      }
+    }
   }
 
   useEffect(() => {
-    load()
-    window.addEventListener('lokal:refresh', load)
-    return () => window.removeEventListener('lokal:refresh', load)
+    offsetRef.current = 0
+    setTracks([])
+    setHasMore(true)
+    load(false)
   }, [sort])
+
+  useEffect(() => {
+    const handleRefresh = () => {
+      offsetRef.current = 0
+      setTracks([])
+      setHasMore(true)
+      load(false)
+    }
+    window.addEventListener('lokal:refresh', handleRefresh)
+    return () => window.removeEventListener('lokal:refresh', handleRefresh)
+  }, [sort])
+
+  useEffect(() => {
+    if (!hasMore || loading) return
+    const node = loadMoreRef.current
+    if (!node) return
+    const observer = new IntersectionObserver((entries) => {
+      if (entries[0]?.isIntersecting) {
+        load(true)
+      }
+    }, { rootMargin: '300px 0px' })
+    observer.observe(node)
+    return () => observer.disconnect()
+  }, [hasMore, loading, sort, tracks.length])
 
   const artSrc = (t) => t.artwork_path
     ? (api.isElectron ? `file://${t.artwork_path}` : api.artworkURL(t.id))
@@ -54,10 +103,10 @@ export default function Library() {
       {tracks.length > 0 && view === 'list' && (
         <>
           <div className="flex items-center justify-between">
-            <p className="text-xs text-muted font-display">{tracks.length} tracks</p>
+            <p className="text-xs text-muted font-display">{tracks.length} loaded tracks</p>
             <button onClick={() => playQueue(tracks, 0)} className="text-xs text-accent hover:text-accent/70 font-display uppercase tracking-wider transition-colors">Play All</button>
           </div>
-          <TrackList tracks={tracks} showAlbum />
+          <TrackList tracks={tracks} showAlbum reduceMotion={tracks.length > LIBRARY_PAGE_SIZE} />
         </>
       )}
 
@@ -68,15 +117,15 @@ export default function Library() {
             return (
               <motion.button
                 key={t.id}
-                initial={{ opacity: 0, scale: 0.9 }}
-                animate={{ opacity: 1, scale: 1 }}
-                transition={{ delay: Math.min(i * 0.012, 0.3) }}
-                whileHover={{ scale: 1.04 }}
+                initial={shouldAnimateGrid ? { opacity: 0, scale: 0.9 } : false}
+                animate={shouldAnimateGrid ? { opacity: 1, scale: 1 } : undefined}
+                transition={shouldAnimateGrid ? { delay: Math.min(i * 0.012, 0.3) } : undefined}
+                whileHover={shouldAnimateGrid ? { scale: 1.04 } : undefined}
                 onDoubleClick={() => playQueue(tracks, i)}
                 className="flex flex-col gap-2 text-left group"
               >
                 <div className="w-full aspect-square rounded-xl bg-elevated border border-border overflow-hidden flex items-center justify-center">
-                  {src ? <img src={src} className="w-full h-full object-cover" /> : <Music size={28} className="text-muted" />}
+                  {src ? <img src={src} className="w-full h-full object-cover" alt="" loading="lazy" decoding="async" /> : <Music size={28} className="text-muted" />}
                 </div>
                 <div>
                   <p className="text-xs font-medium text-white truncate">{t.title}</p>
@@ -85,6 +134,12 @@ export default function Library() {
               </motion.button>
             )
           })}
+        </div>
+      )}
+
+      {(hasMore || loading) && (
+        <div ref={loadMoreRef} className="flex justify-center pt-2 min-h-10">
+          {loading && <p className="text-xs text-muted">Loading more tracks...</p>}
         </div>
       )}
 

@@ -20,10 +20,10 @@ router.get('/', (req, res) => {
   const limit = hasPaging ? Math.max(1, Math.min(200, parseInt(req.query.limit, 10) || 60)) : null
   const offset = hasPaging ? Math.max(0, parseInt(req.query.offset, 10) || 0) : 0
   const params = []
-  let where = 'WHERE track_count > 0'
+  const where = search ? 'WHERE a.name LIKE ?' : ''
+  const having = 'HAVING COUNT(DISTINCT atl.track_id) > 0'
 
   if (search) {
-    where += ' AND a.name LIKE ?'
     params.push(`%${search}%`)
   }
 
@@ -48,6 +48,7 @@ router.get('/', (req, res) => {
     SELECT a.*, COUNT(DISTINCT atl.track_id) as track_count
     ${baseSql}
     ${where}
+    ${having}
     ORDER BY a.name
     LIMIT ? OFFSET ?
   `).all(...params, limit, offset)
@@ -57,6 +58,7 @@ router.get('/', (req, res) => {
       SELECT a.id
       ${baseSql}
       ${where}
+      ${having}
     ) grouped_artists
   `).get(...params)
 
