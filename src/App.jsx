@@ -27,6 +27,30 @@ import { usePlayerStore, useAppStore } from './store/player'
 import { api } from './api'
 import { THEMES, applyTheme } from './theme'
 
+const EQ_AUDIO_BANDS = [
+  { frequency: 31, type: 'lowshelf', q: 0.7 },
+  { frequency: 62, type: 'peaking', q: 0.9 },
+  { frequency: 125, type: 'peaking', q: 0.95 },
+  { frequency: 250, type: 'peaking', q: 0.95 },
+  { frequency: 500, type: 'peaking', q: 1 },
+  { frequency: 1000, type: 'peaking', q: 1 },
+  { frequency: 2000, type: 'peaking', q: 1 },
+  { frequency: 4000, type: 'peaking', q: 0.95 },
+  { frequency: 8000, type: 'peaking', q: 0.9 },
+  { frequency: 16000, type: 'highshelf', q: 0.7 },
+]
+
+function normalizeEqGains(input) {
+  const values = Array.isArray(input) ? input.map(v => Number(v) || 0) : []
+  if (values.length === EQ_AUDIO_BANDS.length) {
+    return values.slice(0, EQ_AUDIO_BANDS.length)
+  }
+  if (values.length === 5) {
+    return [values[0], values[0], values[1], values[1], values[2], values[2], values[3], values[3], values[4], values[4]]
+  }
+  return EQ_AUDIO_BANDS.map((_, i) => values[i] || 0)
+}
+
 function AnimatedRoutes() {
   const location = useLocation()
   return (
@@ -222,14 +246,7 @@ export default function App() {
     const ctx = new (window.AudioContext || window.webkitAudioContext)()
     audioCtxRef.current = ctx
 
-    const bands = [
-      { frequency: 64, type: 'lowshelf', q: 0.7 },
-      { frequency: 250, type: 'peaking', q: 0.95 },
-      { frequency: 1000, type: 'peaking', q: 0.95 },
-      { frequency: 4000, type: 'peaking', q: 0.9 },
-      { frequency: 16000, type: 'highshelf', q: 0.7 },
-    ]
-    const nodes = bands.map((band) => {
+    const nodes = EQ_AUDIO_BANDS.map((band) => {
       const f = ctx.createBiquadFilter()
       f.type = band.type
       f.frequency.value = band.frequency
@@ -238,7 +255,7 @@ export default function App() {
       return f
     })
 
-    const cfNodes = bands.map((band, i) => {
+    const cfNodes = EQ_AUDIO_BANDS.map((band, i) => {
       const f = ctx.createBiquadFilter()
       f.type = band.type
       f.frequency.value = band.frequency
@@ -283,7 +300,7 @@ export default function App() {
     }
 
     try {
-      const stored = JSON.parse(localStorage.getItem('lokal-eq') || '[]')
+      const stored = normalizeEqGains(JSON.parse(localStorage.getItem('lokal-eq') || '[]'))
       stored.forEach((v, i) => {
         const shaped = shapeEqGain(v)
         if (nodes[i]) nodes[i].gain.value = shaped
