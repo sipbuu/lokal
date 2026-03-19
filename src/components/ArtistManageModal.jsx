@@ -1,15 +1,47 @@
-import React, { useState, useRef } from 'react'
-import { Camera, Merge, Trash2, Edit3, X } from 'lucide-react'
+import React, { useDeferredValue, useEffect, useRef, useState } from 'react'
+import { Camera, Merge, Trash2 } from 'lucide-react'
 import Modal from './Modal'
 import { api } from '../api'
 
-export default function ArtistManageModal({ artist, allArtists = [], open, onClose, onChanged }) {
+export default function ArtistManageModal({ artist, open, onClose, onChanged }) {
   const [tab, setTab] = useState('edit')
   const [name, setName] = useState(artist?.name || '')
   const [bio, setBio] = useState(artist?.bio || '')
   const [mergeTarget, setMergeTarget] = useState('')
+  const [mergeSearch, setMergeSearch] = useState('')
+  const [mergeOptions, setMergeOptions] = useState([])
+  const [mergeLoading, setMergeLoading] = useState(false)
   const [saving, setSaving] = useState(false)
   const fileRef = useRef()
+  const deferredMergeSearch = useDeferredValue(mergeSearch)
+
+  useEffect(() => {
+    setTab('edit')
+    setName(artist?.name || '')
+    setBio(artist?.bio || '')
+    setMergeTarget('')
+    setMergeSearch('')
+    setMergeOptions([])
+  }, [artist?.id, open])
+
+  useEffect(() => {
+    if (!open || tab !== 'merge' || !artist) return
+    let cancelled = false
+    setMergeLoading(true)
+    api.getArtistsPage({ search: deferredMergeSearch, limit: 25, offset: 0 }).then((result) => {
+      if (cancelled) return
+      const items = Array.isArray(result?.items) ? result.items : Array.isArray(result) ? result : []
+      setMergeOptions(items.filter(option => option.id !== artist.id))
+      setMergeLoading(false)
+    }).catch(() => {
+      if (cancelled) return
+      setMergeOptions([])
+      setMergeLoading(false)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [artist, deferredMergeSearch, open, tab])
 
   if (!artist) return null
 
@@ -17,7 +49,6 @@ export default function ArtistManageModal({ artist, allArtists = [], open, onClo
     if (api.isElectron) {
       const fp = await api.openFile()
       if (!fp) return
-      const content = await api.readFile(fp)
       const img = new Image()
       img.src = `file://${fp}`
       img.onload = () => {
@@ -120,13 +151,23 @@ export default function ArtistManageModal({ artist, allArtists = [], open, onClo
         <div className="space-y-4">
           <p className="text-xs text-muted leading-relaxed">Merge <strong className="text-white">{artist.name}</strong> into another artist. All tracks will be reassigned. This cannot be undone.</p>
           <div>
+            <label className="text-xs font-display text-muted uppercase tracking-widest block mb-1.5">Search artists</label>
+            <input
+              value={mergeSearch}
+              onChange={e => setMergeSearch(e.target.value)}
+              placeholder="Search by artist name..."
+              className="w-full bg-card border border-border rounded-xl px-4 py-2.5 text-sm text-white outline-none focus:border-accent/60 transition-colors mb-3"
+            />
             <label className="text-xs font-display text-muted uppercase tracking-widest block mb-1.5">Merge into</label>
             <select value={mergeTarget} onChange={e => setMergeTarget(e.target.value)} className="w-full bg-card border border-border rounded-xl px-4 py-2.5 text-sm text-white outline-none focus:border-accent/60 transition-colors">
               <option value="">Select target artist…</option>
-              {allArtists.filter(a => a.id !== artist.id).map(a => (
+              {mergeOptions.map(a => (
                 <option key={a.id} value={a.id}>{a.name} ({a.track_count} tracks)</option>
               ))}
             </select>
+            <p className="text-xs text-muted mt-2">
+              {mergeLoading ? 'Loading artists...' : mergeOptions.length ? `Showing ${mergeOptions.length} matching artists` : 'No matching artists found'}
+            </p>
           </div>
           <button onClick={doMerge} disabled={!mergeTarget || saving} className="w-full py-2.5 bg-orange-500/20 border border-orange-500/40 text-orange-300 rounded-xl text-sm font-medium hover:bg-orange-500/30 transition-colors disabled:opacity-40">
             <Merge size={14} className="inline mr-2" />Merge Artists
