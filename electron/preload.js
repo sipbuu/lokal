@@ -143,6 +143,7 @@ contextBridge.exposeInMainWorld('electron', {
   lastfmGetSimilarArtists: (artist, limit) => invoke('lastfm:getSimilarArtists', artist, limit),
   lastfmScrobble: (artist, track, album, duration, timestamp) => invoke('lastfm:scrobble', artist, track, album, duration, timestamp),
   lastfmUpdateNowPlaying: (artist, track, album, duration) => invoke('lastfm:updateNowPlaying', artist, track, album, duration),
+  onLastfmAuthToken: (fn) => on('lastfm:auth-token', (_, token) => fn(token)),
   pluginsList: () => invoke('plugins:list'),
   pluginsReload: () => invoke('plugins:reload'),
   pluginsEnable: (pluginId) => invoke('plugins:enable', pluginId),
