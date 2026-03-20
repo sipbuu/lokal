@@ -316,10 +316,10 @@ function registerScannerHandlers(ipcMain) {
       const enabled = db.prepare("SELECT value FROM settings WHERE key = 'auto_fetch_artist_metadata'").get()?.value === '1'
       if (!enabled) return addArtistFallback(db, artist)
     }
-    const refreshed = await cacheArtistMetadata(db, artist)
+    const refreshed = await cacheArtistMetadata(db, artist, opts || {})
     return addArtistFallback(db, refreshed)
   })
-  ipcMain.handle('artist:searchMetadata', async (_, query) => searchArtistMetadataCandidates(query))
+  ipcMain.handle('artist:searchMetadata', async (_, query, opts = {}) => searchArtistMetadataCandidates(query, opts || {}))
   ipcMain.handle('artist:applyMetadataSelection', async (_, artistId, selection, mode) => {
     const db = getDB()
     const updated = await applyArtistMetadataSelection(db, artistId, selection, { mode })
@@ -408,7 +408,14 @@ function registerScannerHandlers(ipcMain) {
     }
   });
   ipcMain.handle('artist:delete', (_, artistId) => { const db = getDB(); db.prepare('DELETE FROM artist_track_links WHERE artist_id = ?').run(artistId); db.prepare('DELETE FROM artists WHERE id = ?').run(artistId) })
-  ipcMain.handle('track:setArtwork', async (_, trackId, imageData) => { const buf = Buffer.from(imageData.split(',')[1], 'base64'); const artPath = path.join(getStorageDir(), 'artwork', `${trackId}.jpg`); await fs.writeFile(artPath, buf); getDB().prepare('UPDATE tracks SET artwork_path = ? WHERE id = ?').run(artPath, trackId); return artPath })
+  ipcMain.handle('track:setArtwork', async (_, trackId, imageData) => {
+    const buf = Buffer.from(imageData.split(',')[1], 'base64')
+    const artPath = path.join(getStorageDir(), 'artwork', `${trackId}.jpg`)
+    await fs.writeFile(artPath, buf)
+    const db = getDB()
+    db.prepare('UPDATE tracks SET artwork_path = ? WHERE id = ?').run(artPath, trackId)
+    return db.prepare('SELECT * FROM tracks WHERE id = ?').get(trackId) || null
+  })
   ipcMain.handle('track:setGenre', (_, trackId, genre) => getDB().prepare('UPDATE tracks SET genre = ? WHERE id = ?').run(genre || null, trackId))
   ipcMain.handle('track:update', (_, trackId, data) => {
     const db = getDB()
@@ -428,7 +435,8 @@ function registerScannerHandlers(ipcMain) {
     params.push(trackId)
     const sql = `UPDATE tracks SET ${updates.join(', ')} WHERE id = ?`
     const result = db.prepare(sql).run(...params)
-    return { success: true, changes: result.changes }
+    const track = db.prepare('SELECT * FROM tracks WHERE id = ?').get(trackId)
+    return { success: true, changes: result.changes, track }
   })
   
   ipcMain.handle('track:fetchExternalArtwork', async (_, trackId, title, artist) => {
@@ -437,7 +445,11 @@ function registerScannerHandlers(ipcMain) {
       const result = await fetchExternalMetadata(title, artist, trackId)
       if (result?.artPath) {
         db.prepare('UPDATE tracks SET artwork_path = ? WHERE id = ?').run(result.artPath, trackId)
-        return { success: true, artworkPath: result.artPath }
+        return {
+          success: true,
+          artworkPath: result.artPath,
+          track: db.prepare('SELECT * FROM tracks WHERE id = ?').get(trackId) || null,
+        }
       }
       return { success: false, error: 'No artwork found' }
     } catch (err) {

@@ -59,9 +59,72 @@ function buildArtistQueries(name) {
   ]
 }
 
+function normalizeSource(source) {
+  return source === 'wikipedia' || source === 'musicbrainz' ? source : 'either'
+}
+
 function isUsefulArtistDescription(description) {
   if (!description) return false
   return /(musician|singer|rapper|band|artist|composer|producer|dj|duo|group|songwriter)/i.test(description)
+}
+
+function getWikipediaTitleFromUrl(url) {
+  if (!url) return null
+  const match = String(url).match(/https?:\/\/[a-z]+\.wikipedia\.org\/wiki\/(.+)$/i)
+  if (!match?.[1]) return null
+  return decodeURIComponent(match[1]).replace(/_/g, ' ')
+}
+
+function buildMusicBrainzBio(artist) {
+  if (!artist) return null
+  const parts = []
+  if (artist.type) parts.push(artist.type)
+  if (artist.disambiguation) parts.push(artist.disambiguation)
+  const place = artist.area?.name || artist['begin-area']?.name || ''
+  if (place) parts.push(place)
+  const tags = Array.isArray(artist.tags) ? artist.tags.slice(0, 3).map(tag => tag?.name).filter(Boolean) : []
+  if (tags.length) parts.push(tags.join(', '))
+  const bio = parts.join(' • ').trim()
+  return bio || null
+}
+
+async function searchMusicBrainzArtists(query) {
+  const normalized = String(query || '').trim()
+  if (!normalized) return []
+  const data = await getJson(`https://musicbrainz.org/ws/2/artist?query=${encodeURIComponent(`artist:"${normalized}"`)}&fmt=json&limit=8`)
+  return Array.isArray(data?.artists) ? data.artists : []
+}
+
+async function getMusicBrainzArtistMetadataById(id) {
+  if (!id) return null
+  try {
+    const data = await getJson(`https://musicbrainz.org/ws/2/artist/${encodeURIComponent(id)}?fmt=json&inc=url-rels+tags`)
+    const relations = Array.isArray(data?.relations) ? data.relations : []
+    const wikipediaRelation = relations.find((relation) => relation?.type === 'wikipedia' || /wikipedia\.org\/wiki\//i.test(relation?.url?.resource || ''))
+    const wikipediaTitle = getWikipediaTitleFromUrl(wikipediaRelation?.url?.resource)
+    const summary = wikipediaTitle ? await getWikipediaSummary(wikipediaTitle) : null
+    const bio = typeof summary?.extract === 'string' && summary.extract.trim() ? summary.extract.trim() : buildMusicBrainzBio(data)
+    const imageUrl = summary?.originalimage?.source || summary?.thumbnail?.source || null
+    return {
+      id: data.id,
+      title: data.name,
+      bio,
+      imageUrl,
+      snippet: data.disambiguation || buildMusicBrainzBio(data) || '',
+      source: 'musicbrainz',
+    }
+  } catch {
+    return null
+  }
+}
+
+async function fetchMusicBrainzArtistMetadata(name) {
+  const artists = await searchMusicBrainzArtists(name)
+  for (const artist of artists) {
+    const metadata = await getMusicBrainzArtistMetadataById(artist.id)
+    if (metadata?.title) return metadata
+  }
+  return null
 }
 
 async function searchWikipediaTitle(name) {
@@ -115,10 +178,25 @@ function downloadToFile(url, dest) {
   })
 }
 
-async function fetchArtistMetadata(name) {
+async function fetchWikipediaArtistMetadata(name) {
   const title = await searchWikipediaTitle(name)
   if (!title) return null
-  return getArtistMetadataByTitle(title)
+  const metadata = await getArtistMetadataByTitle(title)
+  return metadata ? { ...metadata, source: 'wikipedia' } : null
+}
+
+async function fetchArtistMetadata(name, options = {}) {
+  const source = normalizeSource(options.source)
+  if (source === 'wikipedia') return fetchWikipediaArtistMetadata(name)
+  if (source === 'musicbrainz') return fetchMusicBrainzArtistMetadata(name)
+
+  const wikipedia = await fetchWikipediaArtistMetadata(name)
+  if (wikipedia?.bio || wikipedia?.imageUrl) return wikipedia
+
+  const musicbrainz = await fetchMusicBrainzArtistMetadata(name)
+  if (musicbrainz?.bio || musicbrainz?.imageUrl) return musicbrainz
+
+  return wikipedia || musicbrainz || null
 }
 
 async function getArtistMetadataByTitle(title) {
@@ -129,7 +207,7 @@ async function getArtistMetadataByTitle(title) {
   return { title, bio, imageUrl }
 }
 
-async function searchArtistMetadataCandidates(query) {
+async function searchWikipediaMetadataCandidates(query) {
   const normalized = String(query || '').trim()
   if (!normalized) return []
   try {
@@ -146,6 +224,7 @@ async function searchArtistMetadataCandidates(query) {
         imageUrl: metadata.imageUrl,
         snippet: result.snippet || '',
         score: isUsefulArtistDescription(result.snippet) ? 1 : 0,
+        source: 'wikipedia',
       })
       if (candidates.length >= 5) break
     }
@@ -153,6 +232,42 @@ async function searchArtistMetadataCandidates(query) {
   } catch {
     return []
   }
+}
+
+async function searchMusicBrainzMetadataCandidates(query) {
+  const artists = await searchMusicBrainzArtists(query)
+  const candidates = []
+  for (const artist of artists) {
+    const metadata = await getMusicBrainzArtistMetadataById(artist.id)
+    if (!metadata) continue
+    candidates.push({
+      title: metadata.title,
+      bio: metadata.bio,
+      imageUrl: metadata.imageUrl,
+      snippet: metadata.snippet || '',
+      score: artist.score || 0,
+      source: 'musicbrainz',
+    })
+    if (candidates.length >= 5) break
+  }
+  return candidates
+}
+
+async function searchArtistMetadataCandidates(query, options = {}) {
+  const source = normalizeSource(options.source)
+  if (source === 'wikipedia') return searchWikipediaMetadataCandidates(query)
+  if (source === 'musicbrainz') return searchMusicBrainzMetadataCandidates(query)
+  const [wikipedia, musicbrainz] = await Promise.all([
+    searchWikipediaMetadataCandidates(query),
+    searchMusicBrainzMetadataCandidates(query),
+  ])
+  const seen = new Set()
+  return [...wikipedia, ...musicbrainz].filter((candidate) => {
+    const key = `${candidate.source}:${String(candidate.title || '').toLowerCase()}`
+    if (seen.has(key)) return false
+    seen.add(key)
+    return true
+  }).slice(0, 8)
 }
 
 async function applyArtistMetadataSelection(db, artistId, selection, options = {}) {
@@ -195,12 +310,12 @@ function clearArtistImageOverride(db, artistId) {
   return db.prepare('SELECT * FROM artists WHERE id = ?').get(artistId) || null
 }
 
-async function cacheArtistMetadata(db, artist) {
+async function cacheArtistMetadata(db, artist, options = {}) {
   if (!artist?.id || !artist?.name) return null
   const { fetchImages } = getArtistFetchSettings(db)
   if (!shouldFetchArtistMetadata(artist, fetchImages)) return artist
 
-  const fetched = await fetchArtistMetadata(artist.name)
+  const fetched = await fetchArtistMetadata(artist.name, options)
   const now = Date.now()
 
   if (!fetched) {
@@ -217,10 +332,10 @@ async function cacheArtistMetadata(db, artist) {
     db.prepare(`
       UPDATE artists
       SET bio = COALESCE(NULLIF(bio, ''), ?),
-          bio_source = CASE WHEN COALESCE(NULLIF(bio, ''), '') = '' AND ? IS NOT NULL THEN 'wikipedia' ELSE bio_source END,
+          bio_source = CASE WHEN COALESCE(NULLIF(bio, ''), '') = '' AND ? IS NOT NULL THEN ? ELSE bio_source END,
           bio_fetched_at = ?
       WHERE id = ? AND COALESCE(bio_source, '') != 'manual'
-    `).run(fetched.bio, fetched.bio, now, artist.id)
+    `).run(fetched.bio, fetched.bio, fetched.source || 'wikipedia', now, artist.id)
   }
 
   if (fetchImages && shouldFetchField(artist.image_path, artist.image_source, artist.image_fetched_at)) {
@@ -234,10 +349,10 @@ async function cacheArtistMetadata(db, artist) {
     db.prepare(`
       UPDATE artists
       SET image_path = COALESCE(image_path, ?),
-          image_source = CASE WHEN image_path IS NULL AND ? IS NOT NULL THEN 'wikipedia' ELSE image_source END,
+          image_source = CASE WHEN image_path IS NULL AND ? IS NOT NULL THEN ? ELSE image_source END,
           image_fetched_at = ?
       WHERE id = ? AND COALESCE(image_source, '') != 'manual'
-    `).run(imagePath, imagePath, now, artist.id)
+    `).run(imagePath, imagePath, fetched.source || 'wikipedia', now, artist.id)
   }
 
   return db.prepare('SELECT * FROM artists WHERE id = ?').get(artist.id) || artist

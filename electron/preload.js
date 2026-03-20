@@ -67,7 +67,7 @@ contextBridge.exposeInMainWorld('electron', {
   artistSetImage: (id, d) => invoke('artist:setImage', id, d),
   artistSetImageUrl: (id, url) => invoke('artist:setImageUrl', id, url),
   artistRefreshMetadata: (id, opts) => invoke('artist:refreshMetadata', id, opts),
-  artistSearchMetadata: (query) => invoke('artist:searchMetadata', query),
+  artistSearchMetadata: (query, opts) => invoke('artist:searchMetadata', query, opts),
   artistApplyMetadataSelection: (id, selection, mode) => invoke('artist:applyMetadataSelection', id, selection, mode),
   artistClearImageOverride: (id) => invoke('artist:clearImageOverride', id),
   artistRename: (id, n) => invoke('artist:rename', id, n),

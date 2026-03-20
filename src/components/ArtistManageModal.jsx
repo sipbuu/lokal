@@ -9,6 +9,7 @@ function stripHtml(value) {
 
 export default function ArtistManageModal({ artist, open, onClose, onChanged }) {
   const [tab, setTab] = useState('edit')
+  const [lookupSource, setLookupSource] = useState('either')
   const [name, setName] = useState(artist?.name || '')
   const [bio, setBio] = useState(artist?.bio || '')
   const [mergeTarget, setMergeTarget] = useState('')
@@ -32,6 +33,7 @@ export default function ArtistManageModal({ artist, open, onClose, onChanged }) 
     setMergeSearch('')
     setMergeOptions([])
     setLookupQuery(artist?.name || '')
+    setLookupSource('either')
     setLookupResults([])
     setLookupError('')
   }, [artist?.id, open])
@@ -101,7 +103,7 @@ export default function ArtistManageModal({ artist, open, onClose, onChanged }) 
     setLookupLoading(true)
     setLookupError('')
     try {
-      const results = await api.artistSearchMetadata(query)
+      const results = await api.artistSearchMetadata(query, { source: lookupSource })
       const items = Array.isArray(results) ? results : []
       setLookupResults(items)
       if (!items.length) setLookupError('No matches found.')
@@ -130,7 +132,7 @@ export default function ArtistManageModal({ artist, open, onClose, onChanged }) 
     setAutoMatching(true)
     setLookupError('')
     try {
-      await api.artistRefreshMetadata(artist.id, { force: true })
+      await api.artistRefreshMetadata(artist.id, { force: true, source: lookupSource })
       onChanged?.()
     } catch {
       setLookupError('Automatic match failed.')
@@ -210,6 +212,17 @@ export default function ArtistManageModal({ artist, open, onClose, onChanged }) 
       {tab === 'lookup' && (
         <div className="space-y-4">
           <p className="text-xs text-muted leading-relaxed">Search for a better web match if the current bio or image is wrong. Applying a result becomes a manual override, so Lokal will keep your choice.</p>
+          <div className="flex gap-1 p-0.5 bg-card rounded-lg border border-border">
+            {[['either', 'Either'], ['wikipedia', 'Wikipedia'], ['musicbrainz', 'MusicBrainz']].map(([id, label]) => (
+              <button
+                key={id}
+                onClick={() => setLookupSource(id)}
+                className={`flex-1 py-1.5 text-xs font-display uppercase tracking-wider rounded transition-colors ${lookupSource === id ? 'bg-accent text-base' : 'text-muted hover:text-white'}`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
           <button onClick={tryAutoMatch} disabled={autoMatching || saving} className="w-full py-2.5 rounded-xl border border-border text-sm text-muted hover:text-white hover:border-accent/40 transition-colors disabled:opacity-40">
             {autoMatching ? 'Trying to match...' : 'Try auto match'}
           </button>
@@ -238,7 +251,12 @@ export default function ArtistManageModal({ artist, open, onClose, onChanged }) 
                     {result.imageUrl ? <img src={result.imageUrl} className="w-full h-full object-cover" /> : <span className="text-muted text-xs">No image</span>}
                   </div>
                   <div className="min-w-0 space-y-1">
-                    <p className="text-sm font-medium text-white truncate">{result.title}</p>
+                    <div className="flex items-center gap-2 min-w-0">
+                      <p className="text-sm font-medium text-white truncate">{result.title}</p>
+                      <span className="px-1.5 py-0.5 rounded bg-elevated border border-border text-[10px] uppercase tracking-wider text-muted flex-shrink-0">
+                        {result.source || 'web'}
+                      </span>
+                    </div>
                     {result.snippet && <p className="text-xs text-muted max-h-10 overflow-hidden">{stripHtml(result.snippet)}</p>}
                   </div>
                 </div>

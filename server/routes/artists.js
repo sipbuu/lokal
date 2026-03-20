@@ -94,7 +94,8 @@ router.get('/', (req, res) => {
 
 router.get('/metadata/search', async (req, res) => {
   const q = typeof req.query.q === 'string' ? req.query.q.trim() : ''
-  res.json(await searchArtistMetadataCandidates(q))
+  const source = typeof req.query.source === 'string' ? req.query.source : 'either'
+  res.json(await searchArtistMetadataCandidates(q, { source }))
 })
 
 router.get('/:id', (req, res) => {
@@ -117,7 +118,7 @@ router.post('/:id/refresh-metadata', async (req, res) => {
     const enabled = db.prepare("SELECT value FROM settings WHERE key = 'auto_fetch_artist_metadata'").get()?.value === '1'
     if (!enabled) return res.json(addArtistFallback(db, artist))
   }
-  const refreshed = await cacheArtistMetadata(db, artist)
+  const refreshed = await cacheArtistMetadata(db, artist, { source: req.body?.source })
   res.json(addArtistFallback(db, refreshed))
 })
 
