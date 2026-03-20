@@ -14,6 +14,7 @@ import StatsModal from './components/StatsModal'
 import AddToPlaylistModal from './components/AddToPlaylistModal'
 import AlbumsModal from './components/AlbumsModal'
 import MiniPlayer from './components/MiniPlayer'
+import RecapStories from './components/RecapStories'
 import Onboarding, { useOnboarding } from './components/Onboarding'
 import PostOnboardingTour from './components/PostOnboardingTour'
 import Home from './pages/Home'
@@ -118,6 +119,13 @@ export default function App() {
     info: null,
     progress: 0,
     error: null,
+  })
+  const [showRecapStories, setShowRecapStories] = useState(() => {
+    try {
+      return localStorage.getItem('lokal-dev-recap') === '1'
+    } catch {
+      return false
+    }
   })
   const [changelog, setChangelog] = useState('')
   const [loadingChangelog, setLoadingChangelog] = useState(false)
@@ -355,6 +363,42 @@ export default function App() {
       }
     }
   }, [initAudioCtx])
+
+  useEffect(() => {
+    const syncRecapStories = () => {
+      try {
+        setShowRecapStories(localStorage.getItem('lokal-dev-recap') === '1')
+      } catch {
+        setShowRecapStories(false)
+      }
+    }
+
+    window.__lokalRecap = {
+      open: () => {
+        try { localStorage.setItem('lokal-dev-recap', '1') } catch {}
+        syncRecapStories()
+      },
+      close: () => {
+        try { localStorage.removeItem('lokal-dev-recap') } catch {}
+        syncRecapStories()
+      },
+      toggle: () => {
+        try {
+          if (localStorage.getItem('lokal-dev-recap') === '1') localStorage.removeItem('lokal-dev-recap')
+          else localStorage.setItem('lokal-dev-recap', '1')
+        } catch {}
+        syncRecapStories()
+      },
+    }
+
+    window.addEventListener('storage', syncRecapStories)
+    window.addEventListener('lokal:recap-toggle', syncRecapStories)
+    return () => {
+      window.removeEventListener('storage', syncRecapStories)
+      window.removeEventListener('lokal:recap-toggle', syncRecapStories)
+      delete window.__lokalRecap
+    }
+  }, [])
 
   useEffect(() => {
     const resumeAudio = () => {
@@ -1182,6 +1226,13 @@ export default function App() {
             <StatsModal />
             <AddToPlaylistModal />
             <AlbumsModal />
+            <RecapStories
+              open={showRecapStories}
+              onClose={() => {
+                try { localStorage.removeItem('lokal-dev-recap') } catch {}
+                setShowRecapStories(false)
+              }}
+            />
             
             {!onboardingLoading && showOnboarding && (
               <Onboarding isOpen={showOnboarding} onComplete={completeOnboarding} />

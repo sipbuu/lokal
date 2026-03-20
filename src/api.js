@@ -146,6 +146,7 @@ export const api = {
     return result?.user || result
   },
   getUserStats: (uid) => isE() ? el().getUserStats(uid) : apiFetch(`/users/${uid}/stats`),
+  getUserRecap: (uid) => isE() ? el().getUserRecap(uid) : apiFetch(`/users/${uid || 'guest'}/recap`),
   discordSetActivity: (t, p) => { if (isE() && el().discordSetActivity) return el().discordSetActivity(t, p); return Promise.resolve() },
   discordConnect: (id) => isE() ? el().discordConnect(id) : Promise.resolve(false),
   discordDisconnect: () => isE() ? el().discordDisconnect() : Promise.resolve(),

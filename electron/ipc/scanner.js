@@ -889,6 +889,39 @@ function registerV4Handlers(ipcMain) {
     const weeklyPlays = db.prepare(`SELECT COUNT(*) as c FROM play_history WHERE user_id = ? AND played_at > unixepoch() - 604800 AND COALESCE(seconds_played, 999) >= 30`).get(uid)?.c || 0
     return { totalPlays, totalMinutes: Math.round(totalSecs / 60), topArtists, topTracks, topGenres, likedCount, weeklyPlays }
   })
+  ipcMain.handle('user:getRecap', (_, userId) => {
+    const db = getDB()
+    const uid = userId || 'guest'
+    try { db.exec('ALTER TABLE play_history ADD COLUMN seconds_played INTEGER DEFAULT 0') } catch {}
+    const qualified = 'ph.user_id = ? AND COALESCE(ph.seconds_played, 999) >= 30'
+    const totalPlays = db.prepare(`SELECT COUNT(*) as c FROM play_history ph WHERE ${qualified}`).get(uid)?.c || 0
+    const totalSecs = db.prepare(`SELECT SUM(COALESCE(ph.seconds_played, 0)) as s FROM play_history ph WHERE ${qualified}`).get(uid)?.s || 0
+    const uniqueArtists = db.prepare(`SELECT COUNT(DISTINCT t.artist) as c FROM play_history ph JOIN tracks t ON t.id = ph.track_id WHERE ${qualified}`).get(uid)?.c || 0
+    const uniqueAlbums = db.prepare(`SELECT COUNT(DISTINCT COALESCE(NULLIF(t.album, ''), t.id)) as c FROM play_history ph JOIN tracks t ON t.id = ph.track_id WHERE ${qualified}`).get(uid)?.c || 0
+    const uniqueTracks = db.prepare(`SELECT COUNT(DISTINCT t.id) as c FROM play_history ph JOIN tracks t ON t.id = ph.track_id WHERE ${qualified}`).get(uid)?.c || 0
+    const topArtists = db.prepare(`SELECT t.artist, COUNT(*) as plays FROM play_history ph JOIN tracks t ON t.id = ph.track_id WHERE ${qualified} GROUP BY t.artist ORDER BY plays DESC LIMIT 10`).all(uid)
+    const topTracks = db.prepare(`SELECT t.*, COUNT(*) as plays FROM play_history ph JOIN tracks t ON t.id = ph.track_id WHERE ${qualified} GROUP BY t.id ORDER BY plays DESC LIMIT 50`).all(uid)
+    const topGenres = db.prepare(`SELECT t.genre, COUNT(*) as plays FROM play_history ph JOIN tracks t ON t.id = ph.track_id WHERE ${qualified} AND t.genre IS NOT NULL AND t.genre != '' GROUP BY t.genre ORDER BY plays DESC LIMIT 8`).all(uid)
+    const peakHour = db.prepare(`SELECT CAST(strftime('%H', ph.played_at, 'unixepoch', 'localtime') AS INTEGER) as hour, COUNT(*) as plays FROM play_history ph WHERE ${qualified} GROUP BY hour ORDER BY plays DESC LIMIT 1`).get(uid) || null
+    const topDay = db.prepare(`SELECT strftime('%Y-%m-%d', ph.played_at, 'unixepoch', 'localtime') as day, COUNT(*) as plays FROM play_history ph WHERE ${qualified} GROUP BY day ORDER BY plays DESC LIMIT 1`).get(uid) || null
+    const latestPlay = db.prepare(`SELECT MAX(ph.played_at) as playedAt FROM play_history ph WHERE ${qualified}`).get(uid)?.playedAt || null
+    const likedCount = db.prepare('SELECT COUNT(*) as c FROM user_likes WHERE user_id = ?').get(uid)?.c || 0
+    return {
+      scope: 'all-time-dev',
+      totalPlays,
+      totalMinutes: Math.round(totalSecs / 60),
+      uniqueArtists,
+      uniqueAlbums,
+      uniqueTracks,
+      topArtists,
+      topTracks,
+      topGenres,
+      peakHour,
+      topDay,
+      likedCount,
+      latestPlay,
+    }
+  })
 }
 
 
