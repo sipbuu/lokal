@@ -95,13 +95,13 @@ export default function Artist() {
                 const cover = firstTrack ? artSrc(firstTrack) : null
                 return (
                   <motion.button key={album.title} onClick={() => setSelectedAlbum(selectedAlbum === album.title ? null : album.title)} whileHover={{ scale: 1.02 }}
-                    className={`flex flex-col gap-2 p-3 rounded-xl border transition-all text-left ${selectedAlbum === album.title ? 'bg-accent/10 border-accent/40' : 'bg-elevated border-border hover:border-accent/30'}`}>
+                    className={`flex min-w-0 flex-col gap-2 overflow-hidden p-3 rounded-xl border transition-all text-left ${selectedAlbum === album.title ? 'bg-accent/10 border-accent/40' : 'bg-elevated border-border hover:border-accent/30'}`}>
                     <div className="w-full aspect-square rounded-lg bg-card overflow-hidden flex items-center justify-center text-subtle">
                       {cover ? <img src={cover} className="w-full h-full object-cover" /> : <Music size={28} />}
                     </div>
-                    <div>
-                      <p className="text-sm font-medium text-white truncate">{album.title}</p>
-                      <p className="text-xs text-muted">{album.year} · {album.track_count} tracks</p>
+                    <div className="min-w-0 overflow-hidden">
+                      <p className="block truncate text-sm font-medium text-white">{album.title}</p>
+                      <p className="block truncate text-xs text-muted">{album.year} · {album.track_count} tracks</p>
                     </div>
                   </motion.button>
                 )
