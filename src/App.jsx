@@ -736,6 +736,7 @@ export default function App() {
         playHistory: nextHistory,
         futureHistory: [],
       })
+      beginLastfmPlayback(nextTrack)
 
       if (fadeInEl.readyState >= 2) {
         fadeInEl.play().catch(() => {})
@@ -775,7 +776,7 @@ export default function App() {
         setTimeout(() => { pauseSuppressRef.current = false }, 200)
       }, cfDuration * 1000)
     })
-  }, [flushTime, setActiveAudioElement])
+  }, [flushTime, setActiveAudioElement, beginLastfmPlayback])
 
   useEffect(() => {
     if (isCrossfadingRef.current) {
