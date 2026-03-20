@@ -24,6 +24,50 @@ const { registerPlaylistHandlers } = require('./ipc/playlists')
 const { initPlugins, registerPluginHandlers } = require('./ipc/plugins')
 const { setRemoteState, setRemoteCommandHandler } = require('./ipc/remote')
 let isUpdating = false;
+const APP_PROTOCOL = 'lokal'
+let pendingLastfmAuthToken = ''
+
+function extractLastfmAuthToken(raw) {
+  try {
+    console.log('[DEEPLINK RAW]', raw)
+    const parsed = new URL(raw)
+    if (parsed.protocol !== `${APP_PROTOCOL}:`) return ''
+    const target = `${parsed.host}${parsed.pathname}`
+    .replace(/^\/+/, '')
+    .replace(/\/+$/, '') 
+
+  if (target !== 'lastfm-auth') return ''
+    return parsed.searchParams.get('token') || ''
+  } catch {
+    return ''
+  }
+}
+
+function emitLastfmAuthToken(token) {
+  if (!token) return false
+
+  pendingLastfmAuthToken = token
+
+  if (!mainWindow || mainWindow.isDestroyed()) return false
+
+  if (mainWindow.isMinimized()) mainWindow.restore()
+  mainWindow.show()
+  mainWindow.focus()
+
+  const sendToken = () => {
+    if (!mainWindow || mainWindow.isDestroyed()) return
+    mainWindow.webContents.send('lastfm:auth-token', pendingLastfmAuthToken)
+    pendingLastfmAuthToken = ''
+  }
+
+  if (mainWindow.webContents.isLoading()) {
+    mainWindow.webContents.once('did-finish-load', sendToken)
+  } else {
+    sendToken()
+  }
+  console.log('[DEEPLINK TOKEN]', token)
+  return true
+}
 
 const gotTheLock = app.requestSingleInstanceLock()
 
@@ -31,6 +75,11 @@ if (!gotTheLock) {
   app.quit()
 } else {
   app.on('second-instance', (event, commandLine, workingDirectory) => {
+    const protocolUrl = commandLine.find(arg => typeof arg === 'string' && arg.startsWith(`${APP_PROTOCOL}://`))
+    const token = extractLastfmAuthToken(protocolUrl || '')
+    if (token) {
+      emitLastfmAuthToken(token)
+    }
     if (mainWindow) {
       if (mainWindow.isMinimized()) mainWindow.restore()
       mainWindow.focus()
@@ -169,6 +218,10 @@ function createWindow() {
   
   mainWindow.webContents.on('did-finish-load', () => {
     mainWindow.webContents.send('perf-settings', perfSettings)
+    if (pendingLastfmAuthToken) {
+      mainWindow.webContents.send('lastfm:auth-token', pendingLastfmAuthToken)
+      pendingLastfmAuthToken = ''
+    }
   })
 
   mainWindow.on('focus', enforceMiniTop)
@@ -191,6 +244,11 @@ app.whenReady().then(() => {
   if (!gotTheLock) return;
   try { require('../server/index.js') } catch (e) { console.error('Server already running or port blocked:', e.message) }
   app.name = 'Lokal'
+  if (app.isPackaged) {
+    app.setAsDefaultProtocolClient(APP_PROTOCOL)
+  } else {
+    app.setAsDefaultProtocolClient(APP_PROTOCOL, process.execPath, [path.resolve(process.argv[1])])
+  }
   if (process.platform === 'win32') {
     app.setAppUserModelId('com.lokal.music');
   }
@@ -359,6 +417,12 @@ ipcMain.handle('window:getSize', () => {
 
 createWindow()
 
+const bootProtocolUrl = process.argv.find(arg => typeof arg === 'string' && arg.startsWith(`${APP_PROTOCOL}://`))
+const bootToken = extractLastfmAuthToken(bootProtocolUrl || '')
+if (bootToken) {
+  emitLastfmAuthToken(bootToken)
+}
+
 ipcMain.handle('shell:openExternal', (_, url) => shell.openExternal(url))
 ipcMain.on('open-logs', () => {
   const logFile = log.transports.file.getFile().path;
@@ -386,6 +450,13 @@ ipcMain.handle('updater:install', () => {
   })
 
   app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow() })
+  app.on('open-url', (event, url) => {
+    event.preventDefault()
+    const token = extractLastfmAuthToken(url)
+    if (token) {
+      emitLastfmAuthToken(token)
+    }
+  })
 
   if (!app.isPackaged) {
     console.log('[updater] skipping in dev mode')
