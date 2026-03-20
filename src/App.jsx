@@ -101,6 +101,7 @@ export default function App() {
   const userRef = useRef(null)
   const currentTrackRef = useRef(null)
   const prevTrackIdRef = useRef(null)
+  const lastFlushedTrackIdRef = useRef(null)
   const artworkCacheRef = useRef({})
   const eqFiltersRef = useRef([])
   const activeElementRef = useRef('primary')
@@ -304,6 +305,7 @@ export default function App() {
     analyser.smoothingTimeConstant = 0.8
     analyserRef.current = analyser
     window.__lokalAnalyser = analyser
+    window.dispatchEvent(new CustomEvent('lokal:analyser-ready'))
 
     if (isIOS) {
       primarySource.connect(ctx.destination)
@@ -453,7 +455,6 @@ export default function App() {
   }, [])
 
   useEffect(() => { userRef.current = user }, [user])
-  useEffect(() => { currentTrackRef.current = currentTrack }, [currentTrack])
 
   useEffect(() => {
     if (!api.isElectron || !window.electron?.reportRemoteState) return
@@ -655,9 +656,35 @@ export default function App() {
     const secs = playSecsRef.current
     const flushedTrack = currentTrackRef.current
     playSecsRef.current = 0
+    if (trackId) lastFlushedTrackIdRef.current = trackId
     tryScrobbleLastfmTrack(flushedTrack, secs)
     if (secs >= 10 && trackId) api.incrementPlayTime(trackId, userRef.current?.id, secs)
   }, [tryScrobbleLastfmTrack])
+
+  useEffect(() => {
+    const previousTrack = currentTrackRef.current
+    const previousTrackId = previousTrack?.id || null
+    const nextTrackId = currentTrack?.id || null
+
+    if (
+      previousTrackId &&
+      nextTrackId &&
+      previousTrackId !== nextTrackId &&
+      !isCrossfadingRef.current &&
+      lastFlushedTrackIdRef.current !== previousTrackId
+    ) {
+      flushTime(previousTrackId)
+    }
+
+    if (previousTrackId !== nextTrackId) {
+      prevTrackIdRef.current = previousTrackId
+      if (lastFlushedTrackIdRef.current === previousTrackId) {
+        lastFlushedTrackIdRef.current = null
+      }
+    }
+
+    currentTrackRef.current = currentTrack
+  }, [currentTrack, flushTime])
 
   const cancelCrossfade = useCallback(() => {
     crossfadeTokenRef.current += 1

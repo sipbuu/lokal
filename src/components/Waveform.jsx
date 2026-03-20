@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 
 export default function Waveform({
   isPlaying,
@@ -13,6 +13,13 @@ export default function Waveform({
   const smoothedRef = useRef(null)
   const resizeObserverRef = useRef(null)
   const phaseRef = useRef(0)
+  const [analyserVersion, setAnalyserVersion] = useState(0)
+
+  useEffect(() => {
+    const onAnalyserReady = () => setAnalyserVersion(v => v + 1)
+    window.addEventListener('lokal:analyser-ready', onAnalyserReady)
+    return () => window.removeEventListener('lokal:analyser-ready', onAnalyserReady)
+  }, [])
 
   useEffect(() => {
     const canvas = canvasRef.current
@@ -181,7 +188,7 @@ export default function Waveform({
       if (resizeObserverRef.current) resizeObserverRef.current.disconnect()
       else window.removeEventListener('resize', resize)
     }
-  }, [isPlaying, barCount, defaultWidth, defaultHeight])
+  }, [isPlaying, barCount, defaultWidth, defaultHeight, analyserVersion])
 
   return (
     <canvas
