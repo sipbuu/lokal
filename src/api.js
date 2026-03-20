@@ -69,6 +69,12 @@ export const api = {
   artistUpdateBio: (id, b) => isE() ? el().artistUpdateBio(id, b) : apiFetch(`/artists/${id}/bio`, { method:'PUT', body:{bio:b} }),
   artistSetImage: (id, d) => isE() ? el().artistSetImage(id, d) : apiFetch(`/artists/${id}/image`, { method:'PUT', body:{imageData:d} }),
   artistSetImageUrl: (id, url) => isE() ? el().artistSetImageUrl(id, url) : apiFetch(`/artists/${id}/image-url`, { method:'PUT', body:{url} }),
+  artistRefreshMetadata: (id, opts = {}) => isE() ? el().artistRefreshMetadata(id, opts) : apiFetch(`/artists/${id}/refresh-metadata`, { method:'POST', body: opts }),
+  artistSearchMetadata: (query) => isE() ? el().artistSearchMetadata(query) : apiFetch(`/artists/metadata/search?q=${encodeURIComponent(query || '')}`),
+  artistApplyMetadataSelection: (id, selection, mode = 'both') => isE()
+    ? el().artistApplyMetadataSelection(id, selection, mode)
+    : apiFetch(`/artists/${id}/metadata-selection`, { method:'POST', body:{ selection, mode } }),
+  artistClearImageOverride: (id) => isE() ? el().artistClearImageOverride(id) : apiFetch(`/artists/${id}/image/fallback`, { method:'POST' }),
   artistRename: (id, n) => isE() ? el().artistRename(id, n) : apiFetch(`/artists/${id}/rename`, { method:'PUT', body:{name:n} }),
   artistMerge: (s, t) => isE() ? el().artistMerge(s, t) : apiFetch('/artists/merge', { method:'POST', body:{sourceId:s,targetId:t} }),
   artistDelete: (id) => isE() ? el().artistDelete(id) : apiFetch(`/artists/${id}`, { method:'DELETE' }),

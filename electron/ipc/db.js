@@ -220,6 +220,7 @@ function initDB() {
     db.prepare("INSERT OR IGNORE INTO settings (key, value) VALUES ('lyrics_auto_translate', '0')").run()
     db.prepare("INSERT OR IGNORE INTO settings (key, value) VALUES ('lyrics_translate_target', 'en')").run()
     db.prepare("INSERT OR IGNORE INTO settings (key, value) VALUES ('prefer_media_keys', '1')").run()
+    db.prepare("INSERT OR IGNORE INTO settings (key, value) VALUES ('auto_fetch_artist_metadata', '0')").run()
   } catch {}
 
   return db
