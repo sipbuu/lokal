@@ -14,7 +14,7 @@ const { initDB, getDB } = require('./ipc/db')
 const { registerScannerHandlers, registerExtraHandlers, registerV4Handlers } = require('./ipc/scanner')
 const { registerMixesHandlers } = require('./ipc/mixes')
 const { registerPlayerHandlers } = require('./ipc/player')
-const { registerDownloaderHandlers, registerExtraDownloaderHandlers, registerPlaylistArchiveHandlers } = require('./ipc/downloader')
+const { registerDownloaderHandlers, registerExtraDownloaderHandlers, registerPlaylistArchiveHandlers, markInterruptedPlaylistsIncomplete, shutdownActiveDownloads } = require('./ipc/downloader')
 const { registerLyricsHandlers } = require('./ipc/lyrics')
 const { registerUserHandlers } = require('./ipc/users')
 const { registerDiscordHandlers } = require('./ipc/discord')
@@ -253,6 +253,7 @@ app.whenReady().then(() => {
     app.setAppUserModelId('com.lokal.music');
   }
   try { initDB() } catch (e) { console.error('DB:', e.message) }
+  try { markInterruptedPlaylistsIncomplete() } catch (e) { console.error('Downloads:', e.message) }
   try { initPlugins() } catch (e) { console.error('Plugins:', e.message) }
   try {
     const db = getDB()
@@ -475,6 +476,7 @@ app.on('window-all-closed', () => {
 })
 
 app.on('will-quit', () => {
+  try { shutdownActiveDownloads() } catch {}
   unregisterMediaShortcuts()
 })
 
