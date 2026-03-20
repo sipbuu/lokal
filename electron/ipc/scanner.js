@@ -7,6 +7,7 @@ const mm = require('music-metadata')
 const { getDB, getStorageDir } = require('./db')
 const { ipcMain } = require('electron')
 const { emitPluginHook } = require('./plugins')
+const { cacheArtistMetadata, searchArtistMetadataCandidates, applyArtistMetadataSelection, clearArtistImageOverride } = require('./artistMetadata')
 
 const DEFAULT_MUSIC_PATH = 'C:\\Users\\sipbuu\\Music'
 const AUDIO_EXTS = new Set(['.mp3', '.flac', '.m4a', '.ogg', '.wav', '.aac', '.opus', '.wma', '.alac', '.ape'])
@@ -207,6 +208,16 @@ function addArtistFallback(db, artist) {
   return { ...artist, image_path: firstTrack?.artwork_path || null }
 }
 
+function findArtistById(db, id) {
+  let artist = db.prepare('SELECT * FROM artists WHERE id = ?').get(id)
+  if (!artist) {
+    const slug = id.replace(/^a-/, '')
+    const name = slug.replace(/-/g, ' ')
+    artist = db.prepare('SELECT * FROM artists WHERE LOWER(name) = LOWER(?)').get(name)
+  }
+  return artist || null
+}
+
 function getArtistsPage(db, opts = {}) {
   const limit = Math.max(1, Math.min(200, parseInt(opts.limit, 10) || 60))
   const offset = Math.max(0, parseInt(opts.offset, 10) || 0)
@@ -288,23 +299,36 @@ function registerScannerHandlers(ipcMain) {
   })
   ipcMain.handle('scanner:getArtist', (_, id) => {
     const db = getDB()
-    
-    let artist = db.prepare('SELECT * FROM artists WHERE id = ?').get(id)
-    
-    
-    if (!artist) {
-      
-      const slug = id.replace(/^a-/, '')
-      const name = slug.replace(/-/g, ' ')
-      artist = db.prepare('SELECT * FROM artists WHERE LOWER(name) = LOWER(?)').get(name)
-    }
-    
+    let artist = findArtistById(db, id)
     if (!artist) return null
-const tracks = db.prepare(`SELECT t.* FROM tracks t JOIN artist_track_links atl ON atl.track_id = t.id WHERE atl.artist_id = ? ORDER BY t.album, t.track_num, t.title`).all(artist.id)
+    const tracks = db.prepare(`SELECT t.* FROM tracks t JOIN artist_track_links atl ON atl.track_id = t.id WHERE atl.artist_id = ? ORDER BY t.album, t.track_num, t.title`).all(artist.id)
     const topTracks = db.prepare(`SELECT t.* FROM tracks t JOIN artist_track_links atl ON atl.track_id = t.id WHERE atl.artist_id = ? ORDER BY t.play_count DESC LIMIT 5`).all(artist.id)
     const albums = db.prepare(`SELECT album as title, year, artwork_path, COUNT(*) as track_count FROM tracks t JOIN artist_track_links atl ON atl.track_id = t.id WHERE atl.artist_id = ? AND album IS NOT NULL GROUP BY album ORDER BY year DESC`).all(artist.id)
     const artistWithFallback = addArtistFallback(db, artist)
     return { ...artistWithFallback, tracks, topTracks, albums }
+  })
+  ipcMain.handle('artist:refreshMetadata', async (_, artistId, opts = {}) => {
+    const db = getDB()
+    const artist = findArtistById(db, artistId)
+    if (!artist) return null
+    const force = opts?.force === true
+    if (!force) {
+      const enabled = db.prepare("SELECT value FROM settings WHERE key = 'auto_fetch_artist_metadata'").get()?.value === '1'
+      if (!enabled) return addArtistFallback(db, artist)
+    }
+    const refreshed = await cacheArtistMetadata(db, artist)
+    return addArtistFallback(db, refreshed)
+  })
+  ipcMain.handle('artist:searchMetadata', async (_, query) => searchArtistMetadataCandidates(query))
+  ipcMain.handle('artist:applyMetadataSelection', async (_, artistId, selection, mode) => {
+    const db = getDB()
+    const updated = await applyArtistMetadataSelection(db, artistId, selection, { mode })
+    return updated ? addArtistFallback(db, updated) : null
+  })
+  ipcMain.handle('artist:clearImageOverride', (_, artistId) => {
+    const db = getDB()
+    const updated = clearArtistImageOverride(db, artistId)
+    return updated ? addArtistFallback(db, updated) : null
   })
   ipcMain.handle('scanner:getAlbumTracks', (_, albumTitle) => getDB().prepare('SELECT * FROM tracks WHERE album = ? ORDER BY track_num, title').all(albumTitle))
   ipcMain.handle('scanner:search', (_, q) => {
@@ -357,8 +381,8 @@ const tracks = db.prepare(`SELECT t.* FROM tracks t JOIN artist_track_links atl 
     })
     return { ok: true }
   })
-  ipcMain.handle('artist:updateBio', (_, artistId, bio) => getDB().prepare('UPDATE artists SET bio = ? WHERE id = ?').run(bio, artistId))
-  ipcMain.handle('artist:setImage', async (_, artistId, imageData) => { const buf = Buffer.from(imageData.split(',')[1], 'base64'); const imgPath = path.join(getStorageDir(), 'artwork', `artist-${artistId}.jpg`); await fs.writeFile(imgPath, buf); getDB().prepare('UPDATE artists SET image_path = ? WHERE id = ?').run(imgPath, artistId); return imgPath })
+  ipcMain.handle('artist:updateBio', (_, artistId, bio) => getDB().prepare('UPDATE artists SET bio = ?, bio_source = ?, bio_fetched_at = ? WHERE id = ?').run(bio, 'manual', Date.now(), artistId))
+  ipcMain.handle('artist:setImage', async (_, artistId, imageData) => { const buf = Buffer.from(imageData.split(',')[1], 'base64'); const imgPath = path.join(getStorageDir(), 'artwork', `artist-${artistId}.jpg`); await fs.writeFile(imgPath, buf); getDB().prepare('UPDATE artists SET image_path = ?, image_source = ?, image_fetched_at = ? WHERE id = ?').run(imgPath, 'manual', Date.now(), artistId); return imgPath })
   ipcMain.handle('artist:rename', (_, artistId, newName) => { const db = getDB(); const newId = 'a-' + newName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, ''); db.prepare('UPDATE tracks SET artist = ? WHERE artist = (SELECT name FROM artists WHERE id = ?)').run(newName, artistId); db.prepare('UPDATE artists SET id = ?, name = ? WHERE id = ?').run(newId, newName, artistId); db.prepare('UPDATE artist_track_links SET artist_id = ? WHERE artist_id = ?').run(newId, artistId) })
   ipcMain.handle('artist:merge', (_, sourceId, targetId) => {
     const db = getDB();
@@ -731,7 +755,7 @@ module.exports = { registerScannerHandlers, scanFolder, DEFAULT_MUSIC_PATH, inde
 
 
 function registerExtraHandlers(ipcMain) {
-  ipcMain.handle('artist:setImageUrl', async (_, artistId, url) => { const db = getDB(); const imgPath = path.join(getStorageDir(), 'artwork', `artist-${artistId}.jpg`); await downloadToFile(url, imgPath); db.prepare('UPDATE artists SET image_path = ? WHERE id = ?').run(imgPath, artistId); return imgPath })
+  ipcMain.handle('artist:setImageUrl', async (_, artistId, url) => { const db = getDB(); const imgPath = path.join(getStorageDir(), 'artwork', `artist-${artistId}.jpg`); await downloadToFile(url, imgPath); db.prepare('UPDATE artists SET image_path = ?, image_source = ?, image_fetched_at = ? WHERE id = ?').run(imgPath, 'manual', Date.now(), artistId); return imgPath })
   ipcMain.handle('album:setImageUrl', async (_, albumTitle, url) => { const db = getDB(); const safeTitle = albumTitle.replace(/[^a-z0-9]+/gi, '-'); const imgPath = path.join(getStorageDir(), 'artwork', `album-${safeTitle}.jpg`); await downloadToFile(url, imgPath); db.prepare('UPDATE tracks SET artwork_path = ? WHERE album = ?').run(imgPath, albumTitle); return imgPath })
   ipcMain.handle('artist:importPhotosDir', async (_, photosDir) => {
     const db = getDB()
