@@ -3,8 +3,10 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { X, Camera, Save, RefreshCw, Check, AlertCircle } from 'lucide-react'
 import { api } from '../api'
 import Modal from './Modal'
+import { usePlayerStore } from '../store/player'
 
 export default function TrackEditModal({ track, open, onClose, onSave }) {
+  const syncTrack = usePlayerStore(s => s.syncTrack)
   const [formData, setFormData] = useState({
     title: '',
     artist: '',
@@ -54,7 +56,11 @@ export default function TrackEditModal({ track, open, onClose, onSave }) {
     
     setSaving(true)
     try {
-      await api.trackSetArtwork(track.id, dataUrl)
+      const updatedTrack = await api.trackSetArtwork(track.id, dataUrl)
+      if (updatedTrack?.id) {
+        syncTrack(updatedTrack)
+        if (onSave) onSave(updatedTrack)
+      }
       setStatus({ type: 'success', message: 'Artwork updated!' })
       setTimeout(() => setStatus(null), 2000)
     } catch (e) {
@@ -84,8 +90,10 @@ export default function TrackEditModal({ track, open, onClose, onSave }) {
         if (result?.error) {
           setStatus({ type: 'error', message: result.error })
         } else {
+          const updatedTrack = result?.track || { ...track, ...updateData }
+          syncTrack(updatedTrack)
           setStatus({ type: 'success', message: 'Track updated!' })
-          if (onSave) onSave({ ...track, ...updateData })
+          if (onSave) onSave(updatedTrack)
           setTimeout(() => {
             onClose()
           }, 1000)
@@ -111,9 +119,11 @@ export default function TrackEditModal({ track, open, onClose, onSave }) {
       const result = await api.fetchExternalArtwork(track.id, track.title, track.artist)
       
       if (result?.success && result.artworkPath) {
-        setArtworkPreview(api.isElectron ? `file://${result.artworkPath}` : api.artworkURL(track.id))
+        const updatedTrack = result?.track || { ...track, artwork_path: result.artworkPath }
+        setArtworkPreview(api.isElectron ? `file://${updatedTrack.artwork_path}` : api.artworkURL(track.id))
+        syncTrack(updatedTrack)
         setStatus({ type: 'success', message: 'Artwork found and updated!' })
-        if (onSave) onSave({ ...track, artwork_path: result.artworkPath })
+        if (onSave) onSave(updatedTrack)
       } else {
         setStatus({ type: 'error', message: result?.error || 'No artwork found on iTunes' })
       }

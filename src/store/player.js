@@ -529,6 +529,17 @@ export const usePlayerStore = create((set, get) => ({
     return { likedIds: next }
   }),
   initLiked: (ids) => set({ likedIds: new Set(ids) }),
+  syncTrack: (track) => set((state) => {
+    if (!track?.id) return state
+    const syncList = (list) => Array.isArray(list) ? list.map(item => item?.id === track.id ? { ...item, ...track } : item) : list
+    const currentTrack = state.currentTrack?.id === track.id ? { ...state.currentTrack, ...track } : state.currentTrack
+    return {
+      queue: syncList(state.queue),
+      shuffleQueue: syncList(state.shuffleQueue),
+      originalQueue: syncList(state.originalQueue),
+      currentTrack,
+    }
+  }),
 }))
 
 export const useAppStore = create((set, get) => ({

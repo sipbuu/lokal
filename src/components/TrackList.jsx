@@ -50,7 +50,7 @@ function fmtAddedAt(ts) {
 }
 
 export default function TrackList({ tracks = [], showAlbum = true, onRemove = null, showPlayNext = true, showAddToQueue = true, playlistId = null, onReorder = null, onQuickAdd = null, reduceMotion = false }) {
-  const { currentTrack, isPlaying, playTrack, togglePlay, likedIds, setLiked, playNext, addToQueue } = usePlayerStore()
+  const { currentTrack, isPlaying, playTrack, togglePlay, likedIds, setLiked, playNext, addToQueue, syncTrack } = usePlayerStore()
   const { user, openAddToPlaylist, openAddMultipleToPlaylist } = useAppStore()
   const [hoveredId, setHoveredId] = useState(null)
   const [likeAnim, setLikeAnim] = useState(null)
@@ -60,13 +60,15 @@ export default function TrackList({ tracks = [], showAlbum = true, onRemove = nu
   const [dragOverId, setDragOverId] = useState(null)
   const [editingTrack, setEditingTrack] = useState(null)
   const [trackToDelete, setTrackToDelete] = useState(null)
+  const [trackOverrides, setTrackOverrides] = useState({})
   const shouldAnimateRows = !reduceMotion && tracks.length <= 120
+  const mergedTracks = tracks.map(track => trackOverrides[track.id] ? { ...track, ...trackOverrides[track.id] } : track)
 
   const handlePlay = (track, e) => {
     e.stopPropagation()
     saveRecentTrack(track)
     if (currentTrack?.id === track.id) togglePlay()
-    else playTrack(track, tracks)
+    else playTrack(track, mergedTracks)
   }
 
   const toggleLike = async (track, e) => {
@@ -86,7 +88,12 @@ export default function TrackList({ tracks = [], showAlbum = true, onRemove = nu
     img.onload = () => {
       const c = document.createElement('canvas'); c.width = img.width; c.height = img.height
       c.getContext('2d').drawImage(img, 0, 0)
-      api.trackSetArtwork(track.id, c.toDataURL('image/jpeg', 0.85))
+      api.trackSetArtwork(track.id, c.toDataURL('image/jpeg', 0.85)).then((updatedTrack) => {
+        if (updatedTrack?.id) {
+          syncTrack(updatedTrack)
+          setTrackOverrides(prev => ({ ...prev, [updatedTrack.id]: updatedTrack }))
+        }
+      })
     }
   }
 
@@ -102,7 +109,7 @@ export default function TrackList({ tracks = [], showAlbum = true, onRemove = nu
       setSelectedIds(newSelected)
     } else if (e.shiftKey && selectedIds.size > 0) {
       e.stopPropagation()
-      const trackIds = tracks.map(t => t.id)
+      const trackIds = mergedTracks.map(t => t.id)
       const lastSelected = Array.from(selectedIds).pop()
       const lastIndex = trackIds.indexOf(lastSelected)
       const currentIndex = trackIds.indexOf(track.id)
@@ -203,7 +210,7 @@ export default function TrackList({ tracks = [], showAlbum = true, onRemove = nu
   const handlePlayNext = (track, e) => {
     e.stopPropagation()
     if (selectedIds.size > 1) {
-      const selectedTracks = tracks.filter(t => selectedIds.has(t.id))
+      const selectedTracks = mergedTracks.filter(t => selectedIds.has(t.id))
       selectedTracks.forEach(t => playNext(t))
     } else {
       playNext(track)
@@ -213,7 +220,7 @@ export default function TrackList({ tracks = [], showAlbum = true, onRemove = nu
   const handleAddToQueue = (track, e) => {
     e.stopPropagation()
     if (selectedIds.size > 1) {
-      const selectedTracks = tracks.filter(t => selectedIds.has(t.id))
+      const selectedTracks = mergedTracks.filter(t => selectedIds.has(t.id))
       selectedTracks.forEach(t => addToQueue(t))
     } else {
       addToQueue(track)
@@ -223,9 +230,9 @@ export default function TrackList({ tracks = [], showAlbum = true, onRemove = nu
   const artSrc = (t) => t.artwork_path ? (api.isElectron ? `file://${t.artwork_path}` : api.artworkURL(t.id)) : null
 
   const handleSelectedAddToPlaylist = () => {
-    const trackIds = Array.from(selectedIds)
-    if (trackIds.length === 1) {
-      const track = tracks.find(t => t.id === trackIds[0])
+      const trackIds = Array.from(selectedIds)
+      if (trackIds.length === 1) {
+      const track = mergedTracks.find(t => t.id === trackIds[0])
       if (track) openAddToPlaylist(track)
     } else if (trackIds.length > 1) {
       openAddMultipleToPlaylist(trackIds)
@@ -235,7 +242,7 @@ export default function TrackList({ tracks = [], showAlbum = true, onRemove = nu
   const handleSelectedDelete = async () => {
     if (onRemove && selectedIds.size > 0) {
       for (const trackId of selectedIds) {
-        const track = tracks.find(t => t.id === trackId)
+        const track = mergedTracks.find(t => t.id === trackId)
         if (track) await onRemove(track)
       }
       setSelectedIds(new Set())
@@ -281,7 +288,7 @@ export default function TrackList({ tracks = [], showAlbum = true, onRemove = nu
         <span className="text-right">Time</span>
       </div>
 
-      {tracks.map((track, i) => {
+      {mergedTracks.map((track, i) => {
         const isCurrent = currentTrack?.id === track.id
         const isHov = hoveredId === track.id
         const isSelected = selectedIds.has(track.id)
@@ -426,6 +433,11 @@ export default function TrackList({ tracks = [], showAlbum = true, onRemove = nu
         track={editingTrack} 
         open={!!editingTrack} 
         onClose={() => setEditingTrack(null)} 
+        onSave={(updatedTrack) => {
+          if (!updatedTrack?.id) return
+          setTrackOverrides(prev => ({ ...prev, [updatedTrack.id]: updatedTrack }))
+          setEditingTrack(updatedTrack)
+        }}
       />
 
       <Modal 

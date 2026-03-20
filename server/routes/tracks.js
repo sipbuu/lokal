@@ -132,7 +132,8 @@ router.put('/:id', (req, res) => {
   params.push(req.params.id)
   const sql = `UPDATE tracks SET ${updates.join(', ')} WHERE id = ?`
   const result = db.prepare(sql).run(...params)
-  res.json({ success: true, changes: result.changes })
+  const track = db.prepare('SELECT * FROM tracks WHERE id = ?').get(req.params.id)
+  res.json({ success: true, changes: result.changes, track })
 })
 
 router.put('/:id/artwork', (req, res) => {
@@ -148,7 +149,6 @@ router.put('/:id/artwork', (req, res) => {
     const buf = Buffer.from(imageData.split(',')[1], 'base64')
     const artPath = path.join(getStorageDir(), 'artwork', `${req.params.id}.jpg`)
     
-    // Ensure directory exists
     const dir = path.dirname(artPath)
     if (!fs.existsSync(dir)) {
       fs.mkdirSync(dir, { recursive: true })
@@ -156,7 +156,8 @@ router.put('/:id/artwork', (req, res) => {
     
     fs.writeFileSync(artPath, buf)
     db.prepare('UPDATE tracks SET artwork_path = ? WHERE id = ?').run(artPath, req.params.id)
-    res.json({ success: true, path: artPath })
+    const track = db.prepare('SELECT * FROM tracks WHERE id = ?').get(req.params.id)
+    res.json(track || { success: true, path: artPath })
   } catch (e) {
     res.json({ error: e.message })
   }
