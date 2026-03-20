@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useCallback } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { Heart, Music, Play, Trash2, Edit2, Check, X, RefreshCw, Plus } from 'lucide-react'
+import { Heart, Music, Play, Shuffle, Trash2, Edit2, Check, X, RefreshCw, Plus } from 'lucide-react'
 import { usePlayerStore, useAppStore } from '../store/player'
 import TrackList from '../components/TrackList'
 import PlaylistCover from '../components/PlaylistCover'
@@ -149,6 +149,11 @@ export default function Playlist() {
 
   const totalDuration = tracks.reduce((s, t) => s + (t.duration || 0), 0)
   const fmt = (s) => `${Math.floor(s / 3600) > 0 ? Math.floor(s / 3600) + 'h ' : ''}${Math.floor((s % 3600) / 60)}m`
+  const shuffleTracks = () => {
+    if (!tracks.length) return
+    const shuffled = [...tracks].sort(() => Math.random() - 0.5)
+    playQueue(shuffled, 0)
+  }
 
   return (
     <div className="p-6 pb-10">
@@ -188,6 +193,10 @@ export default function Playlist() {
           <button onClick={() => playQueue(tracks, 0)}
             className="flex items-center gap-2 px-6 py-2.5 bg-accent text-base rounded-full font-medium text-sm hover:bg-accent/80 transition-colors">
             <Play size={16} fill="currentColor" className="translate-x-px" /> Play All
+          </button>
+          <button onClick={shuffleTracks}
+            className="flex items-center gap-2 px-5 py-2.5 bg-elevated border border-border text-white/80 rounded-full font-medium text-sm hover:text-white hover:border-accent/30 transition-colors">
+            <Shuffle size={15} /> Shuffle
           </button>
           {!isLiked && (
             <button onClick={deletePlaylist}
