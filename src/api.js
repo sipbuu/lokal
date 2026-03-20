@@ -8,6 +8,13 @@ const isE = () => {
 const el = () => window.electron
 const BASE = '/api'
 
+function buildLastfmAuthUrl(apiKey) {
+  const callback = isE()
+    ? 'lokal://lastfm-auth'
+    : `${window.location.origin}${BASE}/lastfm/callback`
+  return `https://www.last.fm/api/auth/?${new URLSearchParams({ api_key: apiKey || '', cb: callback })}`
+}
+
 function normalizeProfilePayload(data = {}) {
   return {
     userId: data.userId,
@@ -142,12 +149,29 @@ export const api = {
   discordSetActivity: (t, p) => { if (isE() && el().discordSetActivity) return el().discordSetActivity(t, p); return Promise.resolve() },
   discordConnect: (id) => isE() ? el().discordConnect(id) : Promise.resolve(false),
   discordDisconnect: () => isE() ? el().discordDisconnect() : Promise.resolve(),
+  openExternal: (url) => isE() ? el().openExternal(url) : Promise.resolve(window.open(url, '_blank', 'noopener,noreferrer')),
   lastfmConnect: (apiKey, apiSecret, token) => isE() ? el().lastfmConnect(apiKey, apiSecret, token) : apiFetch('/lastfm/connect', { method:'POST', body:{apiKey, apiSecret, token} }),
+  lastfmAuthorize: (apiKey) => {
+    const url = buildLastfmAuthUrl(apiKey)
+    return isE() ? el().openExternal(url) : Promise.resolve(window.open(url, '_blank', 'noopener,noreferrer'))
+  },
   lastfmGetArtistInfo: (artist) => isE() ? el().lastfmGetArtistInfo(artist) : apiFetch(`/lastfm/artist/${encodeURIComponent(artist)}`),
   lastfmGetTrackInfo: (artist, track) => isE() ? el().lastfmGetTrackInfo(artist, track) : apiFetch(`/lastfm/track?${new URLSearchParams({artist, track})}`),
   lastfmGetSimilarArtists: (artist, limit) => isE() ? el().lastfmGetSimilarArtists(artist, limit) : apiFetch(`/lastfm/similar/${encodeURIComponent(artist)}?limit=${limit || 5}`),
   lastfmScrobble: (artist, track, album, duration, timestamp) => isE() ? el().lastfmScrobble(artist, track, album, duration, timestamp) : apiFetch('/lastfm/scrobble', { method:'POST', body:{artist, track, album, duration, timestamp} }),
   lastfmUpdateNowPlaying: (artist, track, album, duration) => isE() ? el().lastfmUpdateNowPlaying(artist, track, album, duration) : apiFetch('/lastfm/update-now-playing', { method:'POST', body:{artist, track, album, duration} }),
+  onLastfmAuthToken: (fn) => {
+    if (isE() && typeof el().onLastfmAuthToken === 'function') {
+      return el().onLastfmAuthToken(fn)
+    }
+    const onMessage = (event) => {
+      if (event.origin !== window.location.origin) return
+      if (event.data?.type !== 'lokal-lastfm-auth-token') return
+      fn(event.data.token || '')
+    }
+    window.addEventListener('message', onMessage)
+    return () => window.removeEventListener('message', onMessage)
+  },
   pluginsList: () => isE() ? el().pluginsList() : apiFetch('/plugins'),
   pluginsReload: () => isE() ? el().pluginsReload() : apiFetch('/plugins/reload', { method: 'POST' }),
   pluginsEnable: (pluginId) => isE() ? el().pluginsEnable(pluginId) : apiFetch(`/plugins/${encodeURIComponent(pluginId)}/enable`, { method: 'POST' }),
