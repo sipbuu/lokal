@@ -6,11 +6,15 @@ const API_ROOT = 'https://ws.audioscrobbler.com/2.0/'
 
 
 function generateSignature(params, secret) {
-  const sorted = Object.keys(params).sort()
+  const sorted = Object.keys(params)
+    .filter(key => key !== 'format')
+    .sort()
+
   let str = ''
   for (const key of sorted) {
     str += key + params[key]
   }
+
   str += secret
   return crypto.createHash('md5').update(str).digest('hex')
 }
@@ -18,7 +22,6 @@ function generateSignature(params, secret) {
 
 async function lastfmCall(method, params, apiKey, apiSecret) {
   const https = require('https')
-
   const baseParams = {
     method,
     api_key: apiKey,
@@ -26,27 +29,26 @@ async function lastfmCall(method, params, apiKey, apiSecret) {
   }
 
   if (apiSecret) {
-    const sigParams = { ...baseParams }
-    const sorted = Object.keys(sigParams).sort()
-    let sigString = ''
-    for (const key of sorted) {
-      sigString += key + sigParams[key]
-    }
-    sigString += apiSecret
-
-    baseParams.api_sig = crypto
-      .createHash('md5')
-      .update(sigString)
-      .digest('hex')
+    baseParams.api_sig = generateSignature(baseParams, apiSecret)
   }
 
   baseParams.format = 'json'
 
-  const queryString = new URLSearchParams(baseParams).toString()
-  const url = `${API_ROOT}?${queryString}`
-
   return new Promise((resolve, reject) => {
-    https.get(url, { headers: { 'User-Agent': 'LokalMusic/4.0' } }, (res) => {
+    const body = new URLSearchParams(baseParams).toString()
+    const requestUrl = apiSecret ? API_ROOT : `${API_ROOT}?${body}`
+    const req = https.request(requestUrl, {
+      method: apiSecret ? 'POST' : 'GET',
+      headers: apiSecret
+        ? {
+            'User-Agent': 'LokalMusic/4.0',
+            'Content-Type': 'application/x-www-form-urlencoded',
+            'Content-Length': Buffer.byteLength(body)
+          }
+        : {
+            'User-Agent': 'LokalMusic/4.0'
+          }
+    }, (res) => {
       let data = ''
       res.on('data', chunk => data += chunk)
       res.on('end', () => {
@@ -56,7 +58,15 @@ async function lastfmCall(method, params, apiKey, apiSecret) {
           resolve({ error: 'Failed to parse response' })
         }
       })
-    }).on('error', reject)
+    })
+
+    req.on('error', reject)
+
+    if (apiSecret) {
+      req.write(body)
+    }
+
+    req.end()
   })
 }
 
@@ -101,13 +111,13 @@ async function updateNowPlaying(artist, track, album, duration, apiKey, apiSecre
   }
   
   const params = {
-    'artist[0]': artist,
-    'track[0]': track,
-    'sk': sessionKey
+    artist,
+    track,
+    sk: sessionKey
   }
   
-  if (album) params['album[0]'] = album
-  if (duration) params['duration[0]'] = duration.toString()
+  if (album) params.album = album
+  if (duration) params.duration = duration.toString()
   
   return lastfmCall('track.updateNowPlaying', params, apiKey, apiSecret)
 }
@@ -246,7 +256,7 @@ function registerLastFmHandlers(ipcMain) {
       scrobblingEnabled: db.prepare("SELECT value FROM settings WHERE key = 'lastfm_scrobbling'").get()?.value === '1'
     }
     
-    if (!settings.scrobblingEnabled || !settings.apiKey || !settings.apiSecret || !settings.sessionKey) {
+    if (!settings.apiKey || !settings.apiSecret || !settings.sessionKey) {
       return { skipped: true }
     }
     
