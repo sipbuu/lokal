@@ -914,6 +914,13 @@ export default function Settings() {
 
       {inCategory('artists') && (
       <Section title="Artist Photos">
+        <Row label="Auto Add Artist Bio & Image" desc="When opening an artist page, try to fetch a missing bio and a better artist image automatically. Default is off.">
+          <button
+            onClick={() => set('auto_fetch_artist_metadata', settings.auto_fetch_artist_metadata === '1' ? '0' : '1')}
+            className={`px-4 py-1.5 rounded-lg text-xs font-display uppercase tracking-wider border transition-colors ${settings.auto_fetch_artist_metadata === '1' ? 'bg-accent/20 border-accent/50 text-accent' : 'border-border text-muted hover:text-white'}`}>
+            {settings.auto_fetch_artist_metadata === '1' ? 'On' : 'Off'}
+          </button>
+        </Row>
         <Row label="Photos folder" desc="Folder containing artist images named after artists (Drake.jpg etc)">
           <div className="flex items-center gap-2">
             <input value={settings.photos_dir || ''} onChange={e => set('photos_dir', e.target.value)}

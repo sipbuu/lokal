@@ -1,7 +1,11 @@
 import React, { useDeferredValue, useEffect, useRef, useState } from 'react'
-import { Camera, Merge, Trash2 } from 'lucide-react'
+import { Camera, Merge, Search, Trash2, Undo2 } from 'lucide-react'
 import Modal from './Modal'
 import { api } from '../api'
+
+function stripHtml(value) {
+  return String(value || '').replace(/<[^>]*>/g, '').trim()
+}
 
 export default function ArtistManageModal({ artist, open, onClose, onChanged }) {
   const [tab, setTab] = useState('edit')
@@ -11,6 +15,11 @@ export default function ArtistManageModal({ artist, open, onClose, onChanged }) 
   const [mergeSearch, setMergeSearch] = useState('')
   const [mergeOptions, setMergeOptions] = useState([])
   const [mergeLoading, setMergeLoading] = useState(false)
+  const [lookupQuery, setLookupQuery] = useState('')
+  const [lookupResults, setLookupResults] = useState([])
+  const [lookupLoading, setLookupLoading] = useState(false)
+  const [lookupError, setLookupError] = useState('')
+  const [autoMatching, setAutoMatching] = useState(false)
   const [saving, setSaving] = useState(false)
   const fileRef = useRef()
   const deferredMergeSearch = useDeferredValue(mergeSearch)
@@ -22,6 +31,9 @@ export default function ArtistManageModal({ artist, open, onClose, onChanged }) 
     setMergeTarget('')
     setMergeSearch('')
     setMergeOptions([])
+    setLookupQuery(artist?.name || '')
+    setLookupResults([])
+    setLookupError('')
   }, [artist?.id, open])
 
   useEffect(() => {
@@ -83,6 +95,49 @@ export default function ArtistManageModal({ artist, open, onClose, onChanged }) 
     onClose?.()
   }
 
+  const runLookup = async () => {
+    const query = lookupQuery.trim()
+    if (!query) return
+    setLookupLoading(true)
+    setLookupError('')
+    try {
+      const results = await api.artistSearchMetadata(query)
+      const items = Array.isArray(results) ? results : []
+      setLookupResults(items)
+      if (!items.length) setLookupError('No matches found.')
+    } catch {
+      setLookupResults([])
+      setLookupError('Lookup failed.')
+    }
+    setLookupLoading(false)
+  }
+
+  const applyLookup = async (selection, mode = 'both') => {
+    setSaving(true)
+    await api.artistApplyMetadataSelection(artist.id, selection, mode)
+    setSaving(false)
+    onChanged?.()
+  }
+
+  const useLocalFallback = async () => {
+    setSaving(true)
+    await api.artistClearImageOverride(artist.id)
+    setSaving(false)
+    onChanged?.()
+  }
+
+  const tryAutoMatch = async () => {
+    setAutoMatching(true)
+    setLookupError('')
+    try {
+      await api.artistRefreshMetadata(artist.id, { force: true })
+      onChanged?.()
+    } catch {
+      setLookupError('Automatic match failed.')
+    }
+    setAutoMatching(false)
+  }
+
   const doMerge = async () => {
     if (!mergeTarget || mergeTarget === artist.id) return
     setSaving(true)
@@ -107,7 +162,7 @@ export default function ArtistManageModal({ artist, open, onClose, onChanged }) 
     <Modal open={open} onClose={onClose} title={`Manage: ${artist.name}`} width="max-w-lg">
       {}
       <div className="flex gap-1 mb-5 p-0.5 bg-card rounded-lg border border-border">
-        {[['edit', 'Edit'], ['merge', 'Merge'], ['danger', 'Danger Zone']].map(([id, label]) => (
+        {[['edit', 'Edit'], ['lookup', 'Lookup'], ['merge', 'Merge'], ['danger', 'Danger Zone']].map(([id, label]) => (
           <button key={id} onClick={() => setTab(id)} className={`flex-1 py-1.5 text-xs font-display uppercase tracking-wider rounded transition-colors ${tab === id ? (id === 'danger' ? 'bg-red-500/20 text-red-400' : 'bg-accent text-base') : 'text-muted hover:text-white'}`}>
             {label}
           </button>
@@ -127,7 +182,12 @@ export default function ArtistManageModal({ artist, open, onClose, onChanged }) 
               </div>
             </button>
             <input ref={fileRef} type="file" accept="image/*" onChange={onFileChange} className="hidden" />
-            <p className="text-xs text-muted">Click to change artist image</p>
+            <div className="space-y-2">
+              <p className="text-xs text-muted">Click to change artist image</p>
+              <button onClick={useLocalFallback} disabled={saving} className="inline-flex items-center gap-1.5 text-xs text-muted hover:text-white transition-colors disabled:opacity-40">
+                <Undo2 size={12} /> Use local track artwork fallback
+              </button>
+            </div>
           </div>
 
           <div>
@@ -143,6 +203,53 @@ export default function ArtistManageModal({ artist, open, onClose, onChanged }) 
             <button onClick={saveEdit} disabled={saving} className="flex-1 py-2.5 bg-accent text-base rounded-xl text-sm font-medium hover:bg-accent-dim transition-colors disabled:opacity-40">
               {saving ? 'Saving…' : 'Save'}
             </button>
+          </div>
+        </div>
+      )}
+
+      {tab === 'lookup' && (
+        <div className="space-y-4">
+          <p className="text-xs text-muted leading-relaxed">Search for a better web match if the current bio or image is wrong. Applying a result becomes a manual override, so Lokal will keep your choice.</p>
+          <button onClick={tryAutoMatch} disabled={autoMatching || saving} className="w-full py-2.5 rounded-xl border border-border text-sm text-muted hover:text-white hover:border-accent/40 transition-colors disabled:opacity-40">
+            {autoMatching ? 'Trying to match...' : 'Try auto match'}
+          </button>
+          <div className="flex gap-2">
+            <input
+              value={lookupQuery}
+              onChange={e => setLookupQuery(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') runLookup() }}
+              placeholder="Search artist name..."
+              className="flex-1 bg-card border border-border rounded-xl px-4 py-2.5 text-sm text-white outline-none focus:border-accent/60 transition-colors"
+            />
+            <button onClick={runLookup} disabled={lookupLoading || !lookupQuery.trim()} className="px-4 py-2.5 rounded-xl bg-accent text-base text-sm font-medium hover:bg-accent-dim transition-colors disabled:opacity-40">
+              <Search size={14} className="inline mr-1.5" />Search
+            </button>
+          </div>
+          {lookupError && <p className="text-xs text-amber-300">{lookupError}</p>}
+          <div className="space-y-3 max-h-80 overflow-y-auto pr-1">
+            {lookupLoading && <p className="text-xs text-muted">Searching...</p>}
+            {!lookupLoading && !lookupResults.length && !lookupError && (
+              <p className="text-xs text-muted">Search Wikipedia for a better artist match.</p>
+            )}
+            {lookupResults.map(result => (
+              <div key={result.title} className="rounded-xl border border-border bg-card p-3 space-y-3">
+                <div className="flex gap-3">
+                  <div className="w-14 h-14 rounded-lg overflow-hidden bg-elevated border border-border flex items-center justify-center flex-shrink-0">
+                    {result.imageUrl ? <img src={result.imageUrl} className="w-full h-full object-cover" /> : <span className="text-muted text-xs">No image</span>}
+                  </div>
+                  <div className="min-w-0 space-y-1">
+                    <p className="text-sm font-medium text-white truncate">{result.title}</p>
+                    {result.snippet && <p className="text-xs text-muted max-h-10 overflow-hidden">{stripHtml(result.snippet)}</p>}
+                  </div>
+                </div>
+                {result.bio && <p className="text-xs text-muted leading-relaxed max-h-20 overflow-hidden">{result.bio}</p>}
+                <div className="flex flex-wrap gap-2">
+                  <button onClick={() => applyLookup(result, 'both')} disabled={saving} className="px-3 py-1.5 rounded-lg bg-accent text-base text-xs font-medium hover:bg-accent-dim transition-colors disabled:opacity-40">Use bio + image</button>
+                  <button onClick={() => applyLookup(result, 'image')} disabled={saving || !result.imageUrl} className="px-3 py-1.5 rounded-lg border border-border text-xs text-muted hover:text-white hover:border-accent/40 transition-colors disabled:opacity-40">Use image only</button>
+                  <button onClick={() => applyLookup(result, 'bio')} disabled={saving || !result.bio} className="px-3 py-1.5 rounded-lg border border-border text-xs text-muted hover:text-white hover:border-accent/40 transition-colors disabled:opacity-40">Use bio only</button>
+                </div>
+              </div>
+            ))}
           </div>
         </div>
       )}

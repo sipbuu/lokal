@@ -16,7 +16,23 @@ export default function Artist() {
   const { playQueue } = usePlayerStore()
 
   const load = () => {
-    api.getArtist(id).then(setArtist)
+    Promise.all([api.getArtist(id), api.getSettings()]).then(([data, appSettings]) => {
+      setArtist(data)
+      if (!data?.id) return
+      if (appSettings?.auto_fetch_artist_metadata !== '1') return
+      api.artistRefreshMetadata(data.id).then((refreshed) => {
+        if (!refreshed || refreshed.error) return
+        setArtist((current) => {
+          if (!current || current.id !== data.id) return current
+          const nextBio = refreshed.bio || ''
+          const currBio = current.bio || ''
+          const nextImage = refreshed.image_path || ''
+          const currImage = current.image_path || ''
+          if (nextBio === currBio && nextImage === currImage) return current
+          return { ...current, ...refreshed }
+        })
+      }).catch(() => {})
+    }).catch(() => {})
     api.getArtists().then(setAllArtists)
   }
 
