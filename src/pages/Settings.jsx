@@ -21,6 +21,7 @@ const EQ_PRESETS = {
 const DEFAULT_EQ_PRESET = 'flat'
 const ARTISTS_PAGE_SIZE = 60
 const DEFAULT_DISCORD_CLIENT_ID = '1473597925581131919'
+const LASTFM_STATUS_KEY = 'lokal-lastfm-status-feed'
 const SETTINGS_CATEGORIES = [
   { key: 'library', label: 'Library', icon: Music2 },
   { key: 'artists', label: 'Artists', icon: Tags },
@@ -136,6 +137,8 @@ export default function Settings() {
   const [artistSearch, setArtistSearch] = useState('')
   const [discordStatus, setDiscordStatus] = useState('')
   const [lastfmStatus, setLastfmStatus] = useState('')
+  const [lastfmFeed, setLastfmFeed] = useState([])
+  const [lastfmAuthorizing, setLastfmAuthorizing] = useState(false)
   const [importStatus, setImportStatus] = useState('')
   const [urlTarget, setUrlTarget] = useState({ type: '', id: '', url: '' })
   const [showUrlModal, setShowUrlModal] = useState(false)
@@ -182,12 +185,30 @@ export default function Settings() {
   const deferredArtistSearch = useDeferredValue(artistSearch)
   const { themeName, themeOverrides, showAdvanced, setShowAdvanced, selectTheme, setAccent, saveOverride, resetTheme, textScale, setTextScale } = useTheme()
 
+  const pushLastfmFeed = (entry) => {
+    setLastfmFeed(prev => {
+      const next = [
+        {
+          id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+          time: Date.now(),
+          ...entry,
+        },
+        ...prev,
+      ].slice(0, 10)
+      try {
+        localStorage.setItem(LASTFM_STATUS_KEY, JSON.stringify(next))
+      } catch {}
+      return next
+    })
+  }
+
   useEffect(() => {
 
     api.getSettings().then(s => setSettings({
       ...(s || {}),
       discord_use_default_app_id: s?.discord_use_default_app_id ?? '1',
-      discord_client_id: s?.discord_client_id || DEFAULT_DISCORD_CLIENT_ID
+      discord_client_id: s?.discord_client_id || DEFAULT_DISCORD_CLIENT_ID,
+      discord_auto_connect: s?.discord_auto_connect ?? '0',
     }))
 
     api.getKeepCommaArtists().then(a => {
@@ -221,7 +242,74 @@ export default function Settings() {
       */
     }
 
+    try {
+      setLastfmFeed(JSON.parse(localStorage.getItem(LASTFM_STATUS_KEY) || '[]'))
+    } catch {}
+
   }, []) 
+
+  useEffect(() => {
+    const offAuth = api.onLastfmAuthToken?.(async (token) => {
+      if (!token) return
+      set('lastfm_auth_token', token)
+      setLastfmAuthorizing(false)
+      pushLastfmFeed({
+        level: 'info',
+        label: 'Authorization',
+        message: 'Authorization callback received from Last.fm'
+      })
+      if (!settings.lastfm_api_key || !settings.lastfm_api_secret) {
+        setLastfmStatus('Need API key and secret')
+        pushLastfmFeed({
+          level: 'error',
+          label: 'Authorization',
+          message: 'Missing API key or secret for session exchange'
+        })
+        return
+      }
+      setLastfmStatus('Finishing Last.fm connection...')
+      const result = await api.lastfmConnect(settings.lastfm_api_key, settings.lastfm_api_secret, token)
+      if (result.sessionKey) {
+        await api.saveSettings({
+          lastfm_session_key: result.sessionKey,
+          lastfm_username: result.username || settings.lastfm_username,
+          lastfm_auth_token: token
+        })
+        setSettings(prev => ({
+          ...prev,
+          lastfm_auth_token: token,
+          lastfm_session_key: result.sessionKey,
+          lastfm_username: result.username || prev.lastfm_username
+        }))
+        setLastfmStatus('✓ Connected as ' + (result.username || settings.lastfm_username))
+        pushLastfmFeed({
+          level: 'success',
+          label: 'Connection',
+          message: `Connected as ${result.username || settings.lastfm_username || 'Last.fm user'}`
+        })
+      } else {
+        setLastfmStatus(result.error || 'Failed')
+        pushLastfmFeed({
+          level: 'error',
+          label: 'Connection',
+          message: result.error || 'Failed to exchange Last.fm token'
+        })
+      }
+    })
+
+    const onStatus = (event) => {
+      const next = event.detail
+      if (Array.isArray(next)) {
+        setLastfmFeed(next)
+      }
+    }
+
+    window.addEventListener('lokal:lastfm-status', onStatus)
+    return () => {
+      offAuth?.()
+      window.removeEventListener('lokal:lastfm-status', onStatus)
+    }
+  }, [settings.lastfm_api_key, settings.lastfm_api_secret, settings.lastfm_username])
 
   const loadArtists = async () => {
     const requestId = ++artistRequestRef.current
@@ -1039,6 +1127,13 @@ export default function Settings() {
               className="w-56 bg-card border border-border rounded-lg px-3 py-1.5 text-xs text-white outline-none focus:border-accent/50" />
           </Row>
         )}
+        <Row label="Connect On Startup" desc="Automatically tries to start Discord Rich Presence when Lokal opens">
+          <button
+            onClick={() => set('discord_auto_connect', settings.discord_auto_connect === '1' ? '0' : '1')}
+            className={`px-4 py-1.5 rounded-lg text-xs font-display uppercase tracking-wider border transition-colors ${settings.discord_auto_connect === '1' ? 'bg-accent/20 border-accent/50 text-accent' : 'border-border text-muted hover:text-white'}`}>
+            {settings.discord_auto_connect === '1' ? 'Yes' : 'No'}
+          </button>
+        </Row>
         <Row label="Connect">
           <div className="flex items-center gap-3">
             <button onClick={connectDiscord}
@@ -1083,40 +1178,119 @@ export default function Settings() {
             {settings.lastfm_scrobbling === '1' ? 'On' : 'Off'}
           </button>
         </Row>
-        <Row label="Auth Token" desc="Get token from last.fm/api/auth, paste here to get session">
+        <Row label="Authorization" desc="Open Last.fm in your browser and let Lokal finish the connection automatically">
           <div className="flex items-center gap-2">
+            <button
+              onClick={async () => {
+                if (!settings.lastfm_api_key || !settings.lastfm_api_secret) {
+                  setLastfmStatus('Need API key and secret')
+                  pushLastfmFeed({
+                    level: 'error',
+                    label: 'Authorization',
+                    message: 'Add your API key and secret before authorizing'
+                  })
+                  return
+                }
+                setLastfmAuthorizing(true)
+                setLastfmStatus('Waiting for browser authorization...')
+                pushLastfmFeed({
+                  level: 'info',
+                  label: 'Authorization',
+                  message: 'Opened Last.fm authorization in your browser'
+                })
+                await api.lastfmAuthorize(settings.lastfm_api_key)
+              }}
+              className="px-3 py-1.5 bg-card border border-border rounded-lg text-xs text-muted hover:text-white transition-colors"
+            >
+              {lastfmAuthorizing ? 'Waiting...' : 'Authorize in Browser'}
+            </button>
             <input value={settings.lastfm_auth_token || ''} onChange={e => set('lastfm_auth_token', e.target.value)}
-              placeholder="Paste auth token"
+              placeholder="Manual token fallback"
               className="w-44 bg-card border border-border rounded-lg px-3 py-1.5 text-xs text-white outline-none focus:border-accent/50" />
             <button 
               onClick={async () => {
                 if (!settings.lastfm_api_key || !settings.lastfm_api_secret || !settings.lastfm_auth_token) {
                   setLastfmStatus('Need API key, secret, and token')
+                  pushLastfmFeed({
+                    level: 'error',
+                    label: 'Connection',
+                    message: 'Missing API key, secret, or auth token'
+                  })
                   return
                 }
                 setLastfmStatus('Connecting...')
+                pushLastfmFeed({
+                  level: 'info',
+                  label: 'Connection',
+                  message: 'Exchanging manual Last.fm token for a session'
+                })
                 const result = await api.lastfmConnect(settings.lastfm_api_key, settings.lastfm_api_secret, settings.lastfm_auth_token)
                 if (result.sessionKey) {
                   await api.saveSettings({ 
                     lastfm_session_key: result.sessionKey,
-                    lastfm_username: result.username || settings.lastfm_username
+                    lastfm_username: result.username || settings.lastfm_username,
+                    lastfm_auth_token: settings.lastfm_auth_token
                   })
+                  setSettings(prev => ({
+                    ...prev,
+                    lastfm_session_key: result.sessionKey,
+                    lastfm_username: result.username || prev.lastfm_username
+                  }))
                   setLastfmStatus('✓ Connected as ' + (result.username || settings.lastfm_username))
+                  pushLastfmFeed({
+                    level: 'success',
+                    label: 'Connection',
+                    message: `Connected as ${result.username || settings.lastfm_username || 'Last.fm user'}`
+                  })
                 } else {
                   setLastfmStatus(result.error || 'Failed')
+                  pushLastfmFeed({
+                    level: 'error',
+                    label: 'Connection',
+                    message: result.error || 'Failed to connect to Last.fm'
+                  })
                 }
-                setTimeout(() => setLastfmStatus(''), 5000)
               }}
               className="px-3 py-1.5 bg-card border border-border rounded-lg text-xs text-muted hover:text-white transition-colors">
               Connect
             </button>
             {lastfmStatus && (
-              <span className={`text-xs ${lastfmStatus.startsWith('✓') ? 'text-accent' : 'text-muted'}`}>
+              <span className={`text-xs ${lastfmStatus.startsWith('✓') ? 'text-accent' : lastfmStatus.startsWith('Need') || lastfmStatus.startsWith('Failed') ? 'text-red-400' : 'text-muted'}`}>
                 {lastfmStatus}
               </span>
             )}
           </div>
         </Row>
+        <div className="rounded-xl border border-border bg-card/50 p-4 space-y-3">
+          <div className="flex items-center justify-between gap-4">
+            <div>
+              <p className="text-sm text-white font-medium">Last.fm Status</p>
+              <p className="text-xs text-muted mt-0.5">Connection, now playing, and scrobble events from this session.</p>
+            </div>
+            <div className="text-right text-xs text-muted">
+              <div>{settings.lastfm_session_key ? 'Session ready' : 'No session'}</div>
+              <div>{settings.lastfm_username ? `User: ${settings.lastfm_username}` : 'User: not connected'}</div>
+            </div>
+          </div>
+          <div className="space-y-2 max-h-48 overflow-y-auto">
+            {!lastfmFeed.length && (
+              <div className="text-xs text-muted">No Last.fm events yet.</div>
+            )}
+            {lastfmFeed.map(item => (
+              <div key={item.id} className="flex items-start justify-between gap-3 rounded-lg border border-border/60 bg-black/20 px-3 py-2">
+                <div className="min-w-0">
+                  <div className={`text-xs ${item.level === 'success' ? 'text-accent' : item.level === 'error' ? 'text-red-400' : 'text-white/80'}`}>
+                    {item.label}
+                  </div>
+                  <div className="text-xs text-muted break-words">{item.message}</div>
+                </div>
+                <div className="text-[10px] text-muted whitespace-nowrap">
+                  {new Date(item.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
       </Section>
       )}
 

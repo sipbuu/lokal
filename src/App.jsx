@@ -40,6 +40,23 @@ const EQ_AUDIO_BANDS = [
   { frequency: 8000, type: 'peaking', q: 0.9 },
   { frequency: 16000, type: 'highshelf', q: 0.7 },
 ]
+const LASTFM_STATUS_KEY = 'lokal-lastfm-status-feed'
+
+function pushLastfmStatus(entry) {
+  try {
+    const feed = JSON.parse(localStorage.getItem(LASTFM_STATUS_KEY) || '[]')
+    const next = [
+      {
+        id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        time: Date.now(),
+        ...entry,
+      },
+      ...feed,
+    ].slice(0, 10)
+    localStorage.setItem(LASTFM_STATUS_KEY, JSON.stringify(next))
+    window.dispatchEvent(new CustomEvent('lokal:lastfm-status', { detail: next }))
+  } catch {}
+}
 
 function normalizeEqGains(input) {
   const values = Array.isArray(input) ? input.map(v => Number(v) || 0) : []
@@ -91,6 +108,9 @@ export default function App() {
   const crossfadeTokenRef = useRef(0)
   const crossfadeTimeoutRef = useRef(null)
   const expectedCrossfadeTrackIdRef = useRef(null)
+  const lastfmPlaybackStartedAtRef = useRef(0)
+  const lastfmPlaybackKeyRef = useRef(null)
+  const lastfmScrobbledPlaybackKeyRef = useRef(null)
 
   const [updateState, setUpdateState] = useState({
     status: 'idle',
@@ -503,6 +523,14 @@ export default function App() {
     setCfAudioRef(cfAudioRef)
     api.getSettings().then(s => {
       if (s?.crossfade_seconds) setCrossfade(parseFloat(s.crossfade_seconds) || 0)
+      if (api.isElectron && s?.discord_auto_connect === '1') {
+        const clientId = s?.discord_use_default_app_id === '0'
+          ? s?.discord_client_id
+          : '1473597925581131919'
+        if (clientId) {
+          api.discordConnect(clientId).catch(() => {})
+        }
+      }
     })
   }, [])
 
@@ -515,11 +543,121 @@ export default function App() {
     clearInterval(playTimerRef.current); playTimerRef.current = null
   }, [])
 
+  const getLastfmTrackDuration = useCallback((track) => {
+    const seconds = Number(track?.duration) || 0
+    return seconds > 0 ? Math.round(seconds) : 0
+  }, [])
+
+  const shouldScrobbleLastfmTrack = useCallback((playedSeconds, track) => {
+    const durationSeconds = getLastfmTrackDuration(track)
+    if (playedSeconds < 30) return false
+    if (!durationSeconds) return true
+    return playedSeconds >= Math.min(durationSeconds / 2, 240)
+  }, [getLastfmTrackDuration])
+
+  const beginLastfmPlayback = useCallback((track) => {
+    if (!track?.id) {
+      lastfmPlaybackStartedAtRef.current = 0
+      lastfmPlaybackKeyRef.current = null
+      return
+    }
+
+    const startedAt = Math.floor(Date.now() / 1000)
+    lastfmPlaybackStartedAtRef.current = startedAt
+    lastfmPlaybackKeyRef.current = `${track.id}:${startedAt}`
+
+    api.getSettings().then((settings) => {
+      if (!settings?.lastfm_session_key || !settings?.lastfm_api_key || !settings?.lastfm_api_secret) return
+      if (!track.artist || !track.title) return
+      pushLastfmStatus({
+        level: 'info',
+        label: 'Now Playing',
+        message: `Sending now playing for ${track.artist} - ${track.title}`
+      })
+      api.lastfmUpdateNowPlaying(
+        track.artist,
+        track.title,
+        track.album || '',
+        getLastfmTrackDuration(track)
+      ).then((result) => {
+        if (result?.error || result?.skipped) {
+          pushLastfmStatus({
+            level: 'error',
+            label: 'Now Playing',
+            message: result?.error || result?.reason || 'Now playing was skipped'
+          })
+          return
+        }
+        pushLastfmStatus({
+          level: 'success',
+          label: 'Now Playing',
+          message: `${track.artist} - ${track.title}`
+        })
+      }).catch((error) => {
+        pushLastfmStatus({
+          level: 'error',
+          label: 'Now Playing',
+          message: error?.message || 'Failed to update now playing'
+        })
+      })
+    }).catch(() => {})
+  }, [getLastfmTrackDuration])
+
+  const tryScrobbleLastfmTrack = useCallback((track, playedSeconds) => {
+    const playbackKey = lastfmPlaybackKeyRef.current
+    const startedAt = lastfmPlaybackStartedAtRef.current
+    if (!playbackKey || !startedAt || !track?.artist || !track?.title) return
+    if (lastfmScrobbledPlaybackKeyRef.current === playbackKey) return
+    if (!shouldScrobbleLastfmTrack(playedSeconds, track)) return
+
+    api.getSettings().then((settings) => {
+      if (settings?.lastfm_scrobbling !== '1') return
+      if (!settings?.lastfm_session_key || !settings?.lastfm_api_key || !settings?.lastfm_api_secret) return
+      pushLastfmStatus({
+        level: 'info',
+        label: 'Scrobble',
+        message: `Scrobbling ${track.artist} - ${track.title}`
+      })
+      lastfmScrobbledPlaybackKeyRef.current = playbackKey
+      api.lastfmScrobble(
+        track.artist,
+        track.title,
+        track.album || '',
+        getLastfmTrackDuration(track),
+        startedAt
+      ).then((result) => {
+        if (result?.error || result?.skipped) {
+          lastfmScrobbledPlaybackKeyRef.current = null
+          pushLastfmStatus({
+            level: 'error',
+            label: 'Scrobble',
+            message: result?.error || result?.reason || 'Scrobble was skipped'
+          })
+          return
+        }
+        pushLastfmStatus({
+          level: 'success',
+          label: 'Scrobble',
+          message: `${track.artist} - ${track.title}`
+        })
+      }).catch(() => {
+        lastfmScrobbledPlaybackKeyRef.current = null
+        pushLastfmStatus({
+          level: 'error',
+          label: 'Scrobble',
+          message: `Failed to scrobble ${track.artist} - ${track.title}`
+        })
+      })
+    }).catch(() => {})
+  }, [getLastfmTrackDuration, shouldScrobbleLastfmTrack])
+
   const flushTime = useCallback((trackId) => {
     const secs = playSecsRef.current
+    const flushedTrack = currentTrackRef.current
     playSecsRef.current = 0
+    tryScrobbleLastfmTrack(flushedTrack, secs)
     if (secs >= 10 && trackId) api.incrementPlayTime(trackId, userRef.current?.id, secs)
-  }, [])
+  }, [tryScrobbleLastfmTrack])
 
   const cancelCrossfade = useCallback(() => {
     crossfadeTokenRef.current += 1
@@ -670,9 +808,10 @@ export default function App() {
       ? `file://${currentTrack.file_path.replace(/\\/g, '/').split('/').map(s => encodeURIComponent(s)).join('/').replace(/%3A/g, ':')}`
       : api.streamURL(currentTrack);
     audioRef.current.src = src
+    beginLastfmPlayback(currentTrack)
     if (isPlaying) audioRef.current.play().catch(() => {})
     if (api.isElectron) api.discordSetActivity(currentTrack, true).catch(() => {})
-  }, [currentTrack?.id, cancelCrossfade])
+  }, [currentTrack?.id, cancelCrossfade, beginLastfmPlayback])
 
   useEffect(() => {
     if (isCrossfadingRef.current) return
@@ -772,11 +911,12 @@ export default function App() {
     flushTime(currentTrackRef.current?.id)
     
     if (repeat === 'one') { 
+      beginLastfmPlayback(currentTrackRef.current)
       audioRef.current.currentTime = 0; 
       audioRef.current.play().catch(() => {}) 
     }
     else autoNext()
-  }, [isEventFromActive, repeat])
+  }, [isEventFromActive, repeat, beginLastfmPlayback])
 
   const handleCfEnded = useCallback((e) => {
     if (!isEventFromActive(e) || isCrossfadingRef.current) return
@@ -785,11 +925,12 @@ export default function App() {
     flushTime(currentTrackRef.current?.id)
     
     if (repeat === 'one') { 
+      beginLastfmPlayback(currentTrackRef.current)
       cfAudioRef.current.currentTime = 0; 
       cfAudioRef.current.play().catch(() => {}) 
     }
     else autoNext()
-  }, [isEventFromActive, repeat])
+  }, [isEventFromActive, repeat, beginLastfmPlayback])
 
   const handleStartDownload = async () => {
     setUpdateState(prev => ({ ...prev, status: 'downloading' }));
