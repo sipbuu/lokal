@@ -2,6 +2,14 @@ import { useState, useEffect } from 'react'
 import { api } from './api'
 import { THEMES, applyTheme } from './theme'
 
+const PERSISTENT_THEME_OVERRIDE_KEYS = [
+  '--bg-image',
+  '--bg-overlay',
+  '--bg-blur',
+  '--bg-size',
+  '--bg-position',
+]
+
 export function useTheme() {
   const [themeName, setThemeName] = useState('dark')
   const [themeOverrides, setThemeOverrides] = useState({})
@@ -26,11 +34,14 @@ export function useTheme() {
   }, []);
 
   const selectTheme = async (name) => {
+    const preservedOverrides = Object.fromEntries(
+      Object.entries(themeOverrides).filter(([key]) => PERSISTENT_THEME_OVERRIDE_KEYS.includes(key))
+    )
     setThemeName(name)
-    setThemeOverrides({})
-    const vars = THEMES[name]?.vars || THEMES.dark.vars
+    setThemeOverrides(preservedOverrides)
+    const vars = { ...(THEMES[name]?.vars || THEMES.dark.vars), ...preservedOverrides }
     applyTheme(vars)
-    await api.saveTheme(name, {})
+    await api.saveTheme(name, preservedOverrides)
   }
 
   const setAccent = async (accentColor) => {
