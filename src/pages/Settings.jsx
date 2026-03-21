@@ -152,7 +152,21 @@ export default function Settings() {
   const [showCommaModal, setShowCommaModal] = useState(false)
   const [exportingHistory, setExportingHistory] = useState(false)
   const [historyExported, setHistoryExported] = useState(false)
+  const [exportingAllData, setExportingAllData] = useState(false)
+  const [fullExported, setFullExported] = useState(false)
+  const [importingAllData, setImportingAllData] = useState(false)
+  const [importPreview, setImportPreview] = useState(null)
+  const [showImportModal, setShowImportModal] = useState(false)
   const [showExportMenu, setShowExportMenu] = useState(false)
+  const [appUsers, setAppUsers] = useState([])
+  const [usersLoading, setUsersLoading] = useState(false)
+  const [accountStatus, setAccountStatus] = useState('')
+  const [userToDelete, setUserToDelete] = useState(null)
+  const [showFactoryResetModal, setShowFactoryResetModal] = useState(false)
+  const [showFactoryResetConfirmModal, setShowFactoryResetConfirmModal] = useState(false)
+  const [resetConfirmText, setResetConfirmText] = useState('')
+  const [resetConfirmArmed, setResetConfirmArmed] = useState(false)
+  const [factoryResetting, setFactoryResetting] = useState(false)
   const [toolsStatus, setToolsStatus] = useState(null)
   const [toolsLoading, setToolsLoading] = useState(false)
   const [showPlaylistImportModal, setShowPlaylistImportModal] = useState(false)
@@ -178,7 +192,7 @@ export default function Settings() {
   const [activeCategory, setActiveCategory] = useState('library')
 
   
-  const { openAlbums, user } = useAppStore()
+  const { openAlbums, user, logout } = useAppStore()
   const fileInputRef = useRef(null)
   const artistOffsetRef = useRef(0)
   const artistRequestRef = useRef(0)
@@ -349,6 +363,13 @@ export default function Settings() {
     setPluginsLoading(false)
   }
 
+  const loadUsers = async () => {
+    setUsersLoading(true)
+    const result = await api.listUsers()
+    setAppUsers(Array.isArray(result) ? result : [])
+    setUsersLoading(false)
+  }
+
   useEffect(() => {
     if (activeCategory === 'artists') {
       refreshArtists()
@@ -358,6 +379,12 @@ export default function Settings() {
   useEffect(() => {
     if (activeCategory === 'plugins') {
       loadPlugins()
+    }
+  }, [activeCategory])
+
+  useEffect(() => {
+    if (activeCategory === 'data') {
+      loadUsers()
     }
   }, [activeCategory])
 
@@ -510,6 +537,18 @@ export default function Settings() {
     setShowCommaModal(false)
   }
 
+  const triggerDownload = (content, filename, type) => {
+    const blob = new Blob([content], { type })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = filename
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    URL.revokeObjectURL(url)
+  }
+
   const handleHistoryExport = async (format = 'json') => {
     console.log("Export started for format:", format);
     setExportingHistory(true);
@@ -535,18 +574,7 @@ export default function Settings() {
         const type = format === 'json' ? 'application/json' : 'text/csv';
         const ext = format === 'json' ? 'json' : 'csv';
 
-        const blob = new Blob([content], { type });
-        const url = URL.createObjectURL(blob);
-        
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `lokal-history-${new Date().toISOString().split('T')[0]}.${ext}`;
-        
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        
-        URL.revokeObjectURL(url);
+        triggerDownload(content, `lokal-history-${new Date().toISOString().split('T')[0]}.${ext}`, type)
         setHistoryExported(true);
         setTimeout(() => setHistoryExported(false), 3000);
 
@@ -557,6 +585,113 @@ export default function Settings() {
         setExportingHistory(false);
     }
   };
+
+  const handleFullExport = async () => {
+    setExportingAllData(true)
+    try {
+      const data = await api.exportAllData()
+      if (!data || data.error) throw new Error(data?.error || 'Export failed')
+      triggerDownload(
+        JSON.stringify(data, null, 2),
+        `lokal-app-data-${new Date().toISOString().split('T')[0]}.json`,
+        'application/json'
+      )
+      setFullExported(true)
+      setTimeout(() => setFullExported(false), 3000)
+    } catch (e) {
+      alert('Failed to export app data: ' + e.message)
+    } finally {
+      setExportingAllData(false)
+    }
+  }
+
+  const handleDeleteUser = async () => {
+    if (!userToDelete?.id) return
+    const result = await api.deleteUser(userToDelete.id)
+    if (result?.error) {
+      setAccountStatus(result.error)
+      return
+    }
+    if (user?.id === userToDelete.id) {
+      logout()
+    }
+    setAccountStatus(`Deleted ${userToDelete.display_name || userToDelete.username}`)
+    setUserToDelete(null)
+    loadUsers()
+    setTimeout(() => setAccountStatus(''), 4000)
+  }
+
+  const reloadAfterDataReplace = async () => {
+    logout()
+    try {
+      localStorage.removeItem('lokal-queue')
+      localStorage.removeItem('lokal-user')
+      localStorage.removeItem(LASTFM_STATUS_KEY)
+    } catch {}
+    if (api.isElectron) {
+      await api.relaunchApp()
+      return
+    }
+    window.location.reload()
+  }
+
+  const readImportBackup = async () => {
+    const fp = await api.openFile([{ name: 'Lokal Backup', extensions: ['json'] }])
+    if (!fp) return
+    try {
+      const content = await api.readFileBinary(fp)
+      const parsed = JSON.parse(content)
+      if (!parsed || typeof parsed !== 'object') throw new Error('Invalid backup file')
+      if (parsed.version !== 1) throw new Error('Unsupported backup version')
+      setImportPreview({
+        filePath: fp,
+        data: parsed,
+        summary: {
+          users: Array.isArray(parsed.users) ? parsed.users.length : 0,
+          artists: Array.isArray(parsed.artists) ? parsed.artists.length : 0,
+          tracks: Array.isArray(parsed.tracks) ? parsed.tracks.length : 0,
+          playlists: Array.isArray(parsed.playlists) ? parsed.playlists.length : 0,
+          history: Array.isArray(parsed.play_history) ? parsed.play_history.length : 0,
+        },
+      })
+      setShowImportModal(true)
+    } catch (e) {
+      alert('Failed to read backup: ' + e.message)
+    }
+  }
+
+  const handleImportBackup = async () => {
+    if (!importPreview?.data) return
+    setImportingAllData(true)
+    try {
+      const result = await api.importAllData(importPreview.data)
+      if (!result || result.error) throw new Error(result?.error || 'Import failed')
+      setShowImportModal(false)
+      setImportPreview(null)
+      await reloadAfterDataReplace()
+    } catch (e) {
+      alert('Failed to import backup: ' + e.message)
+    } finally {
+      setImportingAllData(false)
+    }
+  }
+
+  const handleFactoryReset = async () => {
+    setFactoryResetting(true)
+    try {
+      const result = await api.factoryReset()
+      if (!result || result.error) throw new Error(result?.error || 'Factory reset failed')
+      setShowFactoryResetConfirmModal(false)
+      setShowFactoryResetModal(false)
+      setResetConfirmText('')
+      setResetConfirmArmed(false)
+      await reloadAfterDataReplace()
+    } catch (e) {
+      alert('Factory reset failed: ' + e.message)
+    } finally {
+      setFactoryResetting(false)
+    }
+  }
 
   const downloadYtDlpTool = async () => {
     setToolsLoading(true)
@@ -952,6 +1087,33 @@ export default function Settings() {
       )}
 
       {inCategory('data') && (
+      <Section title="Backup">
+        <Row label="Full App Export" desc="Exports local users, settings, themes, playlists, likes, history, artists, and tracks into one JSON backup.">
+          <button
+            onClick={handleFullExport}
+            disabled={exportingAllData}
+            className="flex items-center gap-2 px-4 py-2 bg-card border border-border rounded-lg text-sm text-muted hover:text-white transition-colors disabled:opacity-50"
+          >
+            <Download size={13} /> {exportingAllData ? 'Exporting...' : 'Export All'}
+            {fullExported && <span className="text-accent text-xs ml-1">✓</span>}
+          </button>
+        </Row>
+        <Row label="Import Backup" desc="Replaces current Lokal data with a backup JSON after review and confirmation.">
+          <button
+            onClick={readImportBackup}
+            disabled={importingAllData}
+            className="flex items-center gap-2 px-4 py-2 bg-card border border-border rounded-lg text-sm text-muted hover:text-white transition-colors disabled:opacity-50"
+          >
+            <RefreshCcw size={13} /> {importingAllData ? 'Importing...' : 'Import'}
+          </button>
+        </Row>
+        <p className="text-xs text-muted">
+          This is a local JSON snapshot of app data, not your actual audio files.
+        </p>
+      </Section>
+      )}
+
+      {inCategory('data') && (
       <Section title="History">
         <Row label="Export History" desc="Download your listen history">
           <div className="relative">
@@ -989,6 +1151,62 @@ export default function Settings() {
           <button onClick={() => setShowPlaylistImportModal(true)}
             className="flex items-center gap-2 px-4 py-2 bg-card border border-border rounded-lg text-sm text-muted hover:text-white hover:border-accent/30 transition-colors">
             <ListMusic size={14} /> Import
+          </button>
+        </Row>
+      </Section>
+      )}
+
+      {inCategory('data') && (
+      <Section title="Accounts">
+        <div className="space-y-2">
+          <div className="flex items-center justify-between">
+            <p className="text-sm text-white font-medium">Local Accounts</p>
+            <button
+              onClick={loadUsers}
+              disabled={usersLoading}
+              className="px-3 py-1.5 bg-card border border-border rounded-lg text-xs text-muted hover:text-white transition-colors disabled:opacity-50"
+            >
+              {usersLoading ? 'Loading...' : 'Refresh'}
+            </button>
+          </div>
+          <p className="text-xs text-muted">
+            Delete accounts directly from Lokal if one was created with the wrong password or is no longer needed.
+          </p>
+          {accountStatus && <p className="text-xs text-accent">{accountStatus}</p>}
+          <div className="space-y-2">
+            {!usersLoading && appUsers.length === 0 && (
+              <p className="text-xs text-muted">No local accounts found.</p>
+            )}
+            {appUsers.map((account) => (
+              <div key={account.id} className="flex items-center justify-between gap-3 p-3 rounded-lg border border-border bg-card/40">
+                <div className="min-w-0">
+                  <p className="text-sm text-white truncate">
+                    {account.display_name || account.username}
+                    {user?.id === account.id && <span className="text-xs text-accent ml-2">Current</span>}
+                  </p>
+                  <p className="text-xs text-muted truncate">@{account.username}</p>
+                </div>
+                <button
+                  onClick={() => setUserToDelete(account)}
+                  className="px-3 py-1.5 rounded-lg text-xs border border-red-500/30 text-red-400 hover:bg-red-500/10 transition-colors"
+                >
+                  Delete
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      </Section>
+      )}
+
+      {inCategory('data') && (
+      <Section title="Danger Zone">
+        <Row label="Factory Reset Lokal" desc="Erases local accounts, settings, themes, playlists, history, artists, tracks, and cached assets on this device. Music files are not deleted.">
+          <button
+            onClick={() => setShowFactoryResetModal(true)}
+            className="flex items-center gap-2 px-4 py-2 bg-red-500/15 border border-red-500/30 text-red-400 rounded-lg text-sm hover:bg-red-500/25 transition-colors"
+          >
+            <Trash2 size={13} /> Factory Reset
           </button>
         </Row>
       </Section>
@@ -2021,6 +2239,128 @@ Stairway to Heaven"
             <button onClick={() => { setShowPlaylistImportModal(false); setPlaylistImportStatus(''); setPlaylistImportResult(null) }} className="flex-1 py-2 bg-card border border-border rounded-xl text-sm text-muted hover:text-white transition-colors">Cancel</button>
             <button onClick={() => handlePlaylistImport()} className="flex-1 py-2 bg-accent text-base rounded-xl text-sm font-medium transition-colors">
               Import
+            </button>
+          </div>
+        </div>
+      </Modal>
+
+      <Modal open={!!userToDelete} onClose={() => setUserToDelete(null)} title="Delete Local Account?" width="max-w-sm">
+        <div className="space-y-4">
+          <div className="flex gap-3">
+            <AlertTriangle size={18} className="text-red-400 flex-shrink-0 mt-0.5" />
+            <div className="text-sm text-white/70 leading-relaxed">
+              <p>
+                Delete <span className="text-white">{userToDelete?.display_name || userToDelete?.username}</span> from Lokal?
+              </p>
+              <p className="text-xs text-muted mt-2">
+                This removes the local account record, playlists owned by that account, likes, history, saved user settings, and avatar data.
+              </p>
+            </div>
+          </div>
+          <div className="flex gap-2">
+            <button onClick={() => setUserToDelete(null)} className="flex-1 py-2.5 bg-card border border-border rounded-xl text-sm text-muted hover:text-white transition-colors">Cancel</button>
+            <button onClick={handleDeleteUser} className="flex-1 py-2.5 bg-red-500/20 border border-red-500/30 text-red-400 rounded-xl text-sm font-medium hover:bg-red-500/30 transition-colors">
+              Delete Account
+            </button>
+          </div>
+        </div>
+      </Modal>
+
+      <Modal open={showImportModal} onClose={() => { if (!importingAllData) { setShowImportModal(false); setImportPreview(null) } }} title="Import Backup?" width="max-w-lg">
+        <div className="space-y-4">
+          <div className="flex gap-3">
+            <AlertTriangle size={18} className="text-orange-300 flex-shrink-0 mt-0.5" />
+            <div className="text-sm text-white/70 leading-relaxed">
+              <p>This will replace Lokal's current local database and settings with the selected backup.</p>
+              <p className="text-xs text-muted mt-2">Current local data will be overwritten. Audio files on disk are not deleted.</p>
+            </div>
+          </div>
+          {importPreview && (
+            <div className="rounded-xl border border-border bg-card/40 p-4 space-y-3">
+              <p className="text-xs text-muted break-all">{importPreview.filePath}</p>
+              <div className="grid grid-cols-5 gap-2 text-center">
+                <div className="rounded-lg bg-card px-2 py-3">
+                  <p className="text-lg text-white font-medium">{importPreview.summary.users}</p>
+                  <p className="text-[10px] text-muted uppercase tracking-wider">Users</p>
+                </div>
+                <div className="rounded-lg bg-card px-2 py-3">
+                  <p className="text-lg text-white font-medium">{importPreview.summary.artists}</p>
+                  <p className="text-[10px] text-muted uppercase tracking-wider">Artists</p>
+                </div>
+                <div className="rounded-lg bg-card px-2 py-3">
+                  <p className="text-lg text-white font-medium">{importPreview.summary.tracks}</p>
+                  <p className="text-[10px] text-muted uppercase tracking-wider">Tracks</p>
+                </div>
+                <div className="rounded-lg bg-card px-2 py-3">
+                  <p className="text-lg text-white font-medium">{importPreview.summary.playlists}</p>
+                  <p className="text-[10px] text-muted uppercase tracking-wider">Playlists</p>
+                </div>
+                <div className="rounded-lg bg-card px-2 py-3">
+                  <p className="text-lg text-white font-medium">{importPreview.summary.history}</p>
+                  <p className="text-[10px] text-muted uppercase tracking-wider">History</p>
+                </div>
+              </div>
+            </div>
+          )}
+          <div className="flex gap-2">
+            <button onClick={() => { setShowImportModal(false); setImportPreview(null) }} disabled={importingAllData} className="flex-1 py-2.5 bg-card border border-border rounded-xl text-sm text-muted hover:text-white transition-colors disabled:opacity-50">Cancel</button>
+            <button onClick={handleImportBackup} disabled={importingAllData || !importPreview} className="flex-1 py-2.5 bg-orange-500/20 border border-orange-500/30 text-orange-200 rounded-xl text-sm font-medium hover:bg-orange-500/30 transition-colors disabled:opacity-50">
+              {importingAllData ? 'Importing...' : 'Replace with Backup'}
+            </button>
+          </div>
+        </div>
+      </Modal>
+
+      <Modal open={showFactoryResetModal} onClose={() => setShowFactoryResetModal(false)} title="Factory Reset Lokal?" width="max-w-md">
+        <div className="space-y-4">
+          <div className="flex gap-3">
+            <AlertTriangle size={18} className="text-red-400 flex-shrink-0 mt-0.5" />
+            <div className="text-sm text-white/70 leading-relaxed">
+              <p>This will erase Lokal's local accounts, settings, themes, playlists, history, artists, tracks, and cached assets on this device.</p>
+              <p className="text-xs text-muted mt-2">Your music files on disk will not be deleted.</p>
+            </div>
+          </div>
+          <div className="rounded-xl border border-red-500/20 bg-red-500/10 p-3">
+            <p className="text-xs text-red-200">Strongly recommended: export a full backup before continuing.</p>
+          </div>
+          <div className="flex gap-2">
+            <button onClick={() => setShowFactoryResetModal(false)} className="flex-1 py-2.5 bg-card border border-border rounded-xl text-sm text-muted hover:text-white transition-colors">Cancel</button>
+            <button onClick={() => { setShowFactoryResetModal(false); setShowFactoryResetConfirmModal(true) }} className="flex-1 py-2.5 bg-red-500/20 border border-red-500/30 text-red-400 rounded-xl text-sm font-medium hover:bg-red-500/30 transition-colors">
+              Continue
+            </button>
+          </div>
+        </div>
+      </Modal>
+
+      <Modal open={showFactoryResetConfirmModal} onClose={() => { if (!factoryResetting) { setShowFactoryResetConfirmModal(false); setResetConfirmText(''); setResetConfirmArmed(false) } }} title="Final Confirmation" width="max-w-md">
+        <div className="space-y-4">
+          <div className="rounded-xl border border-red-500/20 bg-red-500/10 p-4 space-y-2">
+            <p className="text-sm text-white">Type <span className="text-red-300 font-medium">RESET LOKAL</span> to confirm.</p>
+            <p className="text-xs text-muted">This is intended to make accidental resets much harder.</p>
+          </div>
+          <input
+            value={resetConfirmText}
+            onChange={(e) => setResetConfirmText(e.target.value)}
+            placeholder="RESET LOKAL"
+            className="w-full bg-card border border-border rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-red-400/50"
+          />
+          <label className="flex items-center gap-2 text-xs text-muted">
+            <input
+              type="checkbox"
+              checked={resetConfirmArmed}
+              onChange={(e) => setResetConfirmArmed(e.target.checked)}
+              className="accent-red-400"
+            />
+            I understand this cannot be undone.
+          </label>
+          <div className="flex gap-2">
+            <button onClick={() => { setShowFactoryResetConfirmModal(false); setResetConfirmText(''); setResetConfirmArmed(false) }} disabled={factoryResetting} className="flex-1 py-2.5 bg-card border border-border rounded-xl text-sm text-muted hover:text-white transition-colors disabled:opacity-50">Cancel</button>
+            <button
+              onClick={handleFactoryReset}
+              disabled={factoryResetting || resetConfirmText !== 'RESET LOKAL' || !resetConfirmArmed}
+              className="flex-1 py-2.5 bg-red-500/20 border border-red-500/30 text-red-400 rounded-xl text-sm font-medium hover:bg-red-500/30 transition-colors disabled:opacity-50"
+            >
+              {factoryResetting ? 'Resetting...' : 'Factory Reset'}
             </button>
           </div>
         </div>
