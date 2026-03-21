@@ -3,6 +3,35 @@ const { getDB, getStorageDir } = require('./db')
 const path = require('path')
 const fs = require('fs-extra')
 
+function getSafeUser(db, userId) {
+  return db.prepare('SELECT id, username, display_name, avatar_path, bio, created_at FROM users WHERE id = ?').get(userId) || null
+}
+
+function listUsers(db) {
+  return db.prepare('SELECT id, username, display_name, avatar_path, bio, created_at FROM users ORDER BY created_at DESC').all()
+}
+
+async function deleteUserData(db, userId) {
+  const user = db.prepare('SELECT * FROM users WHERE id = ?').get(userId)
+  if (!user) return { error: 'User not found' }
+  const playlistIds = db.prepare('SELECT id FROM playlists WHERE user_id = ?').all(userId).map(row => row.id)
+  const remove = db.transaction(() => {
+    for (const playlistId of playlistIds) {
+      db.prepare('DELETE FROM playlist_tracks WHERE playlist_id = ?').run(playlistId)
+    }
+    db.prepare('DELETE FROM playlists WHERE user_id = ?').run(userId)
+    db.prepare('DELETE FROM user_likes WHERE user_id = ?').run(userId)
+    db.prepare('DELETE FROM play_history WHERE user_id = ?').run(userId)
+    db.prepare('DELETE FROM user_settings WHERE user_id = ?').run(userId)
+    db.prepare('DELETE FROM users WHERE id = ?').run(userId)
+  })
+  remove()
+  if (user.avatar_path) {
+    await fs.remove(user.avatar_path).catch(() => {})
+  }
+  return { success: true, userId }
+}
+
 function registerUserHandlers(ipcMain) {
   ipcMain.handle('user:register', async (_, { username, displayName, password }) => {
     const db = getDB()
@@ -54,8 +83,18 @@ function registerUserHandlers(ipcMain) {
       params.push(userId)
       db.prepare(`UPDATE users SET ${updates.join(', ')} WHERE id = ?`).run(...params)
     }
-    const updated = db.prepare('SELECT id, username, display_name, avatar_path, bio, created_at FROM users WHERE id = ?').get(userId)
+    const updated = getSafeUser(db, userId)
     return { user: updated ? { ...updated, avatar_updated_at: avatarPath ? Date.now() : undefined } : updated }
+  })
+
+  ipcMain.handle('user:list', () => {
+    const db = getDB()
+    return listUsers(db)
+  })
+
+  ipcMain.handle('user:delete', async (_, userId) => {
+    const db = getDB()
+    return deleteUserData(db, userId)
   })
 
   ipcMain.handle('user:getUserSettings', (_, userId) => {
@@ -69,4 +108,4 @@ function registerUserHandlers(ipcMain) {
   })
 }
 
-module.exports = { registerUserHandlers }
+module.exports = { registerUserHandlers, listUsers, deleteUserData }

@@ -1,6 +1,45 @@
 const router = require('express').Router()
-const { getDB } = require('../../electron/ipc/db')
+const { getDB, importAppData, resetAppData } = require('../../electron/ipc/db')
 const { scanFolder, DEFAULT_MUSIC_PATH } = require('../../electron/ipc/scanner')
+const fs = require('fs-extra')
+const path = require('path')
+
+function toDataUrl(filePath) {
+  if (!filePath || !fs.existsSync(filePath)) return null
+  const ext = path.extname(filePath).toLowerCase()
+  const mime = ext === '.png' ? 'image/png' : ext === '.webp' ? 'image/webp' : 'image/jpeg'
+  return `data:${mime};base64,${fs.readFileSync(filePath).toString('base64')}`
+}
+
+function exportAppData() {
+  const db = getDB()
+  const theme = db.prepare("SELECT value FROM settings WHERE key = 'theme'").get()?.value || 'dark'
+  let themeOverrides = {}
+  try {
+    const raw = db.prepare("SELECT value FROM settings WHERE key = 'theme_overrides'").get()?.value
+    themeOverrides = raw ? JSON.parse(raw) : {}
+  } catch {}
+  const users = db.prepare('SELECT id, username, display_name, avatar_path, bio, created_at, password_hash FROM users ORDER BY created_at DESC').all().map((user) => ({
+    ...user,
+    avatar_data: toDataUrl(user.avatar_path),
+  }))
+  return {
+    exported_at: Date.now(),
+    version: 1,
+    theme,
+    theme_overrides: themeOverrides,
+    settings: Object.fromEntries(db.prepare('SELECT key, value FROM settings').all().map(row => [row.key, row.value])),
+    users,
+    user_settings: db.prepare('SELECT user_id, key, value FROM user_settings ORDER BY user_id, key').all(),
+    playlists: db.prepare('SELECT * FROM playlists ORDER BY created_at DESC').all(),
+    playlist_tracks: db.prepare('SELECT * FROM playlist_tracks ORDER BY playlist_id, position, id').all(),
+    user_likes: db.prepare('SELECT * FROM user_likes ORDER BY user_id, liked_at DESC').all(),
+    play_history: db.prepare('SELECT * FROM play_history ORDER BY played_at DESC').all(),
+    artists: db.prepare('SELECT * FROM artists ORDER BY name').all(),
+    artist_track_links: db.prepare('SELECT * FROM artist_track_links ORDER BY artist_id, track_id').all(),
+    tracks: db.prepare('SELECT * FROM tracks ORDER BY added_at DESC').all(),
+  }
+}
 
 router.get('/', (req, res) => {
   const rows = getDB().prepare('SELECT key, value FROM settings').all()
@@ -35,6 +74,26 @@ router.put('/theme', (req, res) => {
     db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('theme_overrides', ?)").run(JSON.stringify(overrides || {}))
   }
   res.json({ ok: true })
+})
+
+router.get('/export-all', (req, res) => {
+  res.json(exportAppData())
+})
+
+router.post('/import-all', (req, res) => {
+  try {
+    res.json(importAppData(req.body))
+  } catch (e) {
+    res.status(400).json({ error: e.message })
+  }
+})
+
+router.post('/factory-reset', (req, res) => {
+  try {
+    res.json(resetAppData())
+  } catch (e) {
+    res.status(400).json({ error: e.message })
+  }
 })
 
 router.get('/keep-comma-artists', (req, res) => {

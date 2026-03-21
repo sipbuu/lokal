@@ -121,6 +121,9 @@ contextBridge.exposeInMainWorld('electron', {
   
   getSettings: () => invoke('settings:get'),
   saveSettings: (s) => invoke('settings:save', s),
+  exportAllData: () => invoke('settings:exportAll'),
+  importAllData: (payload) => invoke('settings:importAll', payload),
+  factoryReset: () => invoke('settings:factoryReset'),
   clearTracks: () => invoke('db:clearTracks'),
   getKeepCommaArtists: () => invoke('settings:getKeepCommaArtists'),
   setKeepCommaArtists: (artists) => invoke('settings:setKeepCommaArtists', artists),
@@ -132,6 +135,8 @@ contextBridge.exposeInMainWorld('electron', {
   
   register: (d) => invoke('user:register', d),
   login: (d) => invoke('user:login', d),
+  listUsers: () => invoke('user:list'),
+  deleteUser: (userId) => invoke('user:delete', userId),
   updateProfile: (d) => invoke('user:updateProfile', d),
   getUserStats: (uid) => invoke('user:getStats', uid),
   getUserRecap: (uid) => invoke('user:getRecap', uid),

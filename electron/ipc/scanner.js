@@ -4,7 +4,7 @@ const crypto = require('crypto')
 const https = require('https')
 const http = require('http')
 const mm = require('music-metadata')
-const { getDB, getStorageDir } = require('./db')
+const { getDB, getStorageDir, importAppData, resetAppData } = require('./db')
 const { ipcMain } = require('electron')
 const { emitPluginHook } = require('./plugins')
 const { cacheArtistMetadata, searchArtistMetadataCandidates, applyArtistMetadataSelection, clearArtistImageOverride } = require('./artistMetadata')
@@ -272,6 +272,43 @@ function scoreTrack(track) {
   return score
 }
 
+function toDataUrl(filePath) {
+  if (!filePath || !fs.existsSync(filePath)) return null
+  const ext = path.extname(filePath).toLowerCase()
+  const mime = ext === '.png' ? 'image/png' : ext === '.webp' ? 'image/webp' : 'image/jpeg'
+  return `data:${mime};base64,${fs.readFileSync(filePath).toString('base64')}`
+}
+
+function exportAppData() {
+  const db = getDB()
+  const theme = db.prepare("SELECT value FROM settings WHERE key = 'theme'").get()?.value || 'dark'
+  let themeOverrides = {}
+  try {
+    const raw = db.prepare("SELECT value FROM settings WHERE key = 'theme_overrides'").get()?.value
+    themeOverrides = raw ? JSON.parse(raw) : {}
+  } catch {}
+  const users = db.prepare('SELECT id, username, display_name, avatar_path, bio, created_at, password_hash FROM users ORDER BY created_at DESC').all().map((user) => ({
+    ...user,
+    avatar_data: toDataUrl(user.avatar_path),
+  }))
+  return {
+    exported_at: Date.now(),
+    version: 1,
+    theme,
+    theme_overrides: themeOverrides,
+    settings: Object.fromEntries(db.prepare('SELECT key, value FROM settings').all().map(row => [row.key, row.value])),
+    users,
+    user_settings: db.prepare('SELECT user_id, key, value FROM user_settings ORDER BY user_id, key').all(),
+    playlists: db.prepare('SELECT * FROM playlists ORDER BY created_at DESC').all(),
+    playlist_tracks: db.prepare('SELECT * FROM playlist_tracks ORDER BY playlist_id, position, id').all(),
+    user_likes: db.prepare('SELECT * FROM user_likes ORDER BY user_id, liked_at DESC').all(),
+    play_history: db.prepare('SELECT * FROM play_history ORDER BY played_at DESC').all(),
+    artists: db.prepare('SELECT * FROM artists ORDER BY name').all(),
+    artist_track_links: db.prepare('SELECT * FROM artist_track_links ORDER BY artist_id, track_id').all(),
+    tracks: db.prepare('SELECT * FROM tracks ORDER BY added_at DESC').all(),
+  }
+}
+
 function registerScannerHandlers(ipcMain) {
   const { BrowserWindow } = require('electron')
   ipcMain.handle('scanner:scan', async (e, folder) => { mainWindow = BrowserWindow.fromWebContents(e.sender); return scanFolder(folder || DEFAULT_MUSIC_PATH) })
@@ -485,6 +522,9 @@ function registerScannerHandlers(ipcMain) {
       db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('theme_overrides', ?)").run(JSON.stringify(overrides))
     }
   })
+  ipcMain.handle('settings:exportAll', () => exportAppData())
+  ipcMain.handle('settings:importAll', (_, payload) => importAppData(payload))
+  ipcMain.handle('settings:factoryReset', () => resetAppData())
   
   function parseM3U(content) {
     const lines = content.split(/\r?\n/)

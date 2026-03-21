@@ -3,6 +3,7 @@ const bcrypt = require('bcryptjs')
 const path = require('path')
 const fs = require('fs-extra')
 const { getDB, getStorageDir } = require('../../electron/ipc/db')
+const { listUsers, deleteUserData } = require('../../electron/ipc/users')
 
 router.post('/register', async (req, res) => {
   const { username, displayName, password } = req.body
@@ -29,6 +30,11 @@ router.post('/login', (req, res) => {
   res.json({ user: safe })
 })
 
+router.get('/', (req, res) => {
+  const db = getDB()
+  res.json(listUsers(db))
+})
+
 router.put('/:id', async (req, res) => {
   const payload = req.body || {}
   const displayName = payload.displayName ?? payload.display_name
@@ -52,6 +58,13 @@ router.put('/:id', async (req, res) => {
   if (updates.length) { params.push(req.params.id); db.prepare(`UPDATE users SET ${updates.join(', ')} WHERE id = ?`).run(...params) }
   const updated = db.prepare('SELECT id, username, display_name, avatar_path, bio, created_at FROM users WHERE id = ?').get(req.params.id)
   res.json({ user: updated ? { ...updated, avatar_updated_at: avatarData ? Date.now() : undefined } : updated })
+})
+
+router.delete('/:id', async (req, res) => {
+  const db = getDB()
+  const result = await deleteUserData(db, req.params.id)
+  if (result?.error) return res.status(404).json(result)
+  res.json(result)
 })
 
 router.get('/:id/settings', (req, res) => {
