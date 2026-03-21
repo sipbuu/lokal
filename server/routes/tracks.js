@@ -13,6 +13,115 @@ function scoreTrack(track) {
   return score
 }
 
+function slugify(str) {
+  return (str || 'unknown').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'unknown'
+}
+
+function getKeepCommaArtists() {
+  const keepComma = new Set([
+    'tyler, the creator', 'earth, wind & fire', 'crosby, stills & nash',
+    'crosby, stills, nash & young', 'simon & garfunkel', 'emerson, lake & palmer',
+    'syd barrett', 'pete & bas', 'pe & ne',
+  ])
+  try {
+    const setting = getDB().prepare("SELECT value FROM settings WHERE key = 'keep_comma_artists'").get()
+    if (setting?.value) {
+      const userDefined = JSON.parse(setting.value)
+      userDefined.forEach(artist => keepComma.add(String(artist || '').toLowerCase().trim()))
+    }
+  } catch {}
+  return keepComma
+}
+
+function splitArtists(raw) {
+  if (!raw) return []
+  const lower = raw.toLowerCase().trim()
+  const keepCommaArtists = getKeepCommaArtists()
+  for (const known of keepCommaArtists) {
+    if (lower === known || lower.startsWith(known + ' ') || lower.endsWith(' ' + known)) return [raw.trim()]
+  }
+  const commaLowerPattern = /,\s+[a-z]/
+  if (commaLowerPattern.test(raw)) return [raw.trim()]
+  let artists = [raw]
+  artists = artists.flatMap(a => a.split(/\s+(?:feat\.|ft\.|featuring)\s+/i))
+  artists = artists.flatMap(a => a.split(/,\s+(?=[A-Z])/))
+  artists = artists.flatMap(a => a.split(/\s+(?:&|x|vs\.?)\s+/i))
+  return [...new Set(artists.map(a => a.trim()).filter(Boolean))]
+}
+
+function applyBatchField(currentValue, operation) {
+  if (!operation || operation.mode === 'ignore') return { changed: false, value: currentValue }
+  if (operation.mode === 'clear') return { changed: currentValue !== null && currentValue !== '', value: null }
+  if (operation.mode === 'fillMissing') {
+    const missing = currentValue === null || currentValue === undefined || String(currentValue) === ''
+    return missing ? { changed: true, value: operation.value ?? null } : { changed: false, value: currentValue }
+  }
+  if (operation.mode === 'replace') {
+    const nextValue = operation.value ?? null
+    return { changed: currentValue !== nextValue, value: nextValue }
+  }
+  return { changed: false, value: currentValue }
+}
+
+async function applyBatchTrackUpdates(db, trackIds = [], operations = {}) {
+  if (!Array.isArray(trackIds) || !trackIds.length) return []
+  const { getStorageDir } = require('../../electron/ipc/db')
+  const ids = [...new Set(trackIds.filter(Boolean))]
+  const tracks = ids.map(id => db.prepare('SELECT * FROM tracks WHERE id = ?').get(id)).filter(Boolean)
+  if (!tracks.length) return []
+
+  const artworkOp = operations.artwork
+  if (artworkOp?.mode === 'replace' && artworkOp?.value) {
+    const base64 = String(artworkOp.value).split(',')[1] || ''
+    for (const track of tracks) {
+      const artPath = path.join(getStorageDir(), 'artwork', `${track.id}.jpg`)
+      const dir = path.dirname(artPath)
+      if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true })
+      fs.writeFileSync(artPath, Buffer.from(base64, 'base64'))
+    }
+  }
+
+  const patch = db.transaction(() => {
+    const updatedIds = []
+    for (const track of tracks) {
+      const updates = []
+      const params = []
+      const nextValues = {}
+      for (const field of ['title', 'artist', 'album', 'album_artist', 'track_num', 'year', 'genre']) {
+        const result = applyBatchField(track[field], operations[field])
+        if (result.changed) {
+          updates.push(`${field} = ?`)
+          params.push(result.value)
+          nextValues[field] = result.value
+        }
+      }
+      if (artworkOp?.mode === 'clear' && track.artwork_path) {
+        updates.push('artwork_path = ?')
+        params.push(null)
+      } else if (artworkOp?.mode === 'replace' && artworkOp?.value) {
+        updates.push('artwork_path = ?')
+        params.push(path.join(getStorageDir(), 'artwork', `${track.id}.jpg`))
+      }
+      if (!updates.length) continue
+      params.push(track.id)
+      db.prepare(`UPDATE tracks SET ${updates.join(', ')} WHERE id = ?`).run(...params)
+      updatedIds.push(track.id)
+      if (Object.prototype.hasOwnProperty.call(nextValues, 'artist')) {
+        db.prepare('DELETE FROM artist_track_links WHERE track_id = ?').run(track.id)
+        const artistNames = splitArtists(nextValues.artist)
+        for (const name of artistNames) {
+          const artistId = 'a-' + slugify(name)
+          db.prepare('INSERT OR IGNORE INTO artists (id, name) VALUES (?, ?)').run(artistId, name)
+          db.prepare('INSERT OR IGNORE INTO artist_track_links (artist_id, track_id) VALUES (?, ?)').run(artistId, track.id)
+        }
+      }
+    }
+    return updatedIds
+  })
+
+  return patch().map(id => db.prepare('SELECT * FROM tracks WHERE id = ?').get(id)).filter(Boolean)
+}
+
 router.get('/', (req, res) => {
   const db = getDB()
   const { sort = 'added_at DESC', limit = 500, offset = 0, artistName } = req.query
@@ -134,6 +243,16 @@ router.put('/:id', (req, res) => {
   const result = db.prepare(sql).run(...params)
   const track = db.prepare('SELECT * FROM tracks WHERE id = ?').get(req.params.id)
   res.json({ success: true, changes: result.changes, track })
+})
+
+router.post('/batch-update', async (req, res) => {
+  const db = getDB()
+  try {
+    const tracks = await applyBatchTrackUpdates(db, req.body?.trackIds || [], req.body?.operations || {})
+    res.json({ success: true, tracks })
+  } catch (e) {
+    res.json({ error: e.message })
+  }
 })
 
 router.put('/:id/artwork', (req, res) => {

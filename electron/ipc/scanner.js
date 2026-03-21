@@ -272,6 +272,81 @@ function scoreTrack(track) {
   return score
 }
 
+function applyBatchField(currentValue, operation) {
+  if (!operation || operation.mode === 'ignore') return { changed: false, value: currentValue }
+  if (operation.mode === 'clear') return { changed: currentValue !== null && currentValue !== '', value: null }
+  if (operation.mode === 'fillMissing') {
+    const missing = currentValue === null || currentValue === undefined || String(currentValue) === ''
+    return missing ? { changed: true, value: operation.value ?? null } : { changed: false, value: currentValue }
+  }
+  if (operation.mode === 'replace') {
+    const nextValue = operation.value ?? null
+    return { changed: currentValue !== nextValue, value: nextValue }
+  }
+  return { changed: false, value: currentValue }
+}
+
+async function applyBatchTrackUpdates(db, trackIds = [], operations = {}) {
+  if (!Array.isArray(trackIds) || !trackIds.length) return []
+  const ids = [...new Set(trackIds.filter(Boolean))]
+  const tracks = ids.map(id => db.prepare('SELECT * FROM tracks WHERE id = ?').get(id)).filter(Boolean)
+  if (!tracks.length) return []
+
+  let artworkPath = null
+  const artworkOp = operations.artwork
+  if (artworkOp?.mode === 'replace' && artworkOp?.value) {
+    const base64 = String(artworkOp.value).split(',')[1] || ''
+    artworkPath = '__pending__'
+    for (const track of tracks) {
+      const nextArtPath = path.join(getStorageDir(), 'artwork', `${track.id}.jpg`)
+      await fs.writeFile(nextArtPath, Buffer.from(base64, 'base64'))
+    }
+  }
+
+  const patch = db.transaction(() => {
+    const updatedIds = []
+    for (const track of tracks) {
+      const updates = []
+      const params = []
+      const nextValues = {}
+      const fields = ['title', 'artist', 'album', 'album_artist', 'track_num', 'year', 'genre']
+      for (const field of fields) {
+        const result = applyBatchField(track[field], operations[field])
+        if (result.changed) {
+          updates.push(`${field} = ?`)
+          params.push(result.value)
+          nextValues[field] = result.value
+        }
+      }
+      if (artworkOp?.mode === 'clear' && track.artwork_path) {
+        updates.push('artwork_path = ?')
+        params.push(null)
+      } else if (artworkOp?.mode === 'replace' && artworkOp?.value) {
+        updates.push('artwork_path = ?')
+        params.push(path.join(getStorageDir(), 'artwork', `${track.id}.jpg`))
+      }
+      if (!updates.length) continue
+      params.push(track.id)
+      db.prepare(`UPDATE tracks SET ${updates.join(', ')} WHERE id = ?`).run(...params)
+      updatedIds.push(track.id)
+
+      if (Object.prototype.hasOwnProperty.call(nextValues, 'artist')) {
+        db.prepare('DELETE FROM artist_track_links WHERE track_id = ?').run(track.id)
+        const artistNames = splitArtists(nextValues.artist)
+        for (const name of artistNames) {
+          const artistId = 'a-' + slugify(name)
+          db.prepare('INSERT OR IGNORE INTO artists (id, name) VALUES (?, ?)').run(artistId, name)
+          db.prepare('INSERT OR IGNORE INTO artist_track_links (artist_id, track_id) VALUES (?, ?)').run(artistId, track.id)
+        }
+      }
+    }
+    return updatedIds
+  })
+
+  const updatedIds = patch()
+  return updatedIds.map(id => db.prepare('SELECT * FROM tracks WHERE id = ?').get(id)).filter(Boolean)
+}
+
 function toDataUrl(filePath) {
   if (!filePath || !fs.existsSync(filePath)) return null
   const ext = path.extname(filePath).toLowerCase()
@@ -520,6 +595,15 @@ function registerScannerHandlers(ipcMain) {
     }
     if (overrides !== undefined) {
       db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('theme_overrides', ?)").run(JSON.stringify(overrides))
+    }
+  })
+  ipcMain.handle('track:batchUpdate', async (_, trackIds, operations) => {
+    const db = getDB()
+    try {
+      const tracks = await applyBatchTrackUpdates(db, trackIds, operations || {})
+      return { success: true, tracks }
+    } catch (error) {
+      return { error: error.message }
     }
   })
   ipcMain.handle('settings:exportAll', () => exportAppData())

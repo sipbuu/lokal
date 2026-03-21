@@ -4,6 +4,7 @@ import { Play, Pause, Heart, Plus, Camera, Trash2, Music, LibraryBig, Clock, Lis
 import { usePlayerStore, useAppStore } from '../store/player'
 import { api } from '../api'
 import TrackEditModal from './TrackEditModal'
+import BatchEditModal from './BatchEditModal'
 import Modal from './Modal'
 
 const RECENT_ITEMS_KEY = 'lokal-recent-items'
@@ -59,6 +60,7 @@ export default function TrackList({ tracks = [], showAlbum = true, onRemove = nu
   const [draggedId, setDraggedId] = useState(null)
   const [dragOverId, setDragOverId] = useState(null)
   const [editingTrack, setEditingTrack] = useState(null)
+  const [showBatchEdit, setShowBatchEdit] = useState(false)
   const [trackToDelete, setTrackToDelete] = useState(null)
   const [trackOverrides, setTrackOverrides] = useState({})
   const shouldAnimateRows = !reduceMotion && tracks.length <= 120
@@ -249,6 +251,17 @@ export default function TrackList({ tracks = [], showAlbum = true, onRemove = nu
     }
   }
 
+  const handleBatchSave = (updatedTracks) => {
+    if (!Array.isArray(updatedTracks) || !updatedTracks.length) return
+    const nextOverrides = {}
+    for (const updatedTrack of updatedTracks) {
+      if (!updatedTrack?.id) continue
+      syncTrack(updatedTrack)
+      nextOverrides[updatedTrack.id] = updatedTrack
+    }
+    setTrackOverrides(prev => ({ ...prev, ...nextOverrides }))
+  }
+
   const handleQuickAdd = async (track, e) => {
     e?.stopPropagation()
     if (!onQuickAdd) return
@@ -268,6 +281,9 @@ export default function TrackList({ tracks = [], showAlbum = true, onRemove = nu
           <div className="flex items-center gap-2 ml-auto">
             <button onClick={handleSelectedAddToPlaylist} className="flex items-center gap-1.5 px-3 py-1.5 bg-accent/20 text-accent rounded-lg text-xs hover:bg-accent/30 transition-colors">
               <Plus size={12} /> Add to Playlist
+            </button>
+            <button onClick={() => setShowBatchEdit(true)} className="flex items-center gap-1.5 px-3 py-1.5 bg-card border border-border text-muted rounded-lg text-xs hover:text-white transition-colors">
+              <Edit2 size={12} /> Batch Edit
             </button>
             {onRemove && (
               <button onClick={handleSelectedDelete} className="flex items-center gap-1.5 px-3 py-1.5 bg-red-500/20 text-red-400 rounded-lg text-xs hover:bg-red-500/30 transition-colors">
@@ -438,6 +454,13 @@ export default function TrackList({ tracks = [], showAlbum = true, onRemove = nu
           setTrackOverrides(prev => ({ ...prev, [updatedTrack.id]: updatedTrack }))
           setEditingTrack(updatedTrack)
         }}
+      />
+
+      <BatchEditModal
+        tracks={mergedTracks.filter(track => selectedIds.has(track.id))}
+        open={showBatchEdit}
+        onClose={() => setShowBatchEdit(false)}
+        onSave={handleBatchSave}
       />
 
       <Modal 

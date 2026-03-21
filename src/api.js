@@ -217,6 +217,7 @@ export const api = {
   setManualGenre: (data) => isE() ? el().setManualGenre(data) : apiFetch('/tracks/set-manual-genre', { method: 'POST', body: data }),
   
   updateTrack: (id, data) => isE() ? el().updateTrack(id, data) : apiFetch(`/tracks/${id}`, { method: 'PUT', body: data }),
+  batchUpdateTracks: (trackIds, operations) => isE() ? el().batchUpdateTracks(trackIds, operations) : apiFetch('/tracks/batch-update', { method: 'POST', body: { trackIds, operations } }),
   updateTrackArtwork: (id, imageData) => isE() ? el().updateTrackArtwork(id, imageData) : apiFetch(`/tracks/${id}/artwork`, { method: 'PUT', body: { imageData } }),
   fetchExternalArtwork: (id, title, artist) => isE() ? el().fetchExternalArtwork(id, title, artist) : apiFetch(`/tracks/${id}/fetch-external-artwork`, { method: 'POST', body: { title, artist } }),
 }
