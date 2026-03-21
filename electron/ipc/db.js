@@ -16,12 +16,16 @@ function getDataDir() {
 let db
 let _dataDir
 
-function initDB() {
-  _dataDir = getDataDir()
+function ensureStorageDirs() {
   fs.ensureDirSync(_dataDir)
   fs.ensureDirSync(path.join(_dataDir, 'artwork'))
   fs.ensureDirSync(path.join(_dataDir, 'lyrics'))
   fs.ensureDirSync(path.join(_dataDir, 'avatars'))
+}
+
+function initDB() {
+  _dataDir = getDataDir()
+  ensureStorageDirs()
 
   db = new Database(path.join(_dataDir, 'lokal.db'))
   db.pragma('journal_mode = WAL')
@@ -229,4 +233,185 @@ function initDB() {
 function getDB() { return db }
 function getStorageDir() { return _dataDir }
 
-module.exports = { initDB, getDB, getStorageDir }
+function clearDatabaseTables() {
+  db.prepare('DELETE FROM playlist_tracks').run()
+  db.prepare('DELETE FROM user_likes').run()
+  db.prepare('DELETE FROM play_history').run()
+  db.prepare('DELETE FROM artist_track_links').run()
+  db.prepare('DELETE FROM lyrics_translations').run()
+  db.prepare('DELETE FROM lyrics_cache').run()
+  try { db.prepare('DELETE FROM downloaded_playlists').run() } catch {}
+  db.prepare('DELETE FROM playlists').run()
+  db.prepare('DELETE FROM tracks').run()
+  db.prepare('DELETE FROM artists').run()
+  db.prepare('DELETE FROM user_settings').run()
+  db.prepare('DELETE FROM users').run()
+  db.prepare('DELETE FROM settings').run()
+}
+
+function resetAppData() {
+  if (!db) throw new Error('Database not initialized')
+  const wipe = db.transaction(() => {
+    clearDatabaseTables()
+  })
+  wipe()
+  for (const dir of ['artwork', 'lyrics', 'avatars']) {
+    fs.removeSync(path.join(_dataDir, dir))
+  }
+  ensureStorageDirs()
+  db.prepare("INSERT OR IGNORE INTO settings (key, value) VALUES ('lyrics_auto_translate', '0')").run()
+  db.prepare("INSERT OR IGNORE INTO settings (key, value) VALUES ('lyrics_translate_target', 'en')").run()
+  db.prepare("INSERT OR IGNORE INTO settings (key, value) VALUES ('prefer_media_keys', '1')").run()
+  db.prepare("INSERT OR IGNORE INTO settings (key, value) VALUES ('auto_fetch_artist_metadata', '0')").run()
+  return { ok: true }
+}
+
+function importAppData(payload = {}) {
+  if (!db) throw new Error('Database not initialized')
+  if (!payload || typeof payload !== 'object') throw new Error('Invalid backup payload')
+  if (payload.version !== 1) throw new Error('Unsupported backup version')
+
+  const settings = payload.settings && typeof payload.settings === 'object' ? payload.settings : {}
+  const users = Array.isArray(payload.users) ? payload.users : []
+  const userSettings = Array.isArray(payload.user_settings) ? payload.user_settings : []
+  const artists = Array.isArray(payload.artists) ? payload.artists : []
+  const tracks = Array.isArray(payload.tracks) ? payload.tracks : []
+  const artistLinks = Array.isArray(payload.artist_track_links) ? payload.artist_track_links : []
+  const playlists = Array.isArray(payload.playlists) ? payload.playlists : []
+  const playlistTracks = Array.isArray(payload.playlist_tracks) ? payload.playlist_tracks : []
+  const userLikes = Array.isArray(payload.user_likes) ? payload.user_likes : []
+  const playHistory = Array.isArray(payload.play_history) ? payload.play_history : []
+
+  fs.ensureDirSync(path.join(_dataDir, 'avatars'))
+
+  const restore = db.transaction(() => {
+    clearDatabaseTables()
+
+    const insertSetting = db.prepare('INSERT INTO settings (key, value) VALUES (?, ?)')
+    for (const [key, value] of Object.entries(settings)) {
+      insertSetting.run(String(key), String(value))
+    }
+
+    const insertUser = db.prepare('INSERT INTO users (id, username, display_name, password_hash, avatar_path, bio, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
+    for (const user of users) {
+      let avatarPath = user.avatar_path || null
+      if (user.avatar_data) {
+        const ext = String(user.avatar_data).includes('image/png') ? 'png' : String(user.avatar_data).includes('image/webp') ? 'webp' : 'jpg'
+        avatarPath = path.join(_dataDir, 'avatars', `${user.id}.${ext}`)
+        const base64 = String(user.avatar_data).split(',')[1] || ''
+        fs.writeFileSync(avatarPath, Buffer.from(base64, 'base64'))
+      }
+      insertUser.run(
+        user.id,
+        user.username,
+        user.display_name || null,
+        user.password_hash,
+        avatarPath,
+        user.bio || null,
+        user.created_at || Math.floor(Date.now() / 1000)
+      )
+    }
+
+    const insertUserSetting = db.prepare('INSERT INTO user_settings (user_id, key, value) VALUES (?, ?, ?)')
+    for (const entry of userSettings) {
+      insertUserSetting.run(entry.user_id, entry.key, entry.value)
+    }
+
+    const insertArtist = db.prepare('INSERT INTO artists (id, name, bio, image_path, bio_source, bio_fetched_at, image_source, image_fetched_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+    for (const artist of artists) {
+      insertArtist.run(
+        artist.id,
+        artist.name,
+        artist.bio || null,
+        artist.image_path || null,
+        artist.bio_source || null,
+        artist.bio_fetched_at || null,
+        artist.image_source || null,
+        artist.image_fetched_at || null
+      )
+    }
+
+    const insertTrack = db.prepare('INSERT INTO tracks (id, file_path, file_hash, title, artist, album, album_artist, track_num, year, genre, duration, artwork_path, bitrate, last_modified, replaygain, play_count, liked, added_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+    for (const track of tracks) {
+      insertTrack.run(
+        track.id,
+        track.file_path,
+        track.file_hash,
+        track.title,
+        track.artist,
+        track.album || null,
+        track.album_artist || null,
+        track.track_num || null,
+        track.year || null,
+        track.genre || null,
+        track.duration || 0,
+        track.artwork_path || null,
+        track.bitrate || null,
+        track.last_modified || null,
+        track.replaygain || null,
+        track.play_count || 0,
+        track.liked || 0,
+        track.added_at || Math.floor(Date.now() / 1000)
+      )
+    }
+
+    const insertArtistLink = db.prepare('INSERT INTO artist_track_links (artist_id, track_id) VALUES (?, ?)')
+    for (const link of artistLinks) {
+      insertArtistLink.run(link.artist_id, link.track_id)
+    }
+
+    const insertPlaylist = db.prepare('INSERT INTO playlists (id, name, user_id, description, created_at) VALUES (?, ?, ?, ?, ?)')
+    for (const playlist of playlists) {
+      insertPlaylist.run(
+        playlist.id,
+        playlist.name,
+        playlist.user_id || 'guest',
+        playlist.description || null,
+        playlist.created_at || Math.floor(Date.now() / 1000)
+      )
+    }
+
+    const insertPlaylistTrack = db.prepare('INSERT INTO playlist_tracks (id, playlist_id, track_id, position, added_by, added_at) VALUES (?, ?, ?, ?, ?, ?)')
+    for (const item of playlistTracks) {
+      insertPlaylistTrack.run(
+        item.id || null,
+        item.playlist_id,
+        item.track_id,
+        item.position || 0,
+        item.added_by || 'guest',
+        item.added_at || null
+      )
+    }
+
+    const insertUserLike = db.prepare('INSERT INTO user_likes (user_id, track_id, liked_at) VALUES (?, ?, ?)')
+    for (const like of userLikes) {
+      insertUserLike.run(like.user_id, like.track_id, like.liked_at || Math.floor(Date.now() / 1000))
+    }
+
+    const insertPlayHistory = db.prepare('INSERT INTO play_history (id, user_id, track_id, seconds_played, played_at) VALUES (?, ?, ?, ?, ?)')
+    for (const row of playHistory) {
+      insertPlayHistory.run(
+        row.id || null,
+        row.user_id,
+        row.track_id,
+        row.seconds_played || 0,
+        row.played_at || Math.floor(Date.now() / 1000)
+      )
+    }
+  })
+
+  restore()
+
+  return {
+    ok: true,
+    imported: {
+      users: users.length,
+      artists: artists.length,
+      tracks: tracks.length,
+      playlists: playlists.length,
+      history: playHistory.length,
+    },
+  }
+}
+
+module.exports = { initDB, getDB, getStorageDir, resetAppData, importAppData }
