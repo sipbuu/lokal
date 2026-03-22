@@ -9,6 +9,7 @@ export default function LyricsFullscreen() {
   const { showLyricsFullscreen, toggleLyricsFullscreen, currentTrack, progress } = usePlayerStore()
   const [refreshKey, setRefreshKey] = useState(0)
   const [showSearch, setShowSearch] = useState(false)
+  const [searchSessions, setSearchSessions] = useState({})
   const [settings, setSettings] = useState({})
   const wordSync = localStorage.getItem('word-sync') === '1'
 
@@ -34,6 +35,33 @@ export default function LyricsFullscreen() {
 
   const handleSearchRequest = () => {
     setShowSearch(true)
+  }
+
+  const activeSearchSession = currentTrack?.id
+    ? searchSessions[currentTrack.id] || {
+        title: currentTrack?.title || '',
+        artist: currentTrack?.artist || '',
+        results: [],
+        loading: false,
+        error: null,
+      }
+    : null
+
+  const updateSearchSession = (patch) => {
+    if (!currentTrack?.id) return
+    setSearchSessions(prev => ({
+      ...prev,
+      [currentTrack.id]: {
+        ...(prev[currentTrack.id] || {
+          title: currentTrack?.title || '',
+          artist: currentTrack?.artist || '',
+          results: [],
+          loading: false,
+          error: null,
+        }),
+        ...patch,
+      },
+    }))
   }
 
   const isAutoSynced = settings.unsynced_auto_sync === '1'
@@ -111,6 +139,8 @@ export default function LyricsFullscreen() {
             {showSearch && currentTrack && (
               <SearchDrawer
                 track={currentTrack}
+                session={activeSearchSession}
+                onSessionChange={updateSearchSession}
                 onClose={() => setShowSearch(false)}
                 onSelect={(lyrics, type) => {
                   api.importLyrics(currentTrack.id, lyrics, type)
@@ -126,12 +156,12 @@ export default function LyricsFullscreen() {
   )
 }
 
-function SearchDrawer({ track, onClose, onSelect }) {
-  const [title, setTitle] = useState(track?.title || '')
-  const [artist, setArtist] = useState(track?.artist || '')
-  const [results, setResults] = useState([])
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState(null)
+function SearchDrawer({ track, session, onSessionChange, onClose, onSelect }) {
+  const title = session?.title ?? track?.title ?? ''
+  const artist = session?.artist ?? track?.artist ?? ''
+  const results = session?.results || []
+  const loading = session?.loading || false
+  const error = session?.error || null
 
   const formatDuration = (d) => {
     if (!d) return '--:--'
@@ -140,23 +170,19 @@ function SearchDrawer({ track, onClose, onSelect }) {
 
   const handleSearch = async () => {
     if (!title || !artist) return
-    setLoading(true)
-    setError(null)
-    setResults([])
+    onSessionChange({ loading: true, error: null, results: [] })
 
     try {
       const url = `https://lrclib.net/api/search?track_name=${encodeURIComponent(title)}&artist_name=${encodeURIComponent(artist)}`
       const res = await fetch(url)
       const data = await res.json()
       if (Array.isArray(data)) {
-        setResults(data)
+        onSessionChange({ results: data, loading: false })
       } else {
-        setResults([])
+        onSessionChange({ results: [], loading: false })
       }
     } catch (e) {
-      setError(e.message)
-    } finally {
-      setLoading(false)
+      onSessionChange({ error: e.message, loading: false })
     }
   }
 
@@ -188,7 +214,7 @@ function SearchDrawer({ track, onClose, onSelect }) {
           <input
             type="text"
             value={title}
-            onChange={(e) => setTitle(e.target.value)}
+            onChange={(e) => onSessionChange({ title: e.target.value })}
             placeholder="Track title"
             className="w-full mt-1 bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-white placeholder-white/30 focus:outline-none focus:border-accent/50"
           />
@@ -198,7 +224,7 @@ function SearchDrawer({ track, onClose, onSelect }) {
           <input
             type="text"
             value={artist}
-            onChange={(e) => setArtist(e.target.value)}
+            onChange={(e) => onSessionChange({ artist: e.target.value })}
             placeholder="Artist name"
             className="w-full mt-1 bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-white placeholder-white/30 focus:outline-none focus:border-accent/50"
           />
