@@ -990,7 +990,7 @@ export default function Settings() {
             )}
           </div>
         </Row>
-        <Row label="Index While Downloading" desc="Index each track immediately as it downloads (playlist). Makes tracks available in library faster.">
+        <Row label="Index While Downloading" desc="Index tracks as soon as they finish downloading. Makes them appear in the library faster.">
           <button
             onClick={() => set('index_while_downloading', settings.index_while_downloading === '1' ? '0' : '1')}
             className={`px-4 py-1.5 rounded-lg text-xs font-display uppercase tracking-wider border transition-colors ${settings.index_while_downloading === '1' ? 'bg-accent/20 border-accent/50 text-accent' : 'border-border text-muted hover:text-white'}`}>

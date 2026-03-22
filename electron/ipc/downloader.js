@@ -382,6 +382,31 @@ async function indexDownloadedFiles(filepaths, thumbnailUrl) {
   return indexedTracks
 }
 
+async function tryIndexFile(filepath, thumbnailUrl, attempt = 0) {
+  try {
+    const { indexSingleFile } = require('./scanner')
+    if (!filepath || !fs.existsSync(filepath)) {
+      if (attempt < 10) {
+        await new Promise(resolve => setTimeout(resolve, 700))
+        return tryIndexFile(filepath, thumbnailUrl, attempt + 1)
+      }
+      return null
+    }
+    const result = await indexSingleFile(filepath, { thumbnailUrl })
+    if (!result?.id && attempt < 10) {
+      await new Promise(resolve => setTimeout(resolve, 700))
+      return tryIndexFile(filepath, thumbnailUrl, attempt + 1)
+    }
+    return result || null
+  } catch {
+    if (attempt < 10) {
+      await new Promise(resolve => setTimeout(resolve, 700))
+      return tryIndexFile(filepath, thumbnailUrl, attempt + 1)
+    }
+    return null
+  }
+}
+
 async function runSingleDownload(window, url, opts = {}) {
   const ytdlp = findYtDlp()
   const ffmpeg = findFfmpeg()
@@ -425,6 +450,8 @@ async function runSingleDownload(window, url, opts = {}) {
     const outputLines = []
     const filepaths = []
     const downloadedTracks = []
+    const indexedTracks = []
+    const indexedFilepaths = new Set()
     const proc = spawn(ytdlp, args, { windowsHide: true })
 
     downloadQueue.set(downloadId, createQueueEntry({
@@ -451,6 +478,27 @@ async function runSingleDownload(window, url, opts = {}) {
       })
     }
 
+    const indexTrackImmediately = async (filepath) => {
+      if (settings.index_while_downloading !== '1') return
+      if (!filepath || indexedFilepaths.has(filepath)) return
+      const result = await tryIndexFile(filepath, thumbnailUrl)
+      if (!result?.id) return
+      indexedFilepaths.add(filepath)
+      const indexed = {
+        filepath,
+        id: result.id,
+        title: path.basename(filepath, path.extname(filepath)),
+      }
+      indexedTracks.push(indexed)
+      pushUpdate({
+        indexedTracks: [...indexedTracks],
+        message: `Indexed: ${path.basename(filepath)}`,
+      })
+      if (window && !window.isDestroyed()) {
+        window.webContents.send('library:updated', result)
+      }
+    }
+
     proc.stdout.on('data', data => {
       const lines = data.toString().split(/\r?\n/)
       for (const line of lines) {
@@ -464,6 +512,7 @@ async function runSingleDownload(window, url, opts = {}) {
             message: `Saved: ${path.basename(filepath)}`,
             downloadedTracks: [...downloadedTracks],
           })
+          setImmediate(() => { indexTrackImmediately(filepath) })
           continue
         }
 
@@ -518,16 +567,18 @@ async function runSingleDownload(window, url, opts = {}) {
           await cleanupLeftovers(filepaths, outputDir)
         } catch {}
 
-        const indexedTracks = await indexDownloadedFiles(filepaths, thumbnailUrl)
+        const finalIndexedTracks = settings.index_while_downloading === '1'
+          ? indexedTracks.length ? [...indexedTracks] : await indexDownloadedFiles(filepaths, thumbnailUrl)
+          : []
         setQueueEntry(downloadId, {
           status: 'done',
           progress: 100,
-          message: indexedTracks.length ? `Indexed ${indexedTracks.length} track(s)` : 'Download complete',
+          message: finalIndexedTracks.length ? `Indexed ${finalIndexedTracks.length} track(s)` : 'Download complete',
           downloadedTracks: [...downloadedTracks],
-          indexedTracks,
+          indexedTracks: finalIndexedTracks,
         })
         emitProgress(downloadId, snapshotQueueEntry(downloadQueue.get(downloadId)))
-        resolve({ success: true, downloadId, indexedTracks, downloadedTracks: [...downloadedTracks] })
+        resolve({ success: true, downloadId, indexedTracks: finalIndexedTracks, downloadedTracks: [...downloadedTracks] })
         return
       }
 
