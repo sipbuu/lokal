@@ -1,9 +1,10 @@
 import React, { useEffect, useState, useCallback } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { Heart, Music, Play, Shuffle, Trash2, Edit2, Check, X, RefreshCw, Plus } from 'lucide-react'
+import { Heart, Music, Play, Shuffle, Trash2, Edit2, Check, X, RefreshCw, Plus, Image as ImageIcon } from 'lucide-react'
 import { usePlayerStore, useAppStore } from '../store/player'
 import TrackList from '../components/TrackList'
 import PlaylistCover from '../components/PlaylistCover'
+import AddTracksToPlaylistModal from '../components/AddTracksToPlaylistModal'
 import { api } from '../api'
 
 export default function Playlist() {
@@ -15,6 +16,7 @@ export default function Playlist() {
   const [nameVal, setNameVal] = useState('')
   const [recommendations, setRecommendations] = useState([])
   const [loadingRecs, setLoadingRecs] = useState(false)
+  const [showAddSongs, setShowAddSongs] = useState(false)
   const { playQueue } = usePlayerStore()
   const { user } = useAppStore()
   const isLiked = id === 'liked'
@@ -155,15 +157,62 @@ export default function Playlist() {
     playQueue(shuffled, 0)
   }
 
+  const uploadPlaylistPhoto = async () => {
+    if (!api.isElectron || isLiked) return
+    const fp = await api.openFile([{ name: 'Images', extensions: ['jpg', 'jpeg', 'png', 'webp'] }])
+    if (!fp) return
+    const dataUrl = await api.readFileAsDataURL(fp)
+    if (!dataUrl) return
+    const updated = await api.updatePlaylist(id, { coverData: dataUrl })
+    if (updated?.id) setPlaylist(updated)
+    window.dispatchEvent(new CustomEvent('lokal:playlist-updated', { detail: { playlistId: id } }))
+  }
+
+  const clearPlaylistPhoto = async () => {
+    if (isLiked) return
+    const updated = await api.updatePlaylist(id, { clearCover: true })
+    if (updated?.id) setPlaylist(updated)
+    window.dispatchEvent(new CustomEvent('lokal:playlist-updated', { detail: { playlistId: id } }))
+  }
+
+  const handleTrackAdded = () => {
+    load()
+    window.dispatchEvent(new CustomEvent('lokal:playlist-updated', { detail: { playlistId: id } }))
+  }
+
   return (
     <div className="p-6 pb-10">
       {}
       <div className="flex items-end gap-5 mb-8">
-        <div className="w-36 h-36 rounded-2xl overflow-hidden flex-shrink-0 bg-elevated border border-border flex items-center justify-center shadow-xl">
-          {isLiked
-            ? <Heart size={52} className="text-accent" fill="currentColor" />
-            : <PlaylistCover playlistId={id} size={144} className="w-full h-full object-cover" />
-          }
+        <div className="relative w-36 h-36 flex-shrink-0 group">
+          <div className="w-36 h-36 rounded-2xl overflow-hidden bg-elevated border border-border flex items-center justify-center shadow-xl">
+            {isLiked
+              ? <Heart size={52} className="text-accent" fill="currentColor" />
+              : <PlaylistCover playlistId={id} coverPath={playlist?.cover_path} size={144} className="w-full h-full object-cover" />
+            }
+          </div>
+          {!isLiked && (
+            <button
+              onClick={uploadPlaylistPhoto}
+              className="absolute inset-0 rounded-2xl bg-black/0 group-hover:bg-black/45 transition-colors flex items-center justify-center"
+              title={playlist?.cover_path ? 'Change playlist photo' : 'Upload playlist photo'}
+            >
+              <span className="w-11 h-11 rounded-full bg-white/12 border border-white/15 text-white hover:bg-white/20 transition-all opacity-0 group-hover:opacity-100 flex items-center justify-center">
+                <ImageIcon size={17} />
+              </span>
+            </button>
+          )}
+          {!isLiked && playlist?.cover_path && (
+            <div className="absolute top-3 right-3">
+              <button
+                onClick={(e) => { e.stopPropagation(); clearPlaylistPhoto() }}
+                className="w-9 h-9 rounded-full bg-red-500/20 border border-red-400/25 text-red-200 hover:bg-red-500/30 transition-colors flex items-center justify-center opacity-0 group-hover:opacity-100"
+                title="Reset playlist photo"
+              >
+                <X size={15} />
+              </button>
+            </div>
+          )}
         </div>
         <div className="min-w-0 flex-1">
           <p className="text-xs font-display text-muted uppercase tracking-widest mb-2">Playlist</p>
@@ -188,24 +237,28 @@ export default function Playlist() {
       </div>
 
       {}
-      {tracks.length > 0 && (
-        <div className="flex items-center gap-3 mb-6">
-          <button onClick={() => playQueue(tracks, 0)}
-            className="flex items-center gap-2 px-6 py-2.5 bg-accent text-base rounded-full font-medium text-sm hover:bg-accent/80 transition-colors">
-            <Play size={16} fill="currentColor" className="translate-x-px" /> Play All
-          </button>
-          <button onClick={shuffleTracks}
-            className="flex items-center gap-2 px-5 py-2.5 bg-elevated border border-border text-white/80 rounded-full font-medium text-sm hover:text-white hover:border-accent/30 transition-colors">
-            <Shuffle size={15} /> Shuffle
-          </button>
-          {!isLiked && (
+      <div className="flex flex-wrap items-center gap-3 mb-6">
+        <button onClick={() => playQueue(tracks, 0)} disabled={!tracks.length}
+          className="flex items-center gap-2 px-6 py-2.5 bg-accent text-base rounded-full font-medium text-sm hover:bg-accent/80 transition-colors disabled:opacity-40 disabled:cursor-not-allowed">
+          <Play size={16} fill="currentColor" className="translate-x-px" /> Play All
+        </button>
+        <button onClick={shuffleTracks} disabled={!tracks.length}
+          className="flex items-center gap-2 px-5 py-2.5 bg-elevated border border-border text-white/80 rounded-full font-medium text-sm hover:text-white hover:border-accent/30 transition-colors disabled:opacity-40 disabled:cursor-not-allowed">
+          <Shuffle size={15} /> Shuffle
+        </button>
+        {!isLiked && (
+          <>
+            <button onClick={() => setShowAddSongs(true)}
+              className="flex items-center gap-2 px-5 py-2.5 bg-elevated border border-border text-white/80 rounded-full font-medium text-sm hover:text-white hover:border-accent/30 transition-colors">
+              <Plus size={15} /> Add Songs
+            </button>
             <button onClick={deletePlaylist}
               className="flex items-center gap-2 px-4 py-2.5 text-red-400 border border-red-400/30 rounded-full text-sm hover:bg-red-400/10 transition-colors">
               <Trash2 size={14} /> Delete Playlist
             </button>
-          )}
-        </div>
-      )}
+          </>
+        )}
+      </div>
 
       <TrackList
         tracks={tracks}
@@ -237,8 +290,18 @@ export default function Playlist() {
       {!tracks.length && (
         <div className="text-center py-20 text-muted">
           <Music size={40} className="mx-auto mb-3 opacity-20" />
-          <p className="text-sm">{isLiked ? 'Like some tracks to see them here.' : 'This playlist is empty. Right-click any track to add it.'}</p>
+          <p className="text-sm">{isLiked ? 'Like some tracks to see them here.' : 'This playlist is empty. Use Add Songs to build it.'}</p>
         </div>
+      )}
+
+      {!isLiked && (
+        <AddTracksToPlaylistModal
+          open={showAddSongs}
+          onClose={() => setShowAddSongs(false)}
+          playlistId={id}
+          existingTrackIds={tracks.map(track => track.id)}
+          onAdded={handleTrackAdded}
+        />
       )}
     </div>
   )

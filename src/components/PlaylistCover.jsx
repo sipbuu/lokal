@@ -2,10 +2,14 @@ import React, { useEffect, useState } from 'react'
 import { Music } from 'lucide-react'
 import { api } from '../api'
 
-export default function PlaylistCover({ playlistId, size = 48, className = '' }) {
+export default function PlaylistCover({ playlistId, coverPath = null, size = 48, className = '' }) {
   const [artworks, setArtworks] = useState([])
 
   useEffect(() => {
+    if (coverPath) {
+      setArtworks([])
+      return
+    }
     if (!playlistId || playlistId === 'liked') return
     api.getPlaylistTracks(playlistId).then(tracks => {
       const arts = [...new Set(
@@ -15,9 +19,18 @@ export default function PlaylistCover({ playlistId, size = 48, className = '' })
       )].slice(0, 4)
       setArtworks(arts)
     })
-  }, [playlistId])
+  }, [playlistId, coverPath])
 
   const getArtSrc = (p) => api.isElectron ? `file://${p}` : api.artworkURL(p.split('/').pop().replace('.jpg', ''))
+
+  if (coverPath) {
+    const src = api.isElectron ? `file://${coverPath}` : api.playlistCoverURL(playlistId)
+    return (
+      <div className={`rounded-lg overflow-hidden flex-shrink-0 ${className}`} style={{ width: size, height: size }}>
+        <img src={src} className="w-full h-full object-cover" />
+      </div>
+    )
+  }
 
   if (!artworks.length) {
     return (
