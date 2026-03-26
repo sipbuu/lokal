@@ -354,6 +354,16 @@ function toDataUrl(filePath) {
   return `data:${mime};base64,${fs.readFileSync(filePath).toString('base64')}`
 }
 
+async function writePlaylistCover(playlistId, imageData) {
+  if (!imageData) return null
+  const base64 = String(imageData).split(',')[1] || ''
+  const mime = String(imageData).match(/^data:(image\/[a-zA-Z0-9+.-]+);base64,/i)?.[1] || 'image/jpeg'
+  const ext = mime.includes('png') ? 'png' : mime.includes('webp') ? 'webp' : 'jpg'
+  const coverPath = path.join(getStorageDir(), 'artwork', `playlist-${playlistId}.${ext}`)
+  await fs.writeFile(coverPath, Buffer.from(base64, 'base64'))
+  return coverPath
+}
+
 function exportAppData() {
   const db = getDB()
   const theme = db.prepare("SELECT value FROM settings WHERE key = 'theme'").get()?.value || 'dark'
@@ -374,7 +384,10 @@ function exportAppData() {
     settings: Object.fromEntries(db.prepare('SELECT key, value FROM settings').all().map(row => [row.key, row.value])),
     users,
     user_settings: db.prepare('SELECT user_id, key, value FROM user_settings ORDER BY user_id, key').all(),
-    playlists: db.prepare('SELECT * FROM playlists ORDER BY created_at DESC').all(),
+    playlists: db.prepare('SELECT * FROM playlists ORDER BY created_at DESC').all().map((playlist) => ({
+      ...playlist,
+      cover_data: toDataUrl(playlist.cover_path),
+    })),
     playlist_tracks: db.prepare('SELECT * FROM playlist_tracks ORDER BY playlist_id, position, id').all(),
     user_likes: db.prepare('SELECT * FROM user_likes ORDER BY user_id, liked_at DESC').all(),
     play_history: db.prepare('SELECT * FROM play_history ORDER BY played_at DESC').all(),
@@ -469,8 +482,34 @@ function registerScannerHandlers(ipcMain) {
     return db.prepare(`SELECT * FROM tracks WHERE genre IN (${genres.map(() => '?').join(',') || "''"}) OR artist IN (${artists.map(() => '?').join(',') || "''"}) ORDER BY RANDOM() LIMIT 20`).all(...genres, ...artists)
   })
   ipcMain.handle('scanner:getPlaylists', (_, userId) => getDB().prepare('SELECT * FROM playlists WHERE user_id = ? ORDER BY name').all(userId || 'guest'))
-  ipcMain.handle('scanner:createPlaylist', (_, name, userId, description) => { const db = getDB(); const id = 'pl-' + Date.now(); const uid = userId || 'guest'; db.prepare('INSERT INTO playlists (id, name, user_id, description) VALUES (?, ?, ?, ?)').run(id, name, uid, description || null); return { id, name, description } })
-  ipcMain.handle('scanner:updatePlaylist', (_, plId, data) => { const db = getDB(); if (data.name) db.prepare('UPDATE playlists SET name = ? WHERE id = ?').run(data.name, plId); if (data.description !== undefined) db.prepare('UPDATE playlists SET description = ? WHERE id = ?').run(data.description, plId) })
+  ipcMain.handle('scanner:createPlaylist', (_, name, userId, description) => {
+    const db = getDB()
+    const id = 'pl-' + Date.now()
+    const uid = userId || 'guest'
+    db.prepare('INSERT INTO playlists (id, name, user_id, description, cover_path) VALUES (?, ?, ?, ?, ?)').run(id, name, uid, description || null, null)
+    return db.prepare('SELECT * FROM playlists WHERE id = ?').get(id)
+  })
+  ipcMain.handle('scanner:updatePlaylist', async (_, plId, data) => {
+    const db = getDB()
+    const existing = db.prepare('SELECT * FROM playlists WHERE id = ?').get(plId)
+    if (!existing) return { error: 'Playlist not found' }
+    if (data.name !== undefined) db.prepare('UPDATE playlists SET name = ? WHERE id = ?').run(data.name, plId)
+    if (data.description !== undefined) db.prepare('UPDATE playlists SET description = ? WHERE id = ?').run(data.description, plId)
+    if (data.coverData) {
+      if (existing.cover_path && fs.existsSync(existing.cover_path)) {
+        try { fs.removeSync(existing.cover_path) } catch {}
+      }
+      const coverPath = await writePlaylistCover(plId, data.coverData)
+      db.prepare('UPDATE playlists SET cover_path = ? WHERE id = ?').run(coverPath, plId)
+    }
+    if (data.clearCover) {
+      if (existing.cover_path && fs.existsSync(existing.cover_path)) {
+        try { fs.removeSync(existing.cover_path) } catch {}
+      }
+      db.prepare('UPDATE playlists SET cover_path = ? WHERE id = ?').run(null, plId)
+    }
+    return db.prepare('SELECT * FROM playlists WHERE id = ?').get(plId)
+  })
   ipcMain.handle('scanner:addToPlaylist', (_, plId, trackId, userId) => { 
     const db = getDB() 
     const uid = userId || 'guest'
@@ -483,7 +522,15 @@ function registerScannerHandlers(ipcMain) {
     getDB().prepare('DELETE FROM playlist_tracks WHERE id = ?').run(rowId)
   })
   ipcMain.handle('scanner:getPlaylistTracks', (_, plId) => getDB().prepare(`SELECT t.*, pt.id as playlist_track_id, pt.added_by, pt.added_at FROM tracks t JOIN playlist_tracks pt ON pt.track_id = t.id WHERE pt.playlist_id = ? ORDER BY pt.position`).all(plId))
-  ipcMain.handle('scanner:deletePlaylist', (_, plId) => { const db = getDB(); db.prepare('DELETE FROM playlist_tracks WHERE playlist_id = ?').run(plId); db.prepare('DELETE FROM playlists WHERE id = ?').run(plId) })
+  ipcMain.handle('scanner:deletePlaylist', (_, plId) => {
+    const db = getDB()
+    const playlist = db.prepare('SELECT cover_path FROM playlists WHERE id = ?').get(plId)
+    db.prepare('DELETE FROM playlist_tracks WHERE playlist_id = ?').run(plId)
+    db.prepare('DELETE FROM playlists WHERE id = ?').run(plId)
+    if (playlist?.cover_path && fs.existsSync(playlist.cover_path)) {
+      try { fs.removeSync(playlist.cover_path) } catch {}
+    }
+  })
   ipcMain.handle('scanner:reorderPlaylist', (_, plId, trackIds) => {
     const db = getDB()
     if (!Array.isArray(trackIds)) return { error: 'trackIds must be an array' }
