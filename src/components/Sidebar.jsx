@@ -19,6 +19,7 @@ export default function Sidebar() {
   const [playlists, setPlaylists] = useState([])
   const [showNewPlaylist, setShowNewPlaylist] = useState(false)
   const [newPlName, setNewPlName] = useState('')
+  const [confirmSignOut, setConfirmSignOut] = useState(false)
   
   const { user, openAuth, logout, openStats, openAlbums } = useAppStore()
 
@@ -56,6 +57,16 @@ export default function Sidebar() {
     };
   }, [user?.id]);
 
+  useEffect(() => {
+    if (!confirmSignOut) return
+    const timer = setTimeout(() => setConfirmSignOut(false), 2500)
+    return () => clearTimeout(timer)
+  }, [confirmSignOut])
+
+  useEffect(() => {
+    setConfirmSignOut(false)
+  }, [user?.id])
+
   const createPlaylist = async () => {
     if (!newPlName.trim()) return
 
@@ -75,6 +86,15 @@ export default function Sidebar() {
     setShowNewPlaylist(false)
   }
 
+  const handleSignOut = () => {
+    if (!confirmSignOut) {
+      setConfirmSignOut(true)
+      return
+    }
+    setConfirmSignOut(false)
+    logout()
+  }
+
   return (
     <aside className="w-56 border-r border-border flex flex-col h-full flex-shrink-0 overflow-hidden" style={{ backgroundColor: 'rgba(var(--surface-rgb), 0.85)', backdropFilter: 'blur(12px)' }}>
       <div className="px-5 py-4 flex-shrink-0">
@@ -86,21 +106,49 @@ export default function Sidebar() {
 
       <div className="px-3 mb-2 flex-shrink-0">
         {user ? (
-          <div className="flex items-center gap-2 px-2 py-2 rounded-lg">
-            <button onClick={() => nav('/profile')} className="flex items-center gap-2 flex-1 min-w-0 text-left">
-              <img 
-                src={api.getAvatarSrc(user)} 
-                alt="Profile" 
-                className="w-7 h-7 rounded-full flex-shrink-0 object-cover" 
-              />
-              <p className="text-xs text-white truncate flex-1">{user.display_name || user.username}</p>
-            </button>
-            
-            <div className="flex gap-1 flex-shrink-0">
-              <button onClick={() => nav('/profile')} title="Profile" className="text-muted hover:text-white transition-colors"><User size={13} /></button>
-              <button onClick={openStats} title="Stats" className="text-muted hover:text-white transition-colors"><BarChart2 size={13} /></button>
-              <button onClick={logout} title="Sign out" className="text-muted hover:text-red-400 transition-colors"><LogOut size={13} /></button>
+          <div className="space-y-2 rounded-lg px-2 py-2">
+            <div className="flex items-center gap-2">
+              <button onClick={() => nav('/profile')} className="flex items-center gap-2 flex-1 min-w-0 text-left">
+                <img 
+                  src={api.getAvatarSrc(user)} 
+                  alt="Profile" 
+                  className="w-7 h-7 rounded-full flex-shrink-0 object-cover" 
+                />
+                <p className="text-xs text-white truncate flex-1">{user.display_name || user.username}</p>
+              </button>
+              
+              <div className="flex gap-1 flex-shrink-0">
+                <button onClick={() => nav('/profile')} title="Profile" className="text-muted hover:text-white transition-colors"><User size={13} /></button>
+                <button onClick={openStats} title="Stats" className="text-muted hover:text-white transition-colors"><BarChart2 size={13} /></button>
+                <button
+                  onClick={handleSignOut}
+                  title={confirmSignOut ? 'Confirm sign out' : 'Sign out'}
+                  className={`transition-colors ${confirmSignOut ? 'text-red-400' : 'text-muted hover:text-red-400'}`}
+                >
+                  <LogOut size={13} />
+                </button>
+              </div>
             </div>
+
+            {confirmSignOut && (
+              <div className="rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2">
+                <p className="text-[10px] font-display uppercase tracking-widest text-red-300">Are you sure?</p>
+                <div className="mt-2 flex gap-2">
+                  <button
+                    onClick={handleSignOut}
+                    className="flex-1 rounded-lg bg-red-500/20 px-2 py-1.5 text-[11px] font-medium text-red-200 hover:bg-red-500/30 transition-colors"
+                  >
+                    Sign Out
+                  </button>
+                  <button
+                    onClick={() => setConfirmSignOut(false)}
+                    className="flex-1 rounded-lg border border-border bg-card px-2 py-1.5 text-[11px] text-muted hover:text-white transition-colors"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         ) : (
           <button onClick={() => openAuth('login')}
