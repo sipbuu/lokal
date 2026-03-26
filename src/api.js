@@ -39,6 +39,7 @@ async function apiFetch(path, opts = {}) {
 export const api = {
   get isElectron() { return isE() },
   artworkURL: (id) => `${BASE}/artwork/${encodeURIComponent(id)}`,
+  playlistCoverURL: (id) => `${BASE}/playlists/${encodeURIComponent(id)}/cover`,
   streamURL: (t) => `${BASE}/stream/${encodeURIComponent(t.id)}`,
   avatarURL: (id) => `${BASE}/avatar/${id}`,
   getTracks: (o = {}) => isE() ? el().getTracks(o) : apiFetch(`/tracks?${new URLSearchParams(o)}`),

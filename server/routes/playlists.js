@@ -1,6 +1,18 @@
 
 const router = require('express').Router()
-const { getDB } = require('../../electron/ipc/db')
+const fs = require('fs-extra')
+const path = require('path')
+const { getDB, getStorageDir } = require('../../electron/ipc/db')
+
+async function writePlaylistCover(playlistId, imageData) {
+  if (!imageData) return null
+  const base64 = String(imageData).split(',')[1] || ''
+  const mime = String(imageData).match(/^data:(image\/[a-zA-Z0-9+.-]+);base64,/i)?.[1] || 'image/jpeg'
+  const ext = mime.includes('png') ? 'png' : mime.includes('webp') ? 'webp' : 'jpg'
+  const coverPath = path.join(getStorageDir(), 'artwork', `playlist-${playlistId}.${ext}`)
+  await fs.writeFile(coverPath, Buffer.from(base64, 'base64'))
+  return coverPath
+}
 
 router.get('/', (req, res) => {
   const uid = req.query.userId || 'guest'
@@ -10,8 +22,37 @@ router.get('/', (req, res) => {
 router.post('/', (req, res) => {
   const { name, userId = 'guest' } = req.body
   const id = 'pl-' + Date.now()
-  getDB().prepare('INSERT INTO playlists (id, name, user_id) VALUES (?, ?, ?)').run(id, name, userId)
-  res.json({ id, name })
+  getDB().prepare('INSERT INTO playlists (id, name, user_id, cover_path) VALUES (?, ?, ?, ?)').run(id, name, userId, null)
+  res.json(getDB().prepare('SELECT * FROM playlists WHERE id = ?').get(id))
+})
+
+router.put('/:id', async (req, res) => {
+  const db = getDB()
+  const playlist = db.prepare('SELECT * FROM playlists WHERE id = ?').get(req.params.id)
+  if (!playlist) return res.status(404).json({ error: 'Playlist not found' })
+  const { name, description, coverData, clearCover } = req.body || {}
+  if (name !== undefined) db.prepare('UPDATE playlists SET name = ? WHERE id = ?').run(name, req.params.id)
+  if (description !== undefined) db.prepare('UPDATE playlists SET description = ? WHERE id = ?').run(description, req.params.id)
+  if (coverData) {
+    if (playlist.cover_path && fs.existsSync(playlist.cover_path)) {
+      try { fs.removeSync(playlist.cover_path) } catch {}
+    }
+    const coverPath = await writePlaylistCover(req.params.id, coverData)
+    db.prepare('UPDATE playlists SET cover_path = ? WHERE id = ?').run(coverPath, req.params.id)
+  }
+  if (clearCover) {
+    if (playlist.cover_path && fs.existsSync(playlist.cover_path)) {
+      try { fs.removeSync(playlist.cover_path) } catch {}
+    }
+    db.prepare('UPDATE playlists SET cover_path = ? WHERE id = ?').run(null, req.params.id)
+  }
+  res.json(db.prepare('SELECT * FROM playlists WHERE id = ?').get(req.params.id))
+})
+
+router.get('/:id/cover', (req, res) => {
+  const playlist = getDB().prepare('SELECT cover_path FROM playlists WHERE id = ?').get(req.params.id)
+  if (!playlist?.cover_path || !fs.existsSync(playlist.cover_path)) return res.status(404).end()
+  res.sendFile(path.resolve(playlist.cover_path))
 })
 
 
@@ -193,8 +234,12 @@ router.put('/:id/reorder', (req, res) => {
 
 router.delete('/:id', (req, res) => {
   const db = getDB()
+  const playlist = db.prepare('SELECT cover_path FROM playlists WHERE id = ?').get(req.params.id)
   db.prepare('DELETE FROM playlist_tracks WHERE playlist_id = ?').run(req.params.id)
   db.prepare('DELETE FROM playlists WHERE id = ?').run(req.params.id)
+  if (playlist?.cover_path && fs.existsSync(playlist.cover_path)) {
+    try { fs.removeSync(playlist.cover_path) } catch {}
+  }
   res.json({ ok: true })
 })
 
