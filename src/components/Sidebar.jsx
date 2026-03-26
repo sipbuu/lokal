@@ -99,7 +99,42 @@ export default function Sidebar() {
     <aside className="w-56 border-r border-border flex flex-col h-full flex-shrink-0 overflow-hidden" style={{ backgroundColor: 'rgba(var(--surface-rgb), 0.85)', backdropFilter: 'blur(12px)' }}>
       <div className="px-5 py-4 flex-shrink-0">
         <div className="flex items-center gap-2">
-          <img src="lokal-icon.png" alt="Lokal" className="w-7 h-7 rounded-lg flex-shrink-0" />
+          <div
+            className="w-7 h-7 rounded-lg flex-shrink-0 overflow-hidden flex items-center justify-center"
+            style={{
+              background: 'var(--logo-wrap-bg, transparent)',
+              boxShadow: 'var(--logo-wrap-shadow, none)',
+              border: 'var(--logo-wrap-border, 1px solid transparent)',
+              position: 'relative',
+            }}
+          >
+            <img
+              src="lokal-icon.png"
+              alt="Lokal"
+              className="w-7 h-7 rounded-lg flex-shrink-0"
+              style={{
+                filter: 'var(--logo-image-filter, none)',
+                opacity: 'var(--logo-image-opacity, 1)',
+              }}
+            />
+            <span
+              aria-hidden="true"
+              className="absolute inset-0 rounded-lg"
+              style={{
+                opacity: 'var(--logo-mask-opacity, 0)',
+                background: 'linear-gradient(135deg, var(--accent) 0%, var(--accent-dim) 100%)',
+                mixBlendMode: 'screen',
+                WebkitMaskImage: "url('lokal-icon.png')",
+                WebkitMaskSize: 'cover',
+                WebkitMaskPosition: 'center',
+                WebkitMaskRepeat: 'no-repeat',
+                maskImage: "url('lokal-icon.png')",
+                maskSize: 'cover',
+                maskPosition: 'center',
+                maskRepeat: 'no-repeat',
+              }}
+            />
+          </div>
           <span className="font-display text-sm uppercase tracking-widest text-white">Lokal</span>
         </div>
       </div>
@@ -223,7 +258,7 @@ export default function Sidebar() {
             }}>
             <button onClick={() => nav(`/playlist/${pl.id}`)}
               className={`w-full flex items-center gap-2.5 px-2 py-2 rounded-lg text-xs transition-all group ${loc.pathname === `/playlist/${pl.id}` ? 'bg-accent/10 text-accent' : 'text-muted hover:text-white hover:bg-elevated'}`}>
-              <PlaylistCover playlistId={pl.id} size={28} className="flex-shrink-0 rounded" />
+              <PlaylistCover playlistId={pl.id} coverPath={pl.cover_path} size={28} className="flex-shrink-0 rounded" />
               <span className="truncate">{pl.name}</span>
             </button>
           </div>
