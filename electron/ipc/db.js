@@ -67,6 +67,7 @@ function initDB() {
       name TEXT NOT NULL,
       user_id TEXT DEFAULT 'guest',
       description TEXT,
+      cover_path TEXT,
       created_at INTEGER DEFAULT (unixepoch())
     );
     CREATE TABLE IF NOT EXISTS playlist_tracks (
@@ -139,6 +140,7 @@ function initDB() {
   const migrations = [
     `ALTER TABLE playlists ADD COLUMN user_id TEXT DEFAULT 'guest'`,
     `ALTER TABLE playlists ADD COLUMN description TEXT`,
+    `ALTER TABLE playlists ADD COLUMN cover_path TEXT`,
     `ALTER TABLE users ADD COLUMN bio TEXT`,
     `ALTER TABLE artists ADD COLUMN bio_source TEXT`,
     `ALTER TABLE artists ADD COLUMN bio_fetched_at INTEGER`,
@@ -153,6 +155,7 @@ function initDB() {
     `ALTER TABLE play_history ADD COLUMN seconds_played INTEGER DEFAULT 0`,
     `ALTER TABLE playlists ADD COLUMN user_id TEXT DEFAULT 'guest'`,
     `ALTER TABLE playlists ADD COLUMN description TEXT`,
+    `ALTER TABLE playlists ADD COLUMN cover_path TEXT`,
     `ALTER TABLE users ADD COLUMN bio TEXT`,
     `ALTER TABLE artists ADD COLUMN bio_source TEXT`,
     `ALTER TABLE artists ADD COLUMN bio_fetched_at INTEGER`,
@@ -360,13 +363,21 @@ function importAppData(payload = {}) {
       insertArtistLink.run(link.artist_id, link.track_id)
     }
 
-    const insertPlaylist = db.prepare('INSERT INTO playlists (id, name, user_id, description, created_at) VALUES (?, ?, ?, ?, ?)')
+    const insertPlaylist = db.prepare('INSERT INTO playlists (id, name, user_id, description, cover_path, created_at) VALUES (?, ?, ?, ?, ?, ?)')
     for (const playlist of playlists) {
+      let coverPath = playlist.cover_path || null
+      if (playlist.cover_data) {
+        const ext = String(playlist.cover_data).includes('image/png') ? 'png' : String(playlist.cover_data).includes('image/webp') ? 'webp' : 'jpg'
+        coverPath = path.join(_dataDir, 'artwork', `playlist-${playlist.id}.${ext}`)
+        const base64 = String(playlist.cover_data).split(',')[1] || ''
+        fs.writeFileSync(coverPath, Buffer.from(base64, 'base64'))
+      }
       insertPlaylist.run(
         playlist.id,
         playlist.name,
         playlist.user_id || 'guest',
         playlist.description || null,
+        coverPath,
         playlist.created_at || Math.floor(Date.now() / 1000)
       )
     }
