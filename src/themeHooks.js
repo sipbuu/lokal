@@ -8,6 +8,12 @@ const PERSISTENT_THEME_OVERRIDE_KEYS = [
   '--bg-blur',
   '--bg-size',
   '--bg-position',
+  '--logo-image-filter',
+  '--logo-image-opacity',
+  '--logo-mask-opacity',
+  '--logo-wrap-bg',
+  '--logo-wrap-shadow',
+  '--logo-wrap-border',
 ]
 
 export function useTheme() {
@@ -61,8 +67,15 @@ export function useTheme() {
     await api.saveTheme(themeName, overrides)
   }
 
+  const saveOverrides = async (patch) => {
+    const overrides = { ...themeOverrides, ...patch }
+    setThemeOverrides(overrides)
+    const vars = { ...THEMES[themeName]?.vars, ...overrides }
+    applyTheme(vars)
+    await api.saveTheme(themeName, overrides)
+  }
+
   const resetTheme = async () => {
-    if (loading) return
     setThemeOverrides({})
     const vars = THEMES[themeName]?.vars || THEMES.dark.vars
     applyTheme(vars)
@@ -82,7 +95,7 @@ export function useTheme() {
     themeName, setThemeName,
     themeOverrides,
     showAdvanced, setShowAdvanced,
-    selectTheme, setAccent, saveOverride, resetTheme,
+    selectTheme, setAccent, saveOverride, saveOverrides, resetTheme,
     textScale, setTextScale
   }
 }

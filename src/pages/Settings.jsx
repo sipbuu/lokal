@@ -197,7 +197,7 @@ export default function Settings() {
   const artistOffsetRef = useRef(0)
   const artistRequestRef = useRef(0)
   const deferredArtistSearch = useDeferredValue(artistSearch)
-  const { themeName, themeOverrides, showAdvanced, setShowAdvanced, selectTheme, setAccent, saveOverride, resetTheme, textScale, setTextScale } = useTheme()
+  const { themeName, themeOverrides, showAdvanced, setShowAdvanced, selectTheme, setAccent, saveOverride, saveOverrides, resetTheme, textScale, setTextScale } = useTheme()
 
   const pushLastfmFeed = (entry) => {
     setLastfmFeed(prev => {
@@ -1852,6 +1852,41 @@ module.exports = {
                 </div>
               </div>
             )}
+          </div>
+
+          <div className="pt-4 mt-4 border-t border-border">
+            <Row
+              label="Tint App Logo"
+              desc="Try to color-shift the PNG logo toward the current theme accent. Best effort only."
+            >
+              <button
+                onClick={async () => {
+                  const enabled = parseFloat(themeOverrides['--logo-mask-opacity'] || '0') > 0.05
+                  if (enabled) {
+                    await saveOverrides({
+                      '--logo-image-filter': 'none',
+                      '--logo-image-opacity': '1',
+                      '--logo-mask-opacity': '0',
+                      '--logo-wrap-bg': 'transparent',
+                      '--logo-wrap-shadow': 'none',
+                      '--logo-wrap-border': '1px solid transparent',
+                    })
+                  } else {
+                    await saveOverrides({
+                      '--logo-image-filter': 'grayscale(1) brightness(1.02) contrast(1.06)',
+                      '--logo-image-opacity': '1',
+                      '--logo-mask-opacity': '0.38',
+                      '--logo-wrap-bg': 'rgba(var(--accent-rgb), 0.1)',
+                      '--logo-wrap-shadow': '0 0 12px rgba(var(--accent-rgb), 0.1)',
+                      '--logo-wrap-border': '1px solid rgba(var(--accent-rgb), 0.2)',
+                    })
+                  }
+                }}
+                className={`px-4 py-1.5 rounded-lg text-xs font-display uppercase tracking-wider border transition-colors ${parseFloat(themeOverrides['--logo-mask-opacity'] || '0') > 0.05 ? 'bg-accent/20 border-accent/50 text-accent' : 'border-border text-muted hover:text-white'}`}
+              >
+                {parseFloat(themeOverrides['--logo-mask-opacity'] || '0') > 0.05 ? 'On' : 'Off'}
+              </button>
+            </Row>
           </div>
 
           <button
