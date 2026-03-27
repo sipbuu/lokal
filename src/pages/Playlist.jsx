@@ -20,6 +20,7 @@ export default function Playlist() {
   const { playQueue } = usePlayerStore()
   const { user } = useAppStore()
   const isLiked = id === 'liked'
+  const playableTracks = tracks.filter(track => !String(track.file_path || '').startsWith('ghost://'))
 
   const load = useCallback(() => {
   
@@ -140,7 +141,7 @@ export default function Playlist() {
   }, [tracks, isLiked])
 
   useEffect(() => {
-    if (!isLiked && tracks.length > 0 && recommendations.length === 0) fetchRecommendations()
+    if (!isLiked && tracks.length > 0 && tracks.length <= 300 && recommendations.length === 0) fetchRecommendations()
   }, [tracks.length, isLiked, recommendations.length, fetchRecommendations])
 
   const addRecommendation = async (track) => {
@@ -152,8 +153,8 @@ export default function Playlist() {
   const totalDuration = tracks.reduce((s, t) => s + (t.duration || 0), 0)
   const fmt = (s) => `${Math.floor(s / 3600) > 0 ? Math.floor(s / 3600) + 'h ' : ''}${Math.floor((s % 3600) / 60)}m`
   const shuffleTracks = () => {
-    if (!tracks.length) return
-    const shuffled = [...tracks].sort(() => Math.random() - 0.5)
+    if (!playableTracks.length) return
+    const shuffled = [...playableTracks].sort(() => Math.random() - 0.5)
     playQueue(shuffled, 0)
   }
 
@@ -238,11 +239,11 @@ export default function Playlist() {
 
       {}
       <div className="flex flex-wrap items-center gap-3 mb-6">
-        <button onClick={() => playQueue(tracks, 0)} disabled={!tracks.length}
+        <button onClick={() => playQueue(playableTracks, 0)} disabled={!playableTracks.length}
           className="flex items-center gap-2 px-6 py-2.5 bg-accent text-base rounded-full font-medium text-sm hover:bg-accent/80 transition-colors disabled:opacity-40 disabled:cursor-not-allowed">
           <Play size={16} fill="currentColor" className="translate-x-px" /> Play All
         </button>
-        <button onClick={shuffleTracks} disabled={!tracks.length}
+        <button onClick={shuffleTracks} disabled={!playableTracks.length}
           className="flex items-center gap-2 px-5 py-2.5 bg-elevated border border-border text-white/80 rounded-full font-medium text-sm hover:text-white hover:border-accent/30 transition-colors disabled:opacity-40 disabled:cursor-not-allowed">
           <Shuffle size={15} /> Shuffle
         </button>
@@ -268,7 +269,7 @@ export default function Playlist() {
         onReorder={!isLiked ? handleReorder : null}
       />
 
-      {!isLiked && (tracks.length > 0 || recommendations.length > 0) && (
+      {!isLiked && tracks.length <= 300 && (tracks.length > 0 || recommendations.length > 0) && (
         <div className="mt-12 mb-6">
   <div className="flex items-center justify-between mb-4 px-2">
     <h2 className="text-lg font-display text-white">Recommended Songs</h2>
