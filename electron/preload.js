@@ -56,6 +56,9 @@ contextBridge.exposeInMainWorld('electron', {
   deletePlaylist: (pl) => invoke('scanner:deletePlaylist', pl),
   playlistImport: (name, entries, uid) => invoke('playlist:import', name, entries, uid),
   playlistImportFile: (name, fileContent, fileType, uid) => invoke('playlist:importFile', name, fileContent, fileType, uid),
+  previewExternalPlaylistImport: (payload) => invoke('playlist:previewExternalImport', payload),
+  importExternalPlaylist: (payload) => invoke('playlist:importExternalFile', payload),
+  resolveGhostTrack: (ghostTrackId, targetTrackId) => invoke('playlist:resolveGhostTrack', ghostTrackId, targetTrackId),
   reorderPlaylist: (pl, trackIds) => invoke('scanner:reorderPlaylist', pl, trackIds),
 
   

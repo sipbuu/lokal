@@ -639,6 +639,7 @@ function registerScannerHandlers(ipcMain) {
     const db = getDB()
     let sql = 'SELECT * FROM tracks'
     const where = []; const params = []
+    where.push("file_path NOT LIKE 'ghost://%'")
     const limit = Math.max(1, Math.min(500, parseInt(opts.limit, 10) || 500))
     const offset = Math.max(0, parseInt(opts.offset, 10) || 0)
     if (opts.artistName) { where.push('artist = ?'); params.push(opts.artistName) }
@@ -649,7 +650,7 @@ function registerScannerHandlers(ipcMain) {
   })
   ipcMain.handle('scanner:getArtists', () => {
     const db = getDB()
-    const artists = db.prepare(`SELECT a.*, COUNT(DISTINCT atl.track_id) as track_count FROM artists a LEFT JOIN artist_track_links atl ON atl.artist_id = a.id GROUP BY a.id HAVING track_count > 0 ORDER BY a.name`).all()
+    const artists = db.prepare(`SELECT a.*, COUNT(DISTINCT atl.track_id) as track_count FROM artists a LEFT JOIN artist_track_links atl ON atl.artist_id = a.id LEFT JOIN tracks t ON t.id = atl.track_id AND t.file_path NOT LIKE 'ghost://%' GROUP BY a.id HAVING COUNT(DISTINCT t.id) > 0 ORDER BY a.name`).all()
     return artists.map(artist => addArtistFallback(db, artist))
   })
   ipcMain.handle('scanner:getArtistsPage', (_, opts = {}) => {
@@ -660,9 +661,9 @@ function registerScannerHandlers(ipcMain) {
     const db = getDB()
     let artist = findArtistById(db, id)
     if (!artist) return null
-    const tracks = db.prepare(`SELECT t.* FROM tracks t JOIN artist_track_links atl ON atl.track_id = t.id WHERE atl.artist_id = ? ORDER BY t.album, t.track_num, t.title`).all(artist.id)
-    const topTracks = db.prepare(`SELECT t.* FROM tracks t JOIN artist_track_links atl ON atl.track_id = t.id WHERE atl.artist_id = ? ORDER BY t.play_count DESC LIMIT 5`).all(artist.id)
-    const albums = db.prepare(`SELECT album as title, year, artwork_path, COUNT(*) as track_count FROM tracks t JOIN artist_track_links atl ON atl.track_id = t.id WHERE atl.artist_id = ? AND album IS NOT NULL GROUP BY album ORDER BY year DESC`).all(artist.id)
+    const tracks = db.prepare(`SELECT t.* FROM tracks t JOIN artist_track_links atl ON atl.track_id = t.id WHERE atl.artist_id = ? AND t.file_path NOT LIKE 'ghost://%' ORDER BY t.album, t.track_num, t.title`).all(artist.id)
+    const topTracks = db.prepare(`SELECT t.* FROM tracks t JOIN artist_track_links atl ON atl.track_id = t.id WHERE atl.artist_id = ? AND t.file_path NOT LIKE 'ghost://%' ORDER BY t.play_count DESC LIMIT 5`).all(artist.id)
+    const albums = db.prepare(`SELECT album as title, year, artwork_path, COUNT(*) as track_count FROM tracks t JOIN artist_track_links atl ON atl.track_id = t.id WHERE atl.artist_id = ? AND t.file_path NOT LIKE 'ghost://%' AND album IS NOT NULL GROUP BY album ORDER BY year DESC`).all(artist.id)
     const artistWithFallback = addArtistFallback(db, artist)
     return { ...artistWithFallback, tracks, topTracks, albums }
   })
@@ -689,13 +690,13 @@ function registerScannerHandlers(ipcMain) {
     const updated = clearArtistImageOverride(db, artistId)
     return updated ? addArtistFallback(db, updated) : null
   })
-  ipcMain.handle('scanner:getAlbumTracks', (_, albumTitle) => getDB().prepare('SELECT * FROM tracks WHERE album = ? ORDER BY track_num, title').all(albumTitle))
+  ipcMain.handle('scanner:getAlbumTracks', (_, albumTitle) => getDB().prepare("SELECT * FROM tracks WHERE album = ? AND file_path NOT LIKE 'ghost://%' ORDER BY track_num, title").all(albumTitle))
   ipcMain.handle('scanner:search', (_, q) => {
     const db = getDB()
     const term = `%${q}%`
     const artists = db.prepare(`SELECT a.*, COUNT(atl.track_id) as track_count FROM artists a JOIN artist_track_links atl ON atl.artist_id = a.id WHERE a.name LIKE ? GROUP BY a.id LIMIT 5`).all(term)
     const artistsWithFallback = artists.map(artist => addArtistFallback(db, artist))
-    const tracks = db.prepare(`SELECT * FROM tracks WHERE title LIKE ? OR artist LIKE ? OR album LIKE ? LIMIT 40`).all(term, term, term)
+    const tracks = db.prepare(`SELECT * FROM tracks WHERE file_path NOT LIKE 'ghost://%' AND (title LIKE ? OR artist LIKE ? OR album LIKE ?) LIMIT 40`).all(term, term, term)
     return { artists: artistsWithFallback, tracks }
   })
   ipcMain.handle('scanner:toggleLike', (_, trackId, userId) => {
@@ -712,8 +713,8 @@ function registerScannerHandlers(ipcMain) {
     const liked = db.prepare(`SELECT t.genre, t.artist FROM tracks t JOIN user_likes ul ON ul.track_id = t.id WHERE ul.user_id = ? LIMIT 20`).all(uid)
     const genres = [...new Set(liked.map(t => t.genre).filter(Boolean))]
     const artists = [...new Set(liked.map(t => t.artist).filter(Boolean))]
-    if (!genres.length && !artists.length) return db.prepare('SELECT * FROM tracks ORDER BY RANDOM() LIMIT 20').all()
-    return db.prepare(`SELECT * FROM tracks WHERE genre IN (${genres.map(() => '?').join(',') || "''"}) OR artist IN (${artists.map(() => '?').join(',') || "''"}) ORDER BY RANDOM() LIMIT 20`).all(...genres, ...artists)
+    if (!genres.length && !artists.length) return db.prepare("SELECT * FROM tracks WHERE file_path NOT LIKE 'ghost://%' ORDER BY RANDOM() LIMIT 20").all()
+    return db.prepare(`SELECT * FROM tracks WHERE file_path NOT LIKE 'ghost://%' AND (genre IN (${genres.map(() => '?').join(',') || "''"}) OR artist IN (${artists.map(() => '?').join(',') || "''"})) ORDER BY RANDOM() LIMIT 20`).all(...genres, ...artists)
   })
   ipcMain.handle('scanner:getPlaylists', (_, userId) => getDB().prepare('SELECT * FROM playlists WHERE user_id = ? ORDER BY name').all(userId || 'guest'))
   ipcMain.handle('scanner:createPlaylist', (_, name, userId, description) => {
@@ -851,7 +852,7 @@ function registerScannerHandlers(ipcMain) {
     }
   })
   ipcMain.handle('scanner:getTopGenres', () => getDB().prepare(`SELECT genre, COUNT(*) as count FROM tracks WHERE genre IS NOT NULL GROUP BY genre ORDER BY count DESC LIMIT 10`).all())
-  ipcMain.handle('scanner:getRandomTrack', () => getDB().prepare('SELECT * FROM tracks ORDER BY RANDOM() LIMIT 1').get())
+  ipcMain.handle('scanner:getRandomTrack', () => getDB().prepare("SELECT * FROM tracks WHERE file_path NOT LIKE 'ghost://%' ORDER BY RANDOM() LIMIT 1").get())
   ipcMain.handle('db:clearTracks', () => { const db = getDB(); db.prepare('DELETE FROM artist_track_links').run(); db.prepare('DELETE FROM playlist_tracks').run(); db.prepare('DELETE FROM user_likes').run(); db.prepare('DELETE FROM play_history').run(); db.prepare('DELETE FROM lyrics_cache').run(); db.prepare('DELETE FROM lyrics_translations').run(); db.prepare('DELETE FROM tracks').run(); db.prepare('DELETE FROM artists').run() })
   ipcMain.handle('db:clearLyrics', () => { const db = getDB(); db.prepare('DELETE FROM lyrics_cache').run(); db.prepare('DELETE FROM lyrics_translations').run() })
   ipcMain.handle('settings:get', () => { const rows = getDB().prepare('SELECT key, value FROM settings').all(); return Object.fromEntries(rows.map(r => [r.key, r.value])) })
@@ -1288,8 +1289,8 @@ function registerV4Handlers(ipcMain) {
     const result = db.prepare(query).run(...params)
     return { updated: result.changes }
   })
-  ipcMain.handle('scanner:getAllAlbums', () => getDB().prepare(`SELECT album as title, album_artist, year, artwork_path, COUNT(*) as track_count, GROUP_CONCAT(DISTINCT artist) as artists FROM tracks WHERE album IS NOT NULL GROUP BY LOWER(album) ORDER BY year DESC, album ASC`).all())
-  ipcMain.handle('scanner:searchAlbums', (_, q) => { const term = `%${q}%`; return getDB().prepare(`SELECT album as title, album_artist, year, artwork_path, COUNT(*) as track_count, GROUP_CONCAT(DISTINCT artist) as artists FROM tracks WHERE album LIKE ? OR album_artist LIKE ? GROUP BY LOWER(album) ORDER BY album`).all(term, term) })
+  ipcMain.handle('scanner:getAllAlbums', () => getDB().prepare(`SELECT album as title, album_artist, year, artwork_path, COUNT(*) as track_count, GROUP_CONCAT(DISTINCT artist) as artists FROM tracks WHERE file_path NOT LIKE 'ghost://%' AND album IS NOT NULL GROUP BY LOWER(album) ORDER BY year DESC, album ASC`).all())
+  ipcMain.handle('scanner:searchAlbums', (_, q) => { const term = `%${q}%`; return getDB().prepare(`SELECT album as title, album_artist, year, artwork_path, COUNT(*) as track_count, GROUP_CONCAT(DISTINCT artist) as artists FROM tracks WHERE file_path NOT LIKE 'ghost://%' AND (album LIKE ? OR album_artist LIKE ?) GROUP BY LOWER(album) ORDER BY album`).all(term, term) })
   ipcMain.handle('scanner:deleteTracks', (_, ids) => { const db = getDB(); const del = db.transaction((ids) => { for (const id of ids) { db.prepare('DELETE FROM artist_track_links WHERE track_id = ?').run(id); db.prepare('DELETE FROM playlist_tracks WHERE track_id = ?').run(id); db.prepare('DELETE FROM user_likes WHERE track_id = ?').run(id); db.prepare('DELETE FROM play_history WHERE track_id = ?').run(id); db.prepare('DELETE FROM lyrics_cache WHERE track_id = ?').run(id); db.prepare('DELETE FROM tracks WHERE id = ?').run(id) } }); del(ids) })
   ipcMain.handle('scanner:mergeDuplicates', (_, keepId, removeIds) => {
     const db = getDB()
