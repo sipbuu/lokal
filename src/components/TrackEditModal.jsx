@@ -5,6 +5,32 @@ import { api } from '../api'
 import Modal from './Modal'
 import { usePlayerStore } from '../store/player'
 
+function asInput(value) {
+  return value === null || value === undefined ? '' : String(value)
+}
+
+function normalizeGenres(value) {
+  return String(value || '')
+    .split(',')
+    .map(part => part.trim())
+    .filter(Boolean)
+    .join(', ')
+}
+
+function parseIntegerField(value) {
+  const trimmed = String(value || '').trim()
+  if (!trimmed) return null
+  const parsed = parseInt(trimmed, 10)
+  return Number.isNaN(parsed) ? null : parsed
+}
+
+function parseNumberField(value) {
+  const trimmed = String(value || '').trim()
+  if (!trimmed) return null
+  const parsed = parseFloat(trimmed)
+  return Number.isNaN(parsed) ? null : parsed
+}
+
 export default function TrackEditModal({ track, open, onClose, onSave }) {
   const syncTrack = usePlayerStore(s => s.syncTrack)
   const [formData, setFormData] = useState({
@@ -14,7 +40,22 @@ export default function TrackEditModal({ track, open, onClose, onSave }) {
     album_artist: '',
     track_num: '',
     year: '',
-    genre: ''
+    genre: '',
+    genres: '',
+    record_label: '',
+    explicit: false,
+    danceability: '',
+    energy: '',
+    track_key: '',
+    loudness: '',
+    mode: '',
+    speechiness: '',
+    acousticness: '',
+    instrumentalness: '',
+    liveness: '',
+    valence: '',
+    tempo: '',
+    time_signature: '',
   })
   const [saving, setSaving] = useState(false)
   const [status, setStatus] = useState(null)
@@ -27,9 +68,24 @@ export default function TrackEditModal({ track, open, onClose, onSave }) {
         artist: track.artist || '',
         album: track.album || '',
         album_artist: track.album_artist || '',
-        track_num: track.track_num || '',
-        year: track.year || '',
-        genre: track.genre || ''
+        track_num: asInput(track.track_num),
+        year: asInput(track.year),
+        genre: track.genre || '',
+        genres: normalizeGenres(track.genres || track.genre || ''),
+        record_label: track.record_label || '',
+        explicit: !!track.explicit,
+        danceability: asInput(track.danceability),
+        energy: asInput(track.energy),
+        track_key: asInput(track.track_key),
+        loudness: asInput(track.loudness),
+        mode: asInput(track.mode),
+        speechiness: asInput(track.speechiness),
+        acousticness: asInput(track.acousticness),
+        instrumentalness: asInput(track.instrumentalness),
+        liveness: asInput(track.liveness),
+        valence: asInput(track.valence),
+        tempo: asInput(track.tempo),
+        time_signature: asInput(track.time_signature),
       })
       
       if (track.artwork_path) {
@@ -81,9 +137,24 @@ export default function TrackEditModal({ track, open, onClose, onSave }) {
       if (formData.artist && formData.artist !== track.artist) updateData.artist = formData.artist
       if (formData.album !== track.album) updateData.album = formData.album || null
       if (formData.album_artist !== track.album_artist) updateData.album_artist = formData.album_artist || null
-      if (formData.track_num !== track.track_num) updateData.track_num = formData.track_num ? parseInt(formData.track_num) : null
-      if (formData.year !== track.year) updateData.year = formData.year ? parseInt(formData.year) : null
+      if (String(formData.track_num) !== String(track.track_num ?? '')) updateData.track_num = parseIntegerField(formData.track_num)
+      if (String(formData.year) !== String(track.year ?? '')) updateData.year = parseIntegerField(formData.year)
       if (formData.genre !== track.genre) updateData.genre = formData.genre || null
+      if (normalizeGenres(formData.genres) !== normalizeGenres(track.genres || track.genre || '')) updateData.genres = normalizeGenres(formData.genres) || null
+      if (formData.record_label !== (track.record_label || '')) updateData.record_label = formData.record_label || null
+      if (formData.explicit !== !!track.explicit) updateData.explicit = formData.explicit ? 1 : 0
+      if (String(formData.danceability) !== String(track.danceability ?? '')) updateData.danceability = parseNumberField(formData.danceability)
+      if (String(formData.energy) !== String(track.energy ?? '')) updateData.energy = parseNumberField(formData.energy)
+      if (String(formData.track_key) !== String(track.track_key ?? '')) updateData.track_key = parseIntegerField(formData.track_key)
+      if (String(formData.loudness) !== String(track.loudness ?? '')) updateData.loudness = parseNumberField(formData.loudness)
+      if (String(formData.mode) !== String(track.mode ?? '')) updateData.mode = parseIntegerField(formData.mode)
+      if (String(formData.speechiness) !== String(track.speechiness ?? '')) updateData.speechiness = parseNumberField(formData.speechiness)
+      if (String(formData.acousticness) !== String(track.acousticness ?? '')) updateData.acousticness = parseNumberField(formData.acousticness)
+      if (String(formData.instrumentalness) !== String(track.instrumentalness ?? '')) updateData.instrumentalness = parseNumberField(formData.instrumentalness)
+      if (String(formData.liveness) !== String(track.liveness ?? '')) updateData.liveness = parseNumberField(formData.liveness)
+      if (String(formData.valence) !== String(track.valence ?? '')) updateData.valence = parseNumberField(formData.valence)
+      if (String(formData.tempo) !== String(track.tempo ?? '')) updateData.tempo = parseNumberField(formData.tempo)
+      if (String(formData.time_signature) !== String(track.time_signature ?? '')) updateData.time_signature = parseIntegerField(formData.time_signature)
       
       if (Object.keys(updateData).length > 0) {
         const result = await api.updateTrack(track.id, updateData)
@@ -136,7 +207,7 @@ export default function TrackEditModal({ track, open, onClose, onSave }) {
   }
 
   return (
-    <Modal open={open} onClose={onClose} title="Edit Track" width="max-w-lg">
+    <Modal open={open} onClose={onClose} title="Edit Track" width="max-w-3xl">
       <div className="space-y-4">
         <div className="flex gap-4">
           <div className="flex-shrink-0">
@@ -241,6 +312,96 @@ export default function TrackEditModal({ track, open, onClose, onSave }) {
               className="w-full bg-card border border-border rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-accent/50"
               placeholder="Rock"
             />
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <div>
+            <label className="text-xs font-display text-muted uppercase tracking-widest block mb-1">Genres</label>
+            <input
+              value={formData.genres}
+              onChange={(e) => handleChange('genres', e.target.value)}
+              className="w-full bg-card border border-border rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-accent/50"
+              placeholder="slowcore, shoegaze"
+            />
+          </div>
+          <div>
+            <label className="text-xs font-display text-muted uppercase tracking-widest block mb-1">Record Label</label>
+            <input
+              value={formData.record_label}
+              onChange={(e) => handleChange('record_label', e.target.value)}
+              className="w-full bg-card border border-border rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-accent/50"
+              placeholder="Label"
+            />
+          </div>
+        </div>
+
+        <label className="flex items-center gap-3 rounded-xl border border-border bg-card px-3 py-3 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={formData.explicit}
+            onChange={(e) => handleChange('explicit', e.target.checked)}
+            className="rounded border-border bg-card text-accent focus:ring-accent/40"
+          />
+          <div>
+            <p className="text-sm text-white">Explicit</p>
+            <p className="text-xs text-muted">Show the track with the explicit badge.</p>
+          </div>
+        </label>
+
+        <div className="rounded-2xl border border-border bg-card/70 p-4 space-y-3">
+          <div>
+            <p className="text-xs font-display text-muted uppercase tracking-widest">Imported Audio Data</p>
+          </div>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <div>
+              <label className="text-[11px] text-muted uppercase tracking-widest block mb-1">Danceability</label>
+              <input value={formData.danceability} onChange={(e) => handleChange('danceability', e.target.value)} className="w-full bg-surface border border-border rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-accent/50" placeholder="0.522" />
+            </div>
+            <div>
+              <label className="text-[11px] text-muted uppercase tracking-widest block mb-1">Energy</label>
+              <input value={formData.energy} onChange={(e) => handleChange('energy', e.target.value)} className="w-full bg-surface border border-border rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-accent/50" placeholder="0.992" />
+            </div>
+            <div>
+              <label className="text-[11px] text-muted uppercase tracking-widest block mb-1">Key</label>
+              <input value={formData.track_key} onChange={(e) => handleChange('track_key', e.target.value)} className="w-full bg-surface border border-border rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-accent/50" placeholder="0" />
+            </div>
+            <div>
+              <label className="text-[11px] text-muted uppercase tracking-widest block mb-1">Loudness</label>
+              <input value={formData.loudness} onChange={(e) => handleChange('loudness', e.target.value)} className="w-full bg-surface border border-border rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-accent/50" placeholder="-3.076" />
+            </div>
+            <div>
+              <label className="text-[11px] text-muted uppercase tracking-widest block mb-1">Mode</label>
+              <input value={formData.mode} onChange={(e) => handleChange('mode', e.target.value)} className="w-full bg-surface border border-border rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-accent/50" placeholder="1" />
+            </div>
+            <div>
+              <label className="text-[11px] text-muted uppercase tracking-widest block mb-1">Speechiness</label>
+              <input value={formData.speechiness} onChange={(e) => handleChange('speechiness', e.target.value)} className="w-full bg-surface border border-border rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-accent/50" placeholder="0.173" />
+            </div>
+            <div>
+              <label className="text-[11px] text-muted uppercase tracking-widest block mb-1">Acousticness</label>
+              <input value={formData.acousticness} onChange={(e) => handleChange('acousticness', e.target.value)} className="w-full bg-surface border border-border rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-accent/50" placeholder="0.0631" />
+            </div>
+            <div>
+              <label className="text-[11px] text-muted uppercase tracking-widest block mb-1">Instrumentalness</label>
+              <input value={formData.instrumentalness} onChange={(e) => handleChange('instrumentalness', e.target.value)} className="w-full bg-surface border border-border rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-accent/50" placeholder="0.743" />
+            </div>
+            <div>
+              <label className="text-[11px] text-muted uppercase tracking-widest block mb-1">Liveness</label>
+              <input value={formData.liveness} onChange={(e) => handleChange('liveness', e.target.value)} className="w-full bg-surface border border-border rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-accent/50" placeholder="0.0724" />
+            </div>
+            <div>
+              <label className="text-[11px] text-muted uppercase tracking-widest block mb-1">Valence</label>
+              <input value={formData.valence} onChange={(e) => handleChange('valence', e.target.value)} className="w-full bg-surface border border-border rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-accent/50" placeholder="0.701" />
+            </div>
+            <div>
+              <label className="text-[11px] text-muted uppercase tracking-widest block mb-1">Tempo</label>
+              <input value={formData.tempo} onChange={(e) => handleChange('tempo', e.target.value)} className="w-full bg-surface border border-border rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-accent/50" placeholder="73.528" />
+            </div>
+            <div>
+              <label className="text-[11px] text-muted uppercase tracking-widest block mb-1">Time Signature</label>
+              <input value={formData.time_signature} onChange={(e) => handleChange('time_signature', e.target.value)} className="w-full bg-surface border border-border rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-accent/50" placeholder="4" />
+            </div>
           </div>
         </div>
 

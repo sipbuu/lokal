@@ -497,6 +497,7 @@ export default function TrackList({ tracks = [], showAlbum = true, onRemove = nu
               <div className="min-w-0">
                 <div className="flex items-center gap-2 min-w-0">
                   <p className={`text-sm font-medium truncate ${isCurrent ? 'text-accent' : 'text-white'}`}>{track.title}</p>
+                  {!!track.explicit && <span className="px-1.5 py-0.5 rounded border border-border bg-card text-[10px] font-display uppercase tracking-wide text-muted flex-shrink-0">E</span>}
                   {isGhost && <span className="px-1.5 py-0.5 rounded-full bg-yellow-400/10 border border-yellow-400/20 text-[10px] uppercase tracking-wide text-yellow-200 flex-shrink-0">Ghost</span>}
                 </div>
                 <p className="text-xs text-muted truncate">{track.artist}</p>

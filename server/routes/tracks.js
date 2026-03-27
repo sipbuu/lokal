@@ -413,7 +413,30 @@ router.put('/:id/genre', (req, res) => {
 
 router.put('/:id', (req, res) => {
   const db = getDB()
-  const { title, artist, album, album_artist, track_num, year, genre } = req.body
+  const {
+    title,
+    artist,
+    album,
+    album_artist,
+    track_num,
+    year,
+    genre,
+    genres,
+    record_label,
+    explicit,
+    danceability,
+    energy,
+    track_key,
+    loudness,
+    mode,
+    speechiness,
+    acousticness,
+    instrumentalness,
+    liveness,
+    valence,
+    tempo,
+    time_signature,
+  } = req.body
   const updates = []
   const params = []
   
@@ -424,6 +447,21 @@ router.put('/:id', (req, res) => {
   if (track_num !== undefined) { updates.push('track_num = ?'); params.push(track_num) }
   if (year !== undefined) { updates.push('year = ?'); params.push(year) }
   if (genre !== undefined) { updates.push('genre = ?'); params.push(genre) }
+  if (genres !== undefined) { updates.push('genres = ?'); params.push(genres) }
+  if (record_label !== undefined) { updates.push('record_label = ?'); params.push(record_label) }
+  if (explicit !== undefined) { updates.push('explicit = ?'); params.push(explicit ? 1 : 0) }
+  if (danceability !== undefined) { updates.push('danceability = ?'); params.push(danceability) }
+  if (energy !== undefined) { updates.push('energy = ?'); params.push(energy) }
+  if (track_key !== undefined) { updates.push('track_key = ?'); params.push(track_key) }
+  if (loudness !== undefined) { updates.push('loudness = ?'); params.push(loudness) }
+  if (mode !== undefined) { updates.push('mode = ?'); params.push(mode) }
+  if (speechiness !== undefined) { updates.push('speechiness = ?'); params.push(speechiness) }
+  if (acousticness !== undefined) { updates.push('acousticness = ?'); params.push(acousticness) }
+  if (instrumentalness !== undefined) { updates.push('instrumentalness = ?'); params.push(instrumentalness) }
+  if (liveness !== undefined) { updates.push('liveness = ?'); params.push(liveness) }
+  if (valence !== undefined) { updates.push('valence = ?'); params.push(valence) }
+  if (tempo !== undefined) { updates.push('tempo = ?'); params.push(tempo) }
+  if (time_signature !== undefined) { updates.push('time_signature = ?'); params.push(time_signature) }
   
   if (updates.length === 0) return res.json({ error: 'No fields to update' })
   
