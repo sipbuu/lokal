@@ -876,6 +876,13 @@ export default function App() {
 
     initAudioCtx()
 
+    if (String(currentTrack.file_path || '').startsWith('ghost://')) {
+      audioRef.current.pause()
+      audioRef.current.src = ''
+      setIsPlaying(false)
+      return
+    }
+
     const src = api.isElectron 
       ? `file://${currentTrack.file_path.replace(/\\/g, '/').split('/').map(s => encodeURIComponent(s)).join('/').replace(/%3A/g, ':')}`
       : api.streamURL(currentTrack);
