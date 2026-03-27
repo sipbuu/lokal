@@ -111,6 +111,77 @@ function getSkipDrumKit() {
   return true
 }
 
+function preferCleanDownloadMetadata() {
+  try {
+    const db = getDB()
+    const setting = db.prepare("SELECT value FROM settings WHERE key = 'clean_download_metadata'").get()
+    return setting?.value !== '0'
+  } catch {}
+  return true
+}
+
+function isKnownCommaArtist(name) {
+  if (!name) return false
+  const lower = name.toLowerCase().trim()
+  const keepCommaArtists = getKeepCommaArtists()
+  for (const known of keepCommaArtists) {
+    if (lower === known) return true
+  }
+  return false
+}
+
+function scoreArtistCandidate(name, rawArtist) {
+  if (!name) return -Infinity
+  if (isKnownCommaArtist(name)) return 1000 - name.length
+  const commaParts = name.split(/\s*,\s*/).filter(Boolean)
+  let score = 0
+  score += commaParts.length === 1 ? 40 : 0
+  score -= Math.max(0, commaParts.length - 1) * 18
+  score -= Math.max(0, name.length - 24) * 0.35
+  if (!/\s+(?:feat\.|ft\.|featuring)\s+/i.test(name)) score += 4
+  if (!/\s+(?:&|x|vs\.?)\s+/i.test(name)) score += 2
+  if (name.toLowerCase() === (rawArtist || '').toLowerCase()) score += 3
+  return score
+}
+
+function pickPreferredArtist(common) {
+  const rawArtist = (common.artist || common.albumartist || '').trim()
+  if (!rawArtist) return null
+  if (!preferCleanDownloadMetadata() || isKnownCommaArtist(rawArtist)) return rawArtist
+
+  const rawParts = rawArtist.split(/\s*,\s*/).map(part => part.trim()).filter(Boolean)
+  const candidates = []
+  if (common.albumartist?.trim()) candidates.push(common.albumartist.trim())
+  if (Array.isArray(common.artists)) {
+    for (const artist of common.artists) {
+      if (artist?.trim()) candidates.push(artist.trim())
+    }
+  }
+  candidates.push(rawArtist)
+
+  const uniqueCandidates = [...new Set(candidates.filter(Boolean))]
+  let best = uniqueCandidates[0] || rawArtist
+  let bestScore = scoreArtistCandidate(best, rawArtist)
+  for (const candidate of uniqueCandidates.slice(1)) {
+    const score = scoreArtistCandidate(candidate, rawArtist)
+    if (score > bestScore) {
+      best = candidate
+      bestScore = score
+    }
+  }
+
+  if (rawParts.length >= 3) {
+    if (best && best !== rawArtist) return best
+    return rawParts[0]
+  }
+
+  if (best && best !== rawArtist && bestScore >= scoreArtistCandidate(rawArtist, rawArtist) + 10) {
+    return best
+  }
+
+  return rawArtist
+}
+
 function extractTitleFromFilename(filePath) {
   const basename = path.basename(filePath, path.extname(filePath))
   const cleaned = basename
@@ -130,25 +201,38 @@ async function scanFolder(folderPath) {
   scanStatus.total = files.length
   db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('music_folder', ?)").run(folderPath)
 
-  const upsertArtist = db.prepare(`INSERT OR IGNORE INTO artists (id, name) VALUES (?, ?)`)
   const linkArtist = db.prepare(`INSERT OR IGNORE INTO artist_track_links (artist_id, track_id) VALUES (?, ?)`)
-  const upsertTrack = db.prepare(`
-    INSERT OR REPLACE INTO tracks
+  const findExistingTrackByPath = db.prepare('SELECT id FROM tracks WHERE file_path = ?')
+  const insertTrack = db.prepare(`
+    INSERT INTO tracks
     (id, file_path, file_hash, title, artist, album, album_artist, track_num, year, genre, duration, artwork_path, bitrate, last_modified, replaygain)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `)
+  const updateTrackByPath = db.prepare(`
+    UPDATE tracks
+    SET file_hash = ?, title = ?, artist = ?, album = ?, album_artist = ?, track_num = ?, year = ?, genre = ?, duration = ?, artwork_path = ?, bitrate = ?, last_modified = ?, replaygain = ?
+    WHERE file_path = ?
   `)
 
   const insertBatchTransaction = db.transaction((items) => {
     for (const item of items) {
-      upsertTrack.run(item.id, item.file_path, item.file_hash, item.title, item.artist, item.album, item.album_artist, item.track_num, item.year, item.genre, item.duration, item.artwork_path, item.bitrate, item.last_modified, item.replaygain)
+      const existing = findExistingTrackByPath.get(item.file_path)
+      const trackId = existing?.id || item.id
+      item.id = trackId
+      if (existing) {
+        updateTrackByPath.run(item.file_hash, item.title, item.artist, item.album, item.album_artist, item.track_num, item.year, item.genre, item.duration, item.artwork_path, item.bitrate, item.last_modified, item.replaygain, item.file_path)
+      } else {
+        insertTrack.run(trackId, item.file_path, item.file_hash, item.title, item.artist, item.album, item.album_artist, item.track_num, item.year, item.genre, item.duration, item.artwork_path, item.bitrate, item.last_modified, item.replaygain)
+      }
+      db.prepare('DELETE FROM artist_track_links WHERE track_id = ?').run(trackId)
       const artistNames = splitArtists(item.artist)
       for (const name of artistNames) {
         const aid = 'a-' + slugify(name)
         db.prepare(`INSERT OR REPLACE INTO artists (id, name) VALUES (?, ?)`).run(aid, name)
         try {
-          linkArtist.run(aid, item.id)
+          linkArtist.run(aid, trackId)
         } catch (linkErr) {
-          console.warn(`[scanFolder] Failed to link artist ${aid} to track ${item.id}:`, linkErr.message)
+          console.warn(`[scanFolder] Failed to link artist ${aid} to track ${trackId}:`, linkErr.message)
         }
       }
     }
@@ -182,7 +266,7 @@ async function scanFolder(folderPath) {
       const meta = await mm.parseFile(filePath, { duration: true, skipCovers: false })
       const c = meta.common
       const title = c.title?.trim()
-      const artist = (c.artist || c.albumartist)?.trim()
+      const artist = pickPreferredArtist(c)
       const duration = meta.format.duration || 0
       if (!title && !artist) { console.log(`[scanFolder] Skipped: ${filePath} - Missing title and artist (no metadata found)`); scanStatus.skipped++; scanStatus.done++; emit('scanner:progress', { ...scanStatus }); continue }
       if (!title) { console.log(`[scanFolder] Skipped: ${filePath} - Missing title (found artist: "${artist || 'none'}")`); scanStatus.skipped++; scanStatus.done++; emit('scanner:progress', { ...scanStatus }); continue }
@@ -1008,7 +1092,7 @@ async function indexSingleFile(filePath, opts = {}) {
   } catch { return { error: 'Failed to parse metadata' } }
   const c = meta.common
   const title = c.title?.trim()
-  const artist = (c.artist || c.albumartist)?.trim()
+  const artist = pickPreferredArtist(c)
   const duration = meta.format.duration || 0
   if (!title || !artist) return { error: 'Missing title/artist' }
   if (duration < getMinDuration()) return { error: 'Too short' }
