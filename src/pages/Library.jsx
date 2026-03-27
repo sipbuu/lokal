@@ -1,9 +1,9 @@
 import React, { useEffect, useRef, useState } from 'react'
 import { motion } from 'framer-motion'
 import { LayoutGrid, List, Music, Disc3 } from 'lucide-react'
-import { usePlayerStore, useAppStore } from '../store/player'
+import { useNavigate } from 'react-router-dom'
+import { usePlayerStore } from '../store/player'
 import TrackList from '../components/TrackList'
-import AlbumsModal from '../components/AlbumsModal'
 import { api } from '../api'
 
 const LIBRARY_PAGE_SIZE = 50
@@ -15,8 +15,8 @@ export default function Library() {
   const [view, setView] = useState('list')
   const [loading, setLoading] = useState(false)
   const [hasMore, setHasMore] = useState(true)
-  const { openAlbums } = useAppStore()
   const { playQueue } = usePlayerStore()
+  const navigate = useNavigate()
   const offsetRef = useRef(0)
   const loadMoreRef = useRef(null)
   const requestIdRef = useRef(0)
@@ -81,7 +81,7 @@ export default function Library() {
       <div className="flex items-center justify-between">
         <h1 className="font-display text-lg uppercase tracking-widest text-white">Library</h1>
         <div className="flex items-center gap-2">
-          <button onClick={() => openAlbums()}
+          <button onClick={() => navigate('/albums')}
             className="flex items-center gap-1.5 px-3 py-1.5 bg-elevated border border-border rounded-lg text-xs text-muted hover:text-white transition-colors">
             <Disc3 size={13} /> Albums
           </button>
@@ -149,8 +149,6 @@ export default function Library() {
           <p>No tracks yet — scan your music folder from Home.</p>
         </div>
       )}
-
-      <AlbumsModal />
     </div>
   )
 }

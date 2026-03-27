@@ -21,7 +21,7 @@ export default function Sidebar() {
   const [newPlName, setNewPlName] = useState('')
   const [confirmSignOut, setConfirmSignOut] = useState(false)
   
-  const { user, openAuth, logout, openStats, openAlbums } = useAppStore()
+  const { user, openAuth, logout, openStats } = useAppStore()
 
   const { currentTrack } = usePlayerStore()
   const navItems = user
@@ -206,8 +206,8 @@ export default function Sidebar() {
         
         <button 
           data-tour="albums"
-          onClick={() => openAlbums()}
-          className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium text-muted hover:text-white hover:bg-elevated transition-all">
+          onClick={() => nav('/albums')}
+          className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-all ${loc.pathname === '/albums' ? 'bg-accent/15 text-accent' : 'text-muted hover:text-white hover:bg-elevated'}`}>
           <Disc3 size={15} /> Albums
         </button>
       </nav>
