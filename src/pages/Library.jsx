@@ -30,7 +30,7 @@ export default function Library() {
     try {
       const result = await api.getTracks({ sort, limit: LIBRARY_PAGE_SIZE, offset: nextOffset })
       if (requestId !== requestIdRef.current) return
-      const items = Array.isArray(result) ? result : []
+      const items = (Array.isArray(result) ? result : []).filter(track => !String(track?.file_path || '').startsWith('ghost://'))
       offsetRef.current = nextOffset + items.length
       setTracks(prev => append ? [...prev, ...items] : items)
       setHasMore(items.length === LIBRARY_PAGE_SIZE)
