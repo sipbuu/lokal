@@ -875,6 +875,21 @@ function registerScannerHandlers(ipcMain) {
     if (data.track_num !== undefined) { updates.push('track_num = ?'); params.push(data.track_num) }
     if (data.year !== undefined) { updates.push('year = ?'); params.push(data.year) }
     if (data.genre !== undefined) { updates.push('genre = ?'); params.push(data.genre) }
+    if (data.genres !== undefined) { updates.push('genres = ?'); params.push(data.genres) }
+    if (data.record_label !== undefined) { updates.push('record_label = ?'); params.push(data.record_label) }
+    if (data.explicit !== undefined) { updates.push('explicit = ?'); params.push(data.explicit ? 1 : 0) }
+    if (data.danceability !== undefined) { updates.push('danceability = ?'); params.push(data.danceability) }
+    if (data.energy !== undefined) { updates.push('energy = ?'); params.push(data.energy) }
+    if (data.track_key !== undefined) { updates.push('track_key = ?'); params.push(data.track_key) }
+    if (data.loudness !== undefined) { updates.push('loudness = ?'); params.push(data.loudness) }
+    if (data.mode !== undefined) { updates.push('mode = ?'); params.push(data.mode) }
+    if (data.speechiness !== undefined) { updates.push('speechiness = ?'); params.push(data.speechiness) }
+    if (data.acousticness !== undefined) { updates.push('acousticness = ?'); params.push(data.acousticness) }
+    if (data.instrumentalness !== undefined) { updates.push('instrumentalness = ?'); params.push(data.instrumentalness) }
+    if (data.liveness !== undefined) { updates.push('liveness = ?'); params.push(data.liveness) }
+    if (data.valence !== undefined) { updates.push('valence = ?'); params.push(data.valence) }
+    if (data.tempo !== undefined) { updates.push('tempo = ?'); params.push(data.tempo) }
+    if (data.time_signature !== undefined) { updates.push('time_signature = ?'); params.push(data.time_signature) }
     
     if (updates.length === 0) return { error: 'No fields to update' }
     
