@@ -144,6 +144,8 @@ export default function Settings() {
   const [showUrlModal, setShowUrlModal] = useState(false)
   const [dups, setDups] = useState(null)
   const [showDups, setShowDups] = useState(false)
+  const [possibleDups, setPossibleDups] = useState(null)
+  const [showPossibleDups, setShowPossibleDups] = useState(false)
   const [mergingAll, setMergingAll] = useState(false)
   const [mergeAllResult, setMergeAllResult] = useState(null)
   const [showMergeAllConfirm, setShowMergeAllConfirm] = useState(false)
@@ -528,6 +530,19 @@ export default function Settings() {
       setMergeAllResult({ error: e.message })
     }
     setMergingAll(false)
+  }
+
+  const checkPossibleDuplicates = async () => {
+    const groups = await api.checkPossibleDuplicates()
+    setPossibleDups(Array.isArray(groups) ? groups : [])
+    setShowPossibleDups(true)
+  }
+
+  const mergePossibleDup = async (group, keepId) => {
+    const removeIds = (group?.tracks || []).map(track => track.id).filter(id => id !== keepId)
+    if (!removeIds.length) return
+    await api.mergeDuplicates(keepId, removeIds)
+    setPossibleDups(prev => prev.filter(item => item.id !== group.id))
   }
 
   const saveCommaArtists = async () => {
@@ -1036,6 +1051,12 @@ export default function Settings() {
           <button onClick={checkDuplicates}
             className="px-4 py-2 bg-card border border-border rounded-lg text-sm text-muted hover:text-white transition-colors">
             Check
+          </button>
+        </Row>
+        <Row label="Possible Duplicates" desc="Use this after the normal duplicate checker. Finds likely leftovers with similar names and durations, then lets you review which copy to keep.">
+          <button onClick={checkPossibleDuplicates}
+            className="px-4 py-2 bg-card border border-border rounded-lg text-sm text-muted hover:text-white transition-colors">
+            Review
           </button>
         </Row>
         <Row label="Clear All Data" desc="Wipes DB — files untouched">
@@ -2202,6 +2223,73 @@ Earth, Wind & Fire"
             </button>
           </div>
         </div>
+      </Modal>
+
+      <Modal open={showPossibleDups} onClose={() => setShowPossibleDups(false)} title="Possible Duplicates" width="max-w-4xl">
+        {possibleDups?.length === 0 && (
+          <div className="space-y-2 py-4">
+            <p className="text-accent text-sm text-center">✓ No possible duplicates found.</p>
+            <p className="text-xs text-muted text-center">Use the regular duplicate checker first for exact matches, then come back here for the leftovers.</p>
+          </div>
+        )}
+
+        {possibleDups?.length > 0 && (
+          <div className="space-y-3">
+            <p className="text-xs text-muted">
+              This pass is intentionally review-based. Run the exact duplicate checker first, then use this for tracks that look like the same song but do not have identical names.
+            </p>
+            <div className="space-y-3 max-h-[34rem] overflow-y-auto pr-1">
+              {possibleDups.map((group) => (
+                <div key={group.id} className="rounded-2xl border border-border bg-card/40 p-4 space-y-3">
+                  <div className="flex items-start justify-between gap-4">
+                    <div>
+                      <p className="text-sm text-white font-medium">Possible match group</p>
+                      <p className="text-xs text-muted mt-1">{group.summary}</p>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-xs font-display uppercase tracking-widest text-accent">{group.confidence}% confidence</p>
+                      <p className="text-[10px] text-muted mt-1">Suggested keep is marked below</p>
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    {group.tracks.map((track) => {
+                      const suggested = track.id === group.suggestedKeepId
+                      return (
+                        <div key={track.id} className={`rounded-xl border px-3 py-3 flex items-center gap-3 ${suggested ? 'border-accent/40 bg-accent/10' : 'border-border bg-elevated/40'}`}>
+                          <div className="w-10 h-10 rounded-lg overflow-hidden bg-card border border-border flex items-center justify-center flex-shrink-0">
+                            {track.artwork_path ? (
+                              <img src={api.isElectron ? `file://${track.artwork_path}` : api.artworkURL(track.id)} className="w-full h-full object-cover" />
+                            ) : (
+                              <Music2 size={15} className="text-muted" />
+                            )}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2">
+                              <p className="text-sm text-white truncate">{track.title}</p>
+                              {suggested && <span className="text-[10px] text-accent uppercase tracking-widest">Suggested</span>}
+                            </div>
+                            <p className="text-xs text-muted truncate">{track.artist}</p>
+                            <p className="text-[10px] text-muted/70 truncate">
+                              {track.album || 'No album'} · {track.duration ? `${Math.floor(track.duration / 60)}:${String(Math.floor(track.duration % 60)).padStart(2, '0')}` : '--:--'} · {track.bitrate ? `${track.bitrate}kbps` : 'Unknown bitrate'}
+                            </p>
+                            <p className="text-[10px] text-muted/50 truncate mt-1">{track.file_path}</p>
+                          </div>
+                          <button
+                            onClick={() => mergePossibleDup(group, track.id)}
+                            className={`flex-shrink-0 px-3 py-2 rounded-lg text-xs font-display uppercase tracking-wider transition-colors ${suggested ? 'bg-accent/20 border border-accent/40 text-accent hover:bg-accent/30' : 'bg-card border border-border text-muted hover:text-white hover:border-accent/30'}`}
+                          >
+                            Keep This
+                          </button>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
       </Modal>
 
       <Modal open={showPlaylistImportModal} onClose={() => { setShowPlaylistImportModal(false); setPlaylistImportStatus(''); setPlaylistImportResult(null) }} title="Import Playlist" width="max-w-md">

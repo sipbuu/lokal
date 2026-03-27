@@ -36,6 +36,7 @@ contextBridge.exposeInMainWorld('electron', {
   getMixes: (uid) => invoke('scanner:getMixes', uid),
   getRelated: (id, uid) => invoke('scanner:getRelated', id, uid),
   checkDuplicates: () => invoke('scanner:checkDuplicates'),
+  checkPossibleDuplicates: () => invoke('scanner:checkPossibleDuplicates'),
   mergeDuplicates: (keepId, removeIds) => invoke('scanner:mergeDuplicates', keepId, removeIds),
   mergeAllDuplicates: () => invoke('scanner:mergeAllDuplicates'),
   deleteTracks: (ids) => invoke('scanner:deleteTracks', ids),

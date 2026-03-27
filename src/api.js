@@ -51,6 +51,7 @@ export const api = {
   getSuggestions: (uid) => isE() ? el().getSuggestions(uid) : apiFetch(`/tracks/suggestions?userId=${uid||'guest'}`),
   getRelated: (tid, uid) => isE() ? el().getRelated(tid, uid) : apiFetch(`/tracks/${tid}/related?userId=${uid||'guest'}`),
   checkDuplicates: () => isE() ? el().checkDuplicates() : apiFetch('/tracks/duplicates'),
+  checkPossibleDuplicates: () => isE() ? el().checkPossibleDuplicates() : apiFetch('/tracks/possible-duplicates'),
   mergeDuplicates: (keepId, removeIds) => isE() ? el().mergeDuplicates(keepId, removeIds) : apiFetch('/tracks/merge', { method:'POST', body:{keepId, removeIds} }),
   mergeAllDuplicates: () => isE() ? el().mergeAllDuplicates() : apiFetch('/tracks/merge-all', { method:'POST' }),
   deleteTracks: (ids) => isE() ? el().deleteTracks(ids) : apiFetch('/tracks/batch-delete', { method:'POST', body:{ids} }),

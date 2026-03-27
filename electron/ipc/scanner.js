@@ -272,6 +272,156 @@ function scoreTrack(track) {
   return score
 }
 
+function normalizeDuplicateText(value, type = 'title') {
+  let normalized = String(value || '').toLowerCase()
+    .replace(/\[[^\]]*\]|\([^\)]*\)/g, ' ')
+    .replace(/\s+(feat\.|ft\.|featuring)\s+.*$/i, ' ')
+  if (type === 'title') {
+    normalized = normalized.replace(/\b(remaster(ed)?|radio edit|clean|explicit|album version|single version|extended mix|original mix|bonus track|deluxe)\b/g, ' ')
+  }
+  return normalized.replace(/[^a-z0-9]+/g, ' ').replace(/\s+/g, ' ').trim()
+}
+
+function tokenizeDuplicateText(value, type = 'title') {
+  return normalizeDuplicateText(value, type).split(' ').filter(Boolean)
+}
+
+function overlapScore(leftTokens, rightTokens) {
+  if (!leftTokens.length || !rightTokens.length) return 0
+  const left = new Set(leftTokens)
+  const right = new Set(rightTokens)
+  let shared = 0
+  for (const token of left) {
+    if (right.has(token)) shared += 1
+  }
+  return shared / Math.max(1, Math.min(left.size, right.size))
+}
+
+function durationSimilarity(leftDuration, rightDuration) {
+  const diff = Math.abs(Number(leftDuration || 0) - Number(rightDuration || 0))
+  if (diff > 4) return 0
+  return Math.max(0, 1 - diff / 4)
+}
+
+function possibleDuplicateMatch(left, right) {
+  const titleScore = overlapScore(left.titleTokens, right.titleTokens)
+  const artistScore = overlapScore(left.artistTokens, right.artistTokens)
+  const durationScore = durationSimilarity(left.duration, right.duration)
+  const exactNormalized = left.normalizedTitle === right.normalizedTitle && left.normalizedArtist === right.normalizedArtist
+  if (exactNormalized) return null
+  const combined = titleScore * 0.45 + artistScore * 0.45 + durationScore * 0.1
+  const isMatch = durationScore > 0 && artistScore >= 0.72 && (titleScore >= 0.58 || combined >= 0.74)
+  if (!isMatch) return null
+  return {
+    titleScore,
+    artistScore,
+    durationDiff: Math.abs(Number(left.duration || 0) - Number(right.duration || 0)),
+    combined,
+  }
+}
+
+function buildPossibleDuplicateGroups(tracks = []) {
+  if (!Array.isArray(tracks) || tracks.length < 2) return []
+  const enriched = tracks.map((track, index) => {
+    const titleTokens = tokenizeDuplicateText(track.title, 'title')
+    const artistTokens = tokenizeDuplicateText(track.artist, 'artist')
+    return {
+      ...track,
+      index,
+      qualityScore: scoreTrack(track),
+      normalizedTitle: normalizeDuplicateText(track.title, 'title'),
+      normalizedArtist: normalizeDuplicateText(track.artist, 'artist'),
+      titleTokens,
+      artistTokens,
+      artistKey: artistTokens[0] || '',
+      durationBucket: Math.round(Number(track.duration || 0) / 2),
+    }
+  }).filter(track => track.artistKey && track.titleTokens.length)
+
+  const buckets = new Map()
+  for (const track of enriched) {
+    const bucketKey = `${track.artistKey}:${track.durationBucket}`
+    if (!buckets.has(bucketKey)) buckets.set(bucketKey, [])
+    buckets.get(bucketKey).push(track)
+  }
+
+  const parent = enriched.map((_, index) => index)
+  const find = (value) => {
+    while (parent[value] !== value) {
+      parent[value] = parent[parent[value]]
+      value = parent[value]
+    }
+    return value
+  }
+  const union = (left, right) => {
+    const a = find(left)
+    const b = find(right)
+    if (a !== b) parent[b] = a
+  }
+
+  const pairMeta = new Map()
+  const seenPairs = new Set()
+  for (const track of enriched) {
+    for (let offset = -1; offset <= 1; offset += 1) {
+      const bucketKey = `${track.artistKey}:${track.durationBucket + offset}`
+      const candidates = buckets.get(bucketKey) || []
+      for (const candidate of candidates) {
+        if (candidate.index <= track.index) continue
+        const pairKey = `${track.index}:${candidate.index}`
+        if (seenPairs.has(pairKey)) continue
+        seenPairs.add(pairKey)
+        const match = possibleDuplicateMatch(track, candidate)
+        if (!match) continue
+        union(track.index, candidate.index)
+        pairMeta.set(pairKey, match)
+      }
+    }
+  }
+
+  const grouped = new Map()
+  for (const track of enriched) {
+    const root = find(track.index)
+    if (!grouped.has(root)) grouped.set(root, [])
+    grouped.get(root).push(track)
+  }
+
+  return [...grouped.values()]
+    .filter(group => group.length > 1)
+    .map((group, index) => {
+      const sortedTracks = [...group].sort((left, right) => right.qualityScore - left.qualityScore)
+      const scores = []
+      for (let i = 0; i < group.length; i += 1) {
+        for (let j = i + 1; j < group.length; j += 1) {
+          const key = `${Math.min(group[i].index, group[j].index)}:${Math.max(group[i].index, group[j].index)}`
+          const meta = pairMeta.get(key)
+          if (meta) scores.push(meta)
+        }
+      }
+      const avg = scores.length ? scores.reduce((sum, item) => sum + item.combined, 0) / scores.length : 0
+      const bestTitle = scores.length ? Math.max(...scores.map(item => item.titleScore)) : 0
+      const bestArtist = scores.length ? Math.max(...scores.map(item => item.artistScore)) : 0
+      const maxDurationDiff = scores.length ? Math.max(...scores.map(item => item.durationDiff)) : 0
+      return {
+        id: `possible-${index}-${sortedTracks[0].id}`,
+        confidence: Math.round(avg * 100),
+        suggestedKeepId: sortedTracks[0].id,
+        summary: `Title ${(bestTitle * 100).toFixed(0)}% · Artist ${(bestArtist * 100).toFixed(0)}% · Δ ${maxDurationDiff.toFixed(1)}s`,
+        tracks: sortedTracks.map(track => ({
+          ...track,
+          qualityScore: undefined,
+          normalizedTitle: undefined,
+          normalizedArtist: undefined,
+          titleTokens: undefined,
+          artistTokens: undefined,
+          artistKey: undefined,
+          durationBucket: undefined,
+          index: undefined,
+        })),
+      }
+    })
+    .sort((left, right) => right.confidence - left.confidence)
+}
+
 function applyBatchField(currentValue, operation) {
   if (!operation || operation.mode === 'ignore') return { changed: false, value: currentValue }
   if (operation.mode === 'clear') return { changed: currentValue !== null && currentValue !== '', value: null }
@@ -956,6 +1106,10 @@ function registerExtraHandlers(ipcMain) {
     return { matched, total: files.length }
   })
   ipcMain.handle('scanner:checkDuplicates', () => getDB().prepare(`SELECT title, artist, COUNT(*) as count, GROUP_CONCAT(id) as ids, GROUP_CONCAT(file_path) as paths FROM tracks GROUP BY LOWER(title), LOWER(artist) HAVING count > 1`).all())
+  ipcMain.handle('scanner:checkPossibleDuplicates', () => {
+    const tracks = getDB().prepare('SELECT * FROM tracks ORDER BY artist, title').all()
+    return buildPossibleDuplicateGroups(tracks)
+  })
   ipcMain.handle('scanner:deleteTrack', (_, trackId) => { const db = getDB(); db.prepare('DELETE FROM artist_track_links WHERE track_id = ?').run(trackId); db.prepare('DELETE FROM playlist_tracks WHERE track_id = ?').run(trackId); db.prepare('DELETE FROM user_likes WHERE track_id = ?').run(trackId); db.prepare('DELETE FROM play_history WHERE track_id = ?').run(trackId); db.prepare('DELETE FROM lyrics_cache WHERE track_id = ?').run(trackId); db.prepare('DELETE FROM tracks WHERE id = ?').run(trackId) })
   ipcMain.handle('scanner:deleteTrackByPath', (_, filePath) => { 
     const db = getDB()
