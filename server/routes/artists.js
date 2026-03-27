@@ -4,6 +4,20 @@ const path = require('path')
 const { getDB } = require('../../electron/ipc/db')
 const { cacheArtistMetadata, searchArtistMetadataCandidates, applyArtistMetadataSelection, clearArtistImageOverride } = require('../../electron/ipc/artistMetadata')
 
+function classifyAlbumRow(row) {
+  const trackCount = Number(row?.track_count || 0)
+  if (trackCount <= 1) return 'single'
+  if (trackCount <= 6) return 'ep'
+  return 'album'
+}
+
+function enrichAlbumRows(rows = []) {
+  return rows.map((row) => ({
+    ...row,
+    release_type: classifyAlbumRow(row),
+  }))
+}
+
 
 function addArtistFallback(db, artist) {
   if (artist.image_path) return artist
@@ -102,9 +116,11 @@ router.get('/:id', (req, res) => {
   const db = getDB()
   let artist = findArtistById(db, req.params.id)
   if (!artist) return res.status(404).json({ error: 'Not found' })
-  const tracks = db.prepare('SELECT * FROM tracks WHERE artist = ? ORDER BY album, track_num, title').all(artist.name)
-  const topTracks = db.prepare('SELECT * FROM tracks WHERE artist = ? ORDER BY play_count DESC LIMIT 5').all(artist.name)
-  const albums = db.prepare(`SELECT album as title, year, artwork_path, COUNT(*) as track_count FROM tracks WHERE artist = ? AND album IS NOT NULL GROUP BY album ORDER BY year DESC`).all(artist.name)
+  const tracks = db.prepare("SELECT * FROM tracks WHERE artist = ? AND file_path NOT LIKE 'ghost://%' ORDER BY album, track_num, title").all(artist.name)
+  const topTracks = db.prepare("SELECT * FROM tracks WHERE artist = ? AND file_path NOT LIKE 'ghost://%' ORDER BY play_count DESC LIMIT 5").all(artist.name)
+  const albums = enrichAlbumRows(
+    db.prepare(`SELECT album as title, year, artwork_path, album_artist, COUNT(*) as track_count, GROUP_CONCAT(DISTINCT artist) as artists FROM tracks WHERE artist = ? AND file_path NOT LIKE 'ghost://%' AND album IS NOT NULL GROUP BY LOWER(album) ORDER BY year DESC, album ASC`).all(artist.name)
+  )
   const artistWithFallback = addArtistFallback(db, artist)
   res.json({ ...artistWithFallback, tracks, topTracks, albums })
 })

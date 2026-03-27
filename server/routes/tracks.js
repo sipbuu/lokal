@@ -213,6 +213,38 @@ function applyBatchField(currentValue, operation) {
   return { changed: false, value: currentValue }
 }
 
+function normalizeAlbumTracks(tracks = []) {
+  const total = Array.isArray(tracks) ? tracks.length : 0
+  const validNumbered = tracks.filter((track) => {
+    const value = Number(track?.track_num)
+    return Number.isInteger(value) && value > 0 && value !== 63
+  })
+  const useTrackNumbers = validNumbered.length >= Math.max(2, Math.ceil(total * 0.4))
+
+  const sorted = [...tracks].sort((left, right) => {
+    const leftTrack = Number(left?.track_num)
+    const rightTrack = Number(right?.track_num)
+    const leftValid = Number.isInteger(leftTrack) && leftTrack > 0 && leftTrack !== 63
+    const rightValid = Number.isInteger(rightTrack) && rightTrack > 0 && rightTrack !== 63
+
+    if (useTrackNumbers && leftValid !== rightValid) return leftValid ? -1 : 1
+    if (useTrackNumbers && leftValid && rightValid && leftTrack !== rightTrack) return leftTrack - rightTrack
+
+    const titleCompare = String(left?.title || '').localeCompare(String(right?.title || ''), undefined, { sensitivity: 'base' })
+    if (titleCompare !== 0) return titleCompare
+    return String(left?.file_path || '').localeCompare(String(right?.file_path || ''), undefined, { sensitivity: 'base' })
+  })
+
+  return sorted.map((track, index) => {
+    const trackNum = Number(track?.track_num)
+    const valid = Number.isInteger(trackNum) && trackNum > 0 && trackNum !== 63
+    return {
+      ...track,
+      display_track_num: useTrackNumbers && valid ? trackNum : index + 1,
+    }
+  })
+}
+
 async function applyBatchTrackUpdates(db, trackIds = [], operations = {}) {
   if (!Array.isArray(trackIds) || !trackIds.length) return []
   const { getStorageDir } = require('../../electron/ipc/db')
@@ -274,7 +306,12 @@ async function applyBatchTrackUpdates(db, trackIds = [], operations = {}) {
 
 router.get('/', (req, res) => {
   const db = getDB()
-  const { sort = 'added_at DESC', limit = 500, offset = 0, artistName } = req.query
+  const { sort = 'added_at DESC', limit = 500, offset = 0, artistName, album } = req.query
+  if (album) {
+    const tracks = db.prepare("SELECT * FROM tracks WHERE album = ? AND file_path NOT LIKE 'ghost://%'").all(album)
+    res.json(normalizeAlbumTracks(tracks))
+    return
+  }
   let sql = 'SELECT * FROM tracks'
   const params = []
   const where = ["file_path NOT LIKE 'ghost://%'"]
