@@ -7,6 +7,14 @@ const mixCache = {
 const CACHE_DURATION_DAILY = 24 * 60 * 60 * 1000 
 const CACHE_DURATION_WEEKLY = 7 * 24 * 60 * 60 * 1000
 
+function splitGenres(value) {
+  if (!value) return []
+  return String(value)
+    .split(',')
+    .map(part => part.trim())
+    .filter(Boolean)
+}
+
 function registerMixesHandlers(ipcMain) {
   const { getDB } = require('./db')
 
@@ -80,18 +88,52 @@ function registerMixesHandlers(ipcMain) {
     }
     if (mixCache.weekly.data) mixes.push(mixCache.weekly.data)
 
-    const liked = db.prepare(`SELECT t.genre, t.artist FROM tracks t JOIN user_likes ul ON ul.track_id = t.id WHERE ul.user_id = ? AND t.file_path NOT LIKE 'ghost://%' LIMIT 50`).all(uid)
-    const history = db.prepare(`SELECT t.genre, t.artist FROM tracks t JOIN play_history ph ON ph.track_id = t.id WHERE ph.user_id = ? AND t.file_path NOT LIKE 'ghost://%' ORDER BY ph.played_at DESC LIMIT 50`).all(uid)
+    const liked = db.prepare(`SELECT t.genre, t.genres, t.artist FROM tracks t JOIN user_likes ul ON ul.track_id = t.id WHERE ul.user_id = ? AND t.file_path NOT LIKE 'ghost://%' LIMIT 50`).all(uid)
+    const history = db.prepare(`SELECT t.genre, t.genres, t.artist FROM tracks t JOIN play_history ph ON ph.track_id = t.id WHERE ph.user_id = ? AND t.file_path NOT LIKE 'ghost://%' ORDER BY ph.played_at DESC LIMIT 50`).all(uid)
     const combined = [...liked, ...history]
     const genreCounts = {}; const artistCounts = {}
-    for (const r of combined) { if (r.genre) genreCounts[r.genre] = (genreCounts[r.genre] || 0) + 1; if (r.artist) artistCounts[r.artist] = (artistCounts[r.artist] || 0) + 1 }
+    for (const r of combined) {
+      const genres = splitGenres(r.genres || r.genre)
+      for (const genre of genres) {
+        genreCounts[genre] = (genreCounts[genre] || 0) + 1
+      }
+      if (r.artist) artistCounts[r.artist] = (artistCounts[r.artist] || 0) + 1
+    }
     const topGenres = Object.entries(genreCounts).sort((a, b) => b[1] - a[1]).slice(0, 4).map(([g]) => g)
     const topArtists = Object.entries(artistCounts).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([a]) => a)
     
-    for (const genre of topGenres) { const tracks = db.prepare("SELECT * FROM tracks WHERE file_path NOT LIKE 'ghost://%' AND genre = ? ORDER BY RANDOM() LIMIT 30").all(genre); if (tracks.length >= 3) mixes.push({ id: `mix-g-${genre}`, name: `${genre} Mix`, type: 'genre', tracks }) }
+    for (const genre of topGenres) {
+      const tracks = db.prepare(`
+        SELECT * FROM tracks
+        WHERE file_path NOT LIKE 'ghost://%'
+          AND (
+            LOWER(COALESCE(genre, '')) = LOWER(?)
+            OR LOWER(COALESCE(genres, '')) LIKE LOWER(?)
+          )
+        ORDER BY RANDOM()
+        LIMIT 30
+      `).all(genre, `%${genre}%`)
+      if (tracks.length >= 3) mixes.push({ id: `mix-g-${genre}`, name: `${genre} Mix`, type: 'genre', tracks })
+    }
     for (const artist of topArtists) { const tracks = db.prepare(`SELECT * FROM tracks WHERE file_path NOT LIKE 'ghost://%' AND artist LIKE ? ORDER BY RANDOM() LIMIT 25`).all(`%${artist}%`); if (tracks.length >= 3) mixes.push({ id: `mix-a-${artist}`, name: `${artist}`, type: 'artist', tracks }) }
     
-    if (mixes.length === 0) { const genres = db.prepare(`SELECT DISTINCT genre FROM tracks WHERE file_path NOT LIKE 'ghost://%' AND genre IS NOT NULL ORDER BY RANDOM() LIMIT 4`).all(); for (const { genre } of genres) { const tracks = db.prepare("SELECT * FROM tracks WHERE file_path NOT LIKE 'ghost://%' AND genre = ? ORDER BY RANDOM() LIMIT 25").all(genre); if (tracks.length >= 3) mixes.push({ id: `mix-g-${genre}`, name: `${genre} Mix`, type: 'genre', tracks }) } }
+    if (mixes.length === 0) {
+      const rows = db.prepare(`SELECT genre, genres FROM tracks WHERE file_path NOT LIKE 'ghost://%' AND (genre IS NOT NULL OR genres IS NOT NULL) ORDER BY RANDOM() LIMIT 120`).all()
+      const fallbackGenres = [...new Set(rows.flatMap(row => splitGenres(row.genres || row.genre)))].slice(0, 4)
+      for (const genre of fallbackGenres) {
+        const tracks = db.prepare(`
+          SELECT * FROM tracks
+          WHERE file_path NOT LIKE 'ghost://%'
+            AND (
+              LOWER(COALESCE(genre, '')) = LOWER(?)
+              OR LOWER(COALESCE(genres, '')) LIKE LOWER(?)
+            )
+          ORDER BY RANDOM()
+          LIMIT 25
+        `).all(genre, `%${genre}%`)
+        if (tracks.length >= 3) mixes.push({ id: `mix-g-${genre}`, name: `${genre} Mix`, type: 'genre', tracks })
+      }
+    }
     return mixes
   })
 }

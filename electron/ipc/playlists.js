@@ -56,28 +56,94 @@ function parseCsvLine(line) {
   return result.map(s => s.trim().replace(/^"|"$/g, ''));
 }
 
+function firstGenre(value) {
+  return String(value || '').split(',').map(part => part.trim()).filter(Boolean)[0] || null
+}
+
+function normalizeGenres(value) {
+  const parts = String(value || '').split(',').map(part => part.trim()).filter(Boolean)
+  return parts.length ? [...new Set(parts)].join(', ') : null
+}
+
+function parseNumber(value) {
+  if (value === undefined || value === null || value === '') return null
+  const parsed = Number(value)
+  return Number.isFinite(parsed) ? parsed : null
+}
+
+function parseInteger(value) {
+  if (value === undefined || value === null || value === '') return null
+  const parsed = parseInt(value, 10)
+  return Number.isFinite(parsed) ? parsed : null
+}
+
+function parseExplicit(value) {
+  const normalized = String(value || '').trim().toLowerCase()
+  if (!normalized) return 0
+  return ['1', 'true', 'yes', 'y', 'explicit'].includes(normalized) ? 1 : 0
+}
+
 function parseCSV(fileContent) {
-  const lines = fileContent.split(/\r?\n/).filter(l => l.trim());
-  const entries = [];
-  if (lines.length < 1) return entries;
-  const headers = parseCsvLine(lines[0]).map(h => h.toLowerCase());
-  const findCol = names => headers.findIndex(h => names.some(n => h === n || h.includes(n)));
-  const titleCol = findCol(['track name', 'trackname', 'song title', 'title', 'name']);
-  const artistCol = findCol(['artist name', 'artist', 'performer']);
-  const albumCol = findCol(['album name', 'album']);
-  const durationCol = findCol(['duration_ms', 'duration ms', 'duration']);
-  const urlCol = findCol(['track url', 'url', 'spotify uri', 'uri', 'apple music url', 'youtube url']);
-  if (titleCol === -1) return entries;
+  const lines = fileContent.split(/\r?\n/).filter(l => l.trim())
+  const entries = []
+  if (lines.length < 1) return entries
+  const headers = parseCsvLine(lines[0]).map(h => h.toLowerCase())
+  const findCol = names => headers.findIndex(h => names.some(n => h === n || h.includes(n)))
+  const titleCol = findCol(['track name', 'trackname', 'song title', 'title', 'name'])
+  const artistCol = findCol(['artist name', 'artist', 'performer'])
+  const albumCol = findCol(['album name', 'album'])
+  const durationCol = findCol(['duration_ms', 'duration ms', 'duration'])
+  const urlCol = findCol(['track url', 'url', 'spotify uri', 'uri', 'apple music url', 'youtube url'])
+  const genreCol = findCol(['genres', 'genre'])
+  const labelCol = findCol(['record label', 'label'])
+  const explicitCol = findCol(['explicit'])
+  const releaseDateCol = findCol(['release date', 'release_date', 'year'])
+  const danceabilityCol = findCol(['danceability'])
+  const energyCol = findCol(['energy'])
+  const keyCol = findCol(['track key', 'key'])
+  const loudnessCol = findCol(['loudness'])
+  const modeCol = findCol(['mode'])
+  const speechinessCol = findCol(['speechiness'])
+  const acousticnessCol = findCol(['acousticness'])
+  const instrumentalnessCol = findCol(['instrumentalness'])
+  const livenessCol = findCol(['liveness'])
+  const valenceCol = findCol(['valence'])
+  const tempoCol = findCol(['tempo'])
+  const timeSignatureCol = findCol(['time signature'])
+  if (titleCol === -1) return entries
   for (let i = 1; i < lines.length; i++) {
-    const values = parseCsvLine(lines[i]);
-    const title = values[titleCol];
-    const artist = artistCol !== -1 ? values[artistCol].replace(/\s*;\s*/g, ', ') : null;
-    const album = albumCol !== -1 ? values[albumCol] : null;
-    const duration = durationCol !== -1 ? values[durationCol] : null;
-    const sourceUrl = urlCol !== -1 ? values[urlCol] : null;
-    if (title) entries.push({ title, artist, album, duration, source_url: sourceUrl });
+    const values = parseCsvLine(lines[i])
+    const title = values[titleCol]
+    const artist = artistCol !== -1 ? values[artistCol].replace(/\s*;\s*/g, ', ') : null
+    const album = albumCol !== -1 ? values[albumCol] : null
+    const genres = genreCol !== -1 ? normalizeGenres(values[genreCol]) : null
+    const releaseDate = releaseDateCol !== -1 ? values[releaseDateCol] : null
+    if (title) entries.push({
+      title,
+      artist,
+      album,
+      duration: durationCol !== -1 ? parseNumber(values[durationCol]) : null,
+      source_url: urlCol !== -1 ? values[urlCol] : null,
+      genres,
+      genre: firstGenre(genres),
+      record_label: labelCol !== -1 ? values[labelCol] || null : null,
+      explicit: explicitCol !== -1 ? parseExplicit(values[explicitCol]) : 0,
+      year: releaseDate ? parseInteger(String(releaseDate).slice(0, 4)) : null,
+      danceability: danceabilityCol !== -1 ? parseNumber(values[danceabilityCol]) : null,
+      energy: energyCol !== -1 ? parseNumber(values[energyCol]) : null,
+      track_key: keyCol !== -1 ? parseInteger(values[keyCol]) : null,
+      loudness: loudnessCol !== -1 ? parseNumber(values[loudnessCol]) : null,
+      mode: modeCol !== -1 ? parseInteger(values[modeCol]) : null,
+      speechiness: speechinessCol !== -1 ? parseNumber(values[speechinessCol]) : null,
+      acousticness: acousticnessCol !== -1 ? parseNumber(values[acousticnessCol]) : null,
+      instrumentalness: instrumentalnessCol !== -1 ? parseNumber(values[instrumentalnessCol]) : null,
+      liveness: livenessCol !== -1 ? parseNumber(values[livenessCol]) : null,
+      valence: valenceCol !== -1 ? parseNumber(values[valenceCol]) : null,
+      tempo: tempoCol !== -1 ? parseNumber(values[tempoCol]) : null,
+      time_signature: timeSignatureCol !== -1 ? parseInteger(values[timeSignatureCol]) : null,
+    })
   }
-  return entries;
+  return entries
 }
 
 function parseJSON(fileContent) {
@@ -91,6 +157,23 @@ function parseJSON(fileContent) {
         file_path: t.file_path || t.path || null,
         duration: t.duration || t.duration_ms || null,
         source_url: t.source_url || t.url || t.uri || null,
+        genres: normalizeGenres(t.genres || t.genre),
+        genre: firstGenre(t.genres || t.genre),
+        record_label: t.record_label || t.label || null,
+        explicit: parseExplicit(t.explicit),
+        year: parseInteger(t.year || String(t.release_date || '').slice(0, 4)),
+        danceability: parseNumber(t.danceability),
+        energy: parseNumber(t.energy),
+        track_key: parseInteger(t.track_key ?? t.key),
+        loudness: parseNumber(t.loudness),
+        mode: parseInteger(t.mode),
+        speechiness: parseNumber(t.speechiness),
+        acousticness: parseNumber(t.acousticness),
+        instrumentalness: parseNumber(t.instrumentalness),
+        liveness: parseNumber(t.liveness),
+        valence: parseNumber(t.valence),
+        tempo: parseNumber(t.tempo),
+        time_signature: parseInteger(t.time_signature ?? t.timeSignature),
       })).filter(t => t.title || t.file_path);
     }
     if (Array.isArray(json.tracks)) {
@@ -101,6 +184,23 @@ function parseJSON(fileContent) {
         file_path: t.file_path || t.path || null,
         duration: t.duration || t.duration_ms || null,
         source_url: t.source_url || t.url || t.uri || null,
+        genres: normalizeGenres(t.genres || t.genre),
+        genre: firstGenre(t.genres || t.genre),
+        record_label: t.record_label || t.label || null,
+        explicit: parseExplicit(t.explicit),
+        year: parseInteger(t.year || String(t.release_date || '').slice(0, 4)),
+        danceability: parseNumber(t.danceability),
+        energy: parseNumber(t.energy),
+        track_key: parseInteger(t.track_key ?? t.key),
+        loudness: parseNumber(t.loudness),
+        mode: parseInteger(t.mode),
+        speechiness: parseNumber(t.speechiness),
+        acousticness: parseNumber(t.acousticness),
+        instrumentalness: parseNumber(t.instrumentalness),
+        liveness: parseNumber(t.liveness),
+        valence: parseNumber(t.valence),
+        tempo: parseNumber(t.tempo),
+        time_signature: parseInteger(t.time_signature ?? t.timeSignature),
       })).filter(t => t.title || t.file_path);
     }
   } catch {}
@@ -177,8 +277,8 @@ function createGhostTrack(db, entry, sourcePlatform = 'generic', playlistId = 'i
   const filePath = `ghost://${safePlatform}/${playlistId}/${id}`;
   db.prepare(`
     INSERT INTO tracks
-    (id, file_path, file_hash, title, artist, album, album_artist, track_num, year, genre, duration, artwork_path, bitrate, last_modified)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    (id, file_path, file_hash, title, artist, album, album_artist, track_num, year, genre, genres, record_label, explicit, danceability, energy, track_key, loudness, mode, speechiness, acousticness, instrumentalness, liveness, valence, tempo, time_signature, duration, artwork_path, bitrate, last_modified)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     id,
     filePath,
@@ -188,14 +288,75 @@ function createGhostTrack(db, entry, sourcePlatform = 'generic', playlistId = 'i
     entry.album || null,
     entry.artist || null,
     null,
-    null,
-    null,
+    entry.year || null,
+    entry.genre || null,
+    entry.genres || null,
+    entry.record_label || null,
+    entry.explicit ? 1 : 0,
+    entry.danceability ?? null,
+    entry.energy ?? null,
+    entry.track_key ?? null,
+    entry.loudness ?? null,
+    entry.mode ?? null,
+    entry.speechiness ?? null,
+    entry.acousticness ?? null,
+    entry.instrumentalness ?? null,
+    entry.liveness ?? null,
+    entry.valence ?? null,
+    entry.tempo ?? null,
+    entry.time_signature ?? null,
     entry.duration ? Number(entry.duration) : null,
     null,
     null,
     Date.now()
   );
   return { id, title, artist, album: entry.album || null, file_path: filePath, source_url: entry.source_url || null, isGhost: true };
+}
+
+function applyImportedMetadata(db, trackId, entry = {}) {
+  const track = db.prepare('SELECT * FROM tracks WHERE id = ?').get(trackId)
+  if (!track) return null
+  db.prepare(`
+    UPDATE tracks SET
+      year = COALESCE(year, ?),
+      genre = COALESCE(NULLIF(genre, ''), ?),
+      genres = COALESCE(NULLIF(genres, ''), ?),
+      record_label = COALESCE(NULLIF(record_label, ''), ?),
+      explicit = CASE WHEN explicit = 1 THEN 1 ELSE ? END,
+      danceability = COALESCE(danceability, ?),
+      energy = COALESCE(energy, ?),
+      track_key = COALESCE(track_key, ?),
+      loudness = COALESCE(loudness, ?),
+      mode = COALESCE(mode, ?),
+      speechiness = COALESCE(speechiness, ?),
+      acousticness = COALESCE(acousticness, ?),
+      instrumentalness = COALESCE(instrumentalness, ?),
+      liveness = COALESCE(liveness, ?),
+      valence = COALESCE(valence, ?),
+      tempo = COALESCE(tempo, ?),
+      time_signature = COALESCE(time_signature, ?)
+    WHERE id = ?
+  `).run(
+    entry.year ?? null,
+    entry.genre || firstGenre(entry.genres),
+    entry.genres || null,
+    entry.record_label || null,
+    entry.explicit ? 1 : 0,
+    entry.danceability ?? null,
+    entry.energy ?? null,
+    entry.track_key ?? null,
+    entry.loudness ?? null,
+    entry.mode ?? null,
+    entry.speechiness ?? null,
+    entry.acousticness ?? null,
+    entry.instrumentalness ?? null,
+    entry.liveness ?? null,
+    entry.valence ?? null,
+    entry.tempo ?? null,
+    entry.time_signature ?? null,
+    trackId
+  )
+  return db.prepare('SELECT * FROM tracks WHERE id = ?').get(trackId)
 }
 
 function buildImportPreview(db, entries = []) {
@@ -227,6 +388,7 @@ function resolveGhostTrack(db, ghostTrackId, targetTrackId) {
   if (!target) return { error: 'Target track not found' };
 
   const run = db.transaction(() => {
+    applyImportedMetadata(db, targetTrackId, ghost)
     db.prepare('UPDATE OR IGNORE playlist_tracks SET track_id = ? WHERE track_id = ?').run(targetTrackId, ghostTrackId);
     db.prepare('DELETE FROM playlist_tracks WHERE track_id = ?').run(ghostTrackId);
     db.prepare('DELETE FROM user_likes WHERE track_id = ?').run(ghostTrackId);
@@ -238,7 +400,7 @@ function resolveGhostTrack(db, ghostTrackId, targetTrackId) {
   });
 
   run();
-  return { ok: true, track: target };
+  return { ok: true, track: db.prepare('SELECT * FROM tracks WHERE id = ?').get(targetTrackId) };
 }
 
 function registerPlaylistHandlers() {
@@ -359,6 +521,7 @@ function registerPlaylistHandlers() {
             action: 'Search YouTube, download, pick local file, or skip',
           });
         } else {
+          applyImportedMetadata(db, track.id, entry)
           matched++;
         }
         const max = db.prepare('SELECT MAX(position) as m FROM playlist_tracks WHERE playlist_id = ?').get(playlistId);
