@@ -277,7 +277,9 @@ router.get('/', (req, res) => {
   const { sort = 'added_at DESC', limit = 500, offset = 0, artistName } = req.query
   let sql = 'SELECT * FROM tracks'
   const params = []
-  if (artistName) { sql += ' WHERE artist = ?'; params.push(artistName) }
+  const where = ["file_path NOT LIKE 'ghost://%'"]
+  if (artistName) { where.push('artist = ?'); params.push(artistName) }
+  if (where.length) sql += ' WHERE ' + where.join(' AND ')
   sql += ` ORDER BY ${sort} LIMIT ${parseInt(limit)} OFFSET ${parseInt(offset)}`
   res.json(db.prepare(sql).all(...params))
 })
@@ -285,7 +287,7 @@ router.get('/', (req, res) => {
 router.get('/search', (req, res) => {
   const { q = '' } = req.query
   const term = `%${q}%`
-  res.json(getDB().prepare('SELECT * FROM tracks WHERE title LIKE ? OR artist LIKE ? OR album LIKE ? LIMIT 60').all(term, term, term))
+  res.json(getDB().prepare("SELECT * FROM tracks WHERE file_path NOT LIKE 'ghost://%' AND (title LIKE ? OR artist LIKE ? OR album LIKE ?) LIMIT 60").all(term, term, term))
 })
 
 router.get('/liked', (req, res) => {
@@ -338,13 +340,13 @@ router.get('/suggestions', (req, res) => {
     SELECT t.artist, t.genre FROM tracks t
     JOIN user_likes ul ON ul.track_id = t.id WHERE ul.user_id = ?
   `).all(userId)
-  if (!liked.length) return res.json(db.prepare('SELECT * FROM tracks ORDER BY RANDOM() LIMIT 20').all())
+  if (!liked.length) return res.json(db.prepare("SELECT * FROM tracks WHERE file_path NOT LIKE 'ghost://%' ORDER BY RANDOM() LIMIT 20").all())
   const artists = [...new Set(liked.map(l => l.artist).filter(Boolean))].slice(0, 5)
   const genres = [...new Set(liked.map(l => l.genre).filter(Boolean))].slice(0, 5)
   let rows = []
-  if (artists.length) rows = db.prepare(`SELECT * FROM tracks WHERE artist IN (${artists.map(()=>'?').join(',')}) ORDER BY RANDOM() LIMIT 20`).all(...artists)
+  if (artists.length) rows = db.prepare(`SELECT * FROM tracks WHERE file_path NOT LIKE 'ghost://%' AND artist IN (${artists.map(()=>'?').join(',')}) ORDER BY RANDOM() LIMIT 20`).all(...artists)
   if (rows.length < 20 && genres.length) {
-    const extra = db.prepare(`SELECT * FROM tracks WHERE genre IN (${genres.map(()=>'?').join(',')}) ORDER BY RANDOM() LIMIT 20`).all(...genres)
+    const extra = db.prepare(`SELECT * FROM tracks WHERE file_path NOT LIKE 'ghost://%' AND genre IN (${genres.map(()=>'?').join(',')}) ORDER BY RANDOM() LIMIT 20`).all(...genres)
     const ids = new Set(rows.map(r => r.id))
     rows = [...rows, ...extra.filter(r => !ids.has(r.id))].slice(0, 20)
   }
@@ -353,14 +355,14 @@ router.get('/suggestions', (req, res) => {
 
 
 router.get('/random', (req, res) => {
-  res.json(getDB().prepare('SELECT * FROM tracks ORDER BY RANDOM() LIMIT 1').get())
+  res.json(getDB().prepare("SELECT * FROM tracks WHERE file_path NOT LIKE 'ghost://%' ORDER BY RANDOM() LIMIT 1").get())
 })
 
 
 router.get('/top-genres', (req, res) => {
   res.json(getDB().prepare(`
     SELECT genre, COUNT(*) as count FROM tracks 
-    WHERE genre IS NOT NULL GROUP BY genre 
+    WHERE file_path NOT LIKE 'ghost://%' AND genre IS NOT NULL GROUP BY genre 
     ORDER BY count DESC LIMIT 10
   `).all())
 })
