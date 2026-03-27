@@ -1066,6 +1066,20 @@ export default function Settings() {
             {settings.fetch_online_artwork !== '0' ? 'Yes' : 'No'}
           </button>
         </Row>
+        <Row label="Show Singles in Albums" desc="Include one-track releases inside the Albums page instead of hiding them from that browser.">
+          <button
+            onClick={() => set('show_singles_in_albums', settings.show_singles_in_albums === '0' ? '1' : '0')}
+            className={`px-4 py-1.5 rounded-lg text-xs font-display uppercase tracking-wider border transition-colors ${settings.show_singles_in_albums !== '0' ? 'bg-accent/20 border-accent/50 text-accent' : 'border-border text-muted hover:text-white'}`}>
+            {settings.show_singles_in_albums !== '0' ? 'Yes' : 'No'}
+          </button>
+        </Row>
+        <Row label="Separate Albums by Type" desc="Split the Albums page into Albums, EPs, and Singles instead of mixing every release together.">
+          <button
+            onClick={() => set('separate_album_types', settings.separate_album_types === '0' ? '1' : '0')}
+            className={`px-4 py-1.5 rounded-lg text-xs font-display uppercase tracking-wider border transition-colors ${settings.separate_album_types !== '0' ? 'bg-accent/20 border-accent/50 text-accent' : 'border-border text-muted hover:text-white'}`}>
+            {settings.separate_album_types !== '0' ? 'Yes' : 'No'}
+          </button>
+        </Row>
         <Row label="Use YouTube Cookies" desc="Pass cookies to yt-dlp to bypass rate limiting, access private playlists and liked music. Not shared elsewhere.">
           <div className="flex items-center gap-2">
             <button
