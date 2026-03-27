@@ -12,12 +12,12 @@ import AuthModal from './components/AuthModal'
 import ProfileModal from './components/ProfileModal'
 import StatsModal from './components/StatsModal'
 import AddToPlaylistModal from './components/AddToPlaylistModal'
-import AlbumsModal from './components/AlbumsModal'
 import MiniPlayer from './components/MiniPlayer'
 import RecapStories from './components/RecapStories'
 import Onboarding, { useOnboarding } from './components/Onboarding'
 import PostOnboardingTour from './components/PostOnboardingTour'
 import Home from './pages/Home'
+import Albums from './pages/Albums'
 import Library from './pages/Library'
 import Search from './pages/Search'
 import Artist from './pages/Artist'
@@ -76,6 +76,7 @@ function AnimatedRoutes() {
     <AnimatePresence mode="wait">
       <Routes location={location} key={location.pathname}>
         <Route path="/" element={<motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.2 }}><Home /></motion.div>} />
+        <Route path="/albums" element={<motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.2 }}><Albums /></motion.div>} />
         <Route path="/library" element={<motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.2 }}><Library /></motion.div>} />
         <Route path="/search" element={<motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.2 }}><Search /></motion.div>} />
         <Route path="/artist/:id" element={<motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.2 }}><Artist /></motion.div>} />
@@ -1232,7 +1233,6 @@ export default function App() {
             <ProfileModal />
             <StatsModal />
             <AddToPlaylistModal />
-            <AlbumsModal />
             <RecapStories
               open={showRecapStories}
               onClose={() => {
