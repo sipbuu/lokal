@@ -114,14 +114,15 @@ export default function Home() {
   const nav = useNavigate()
   const { playQueue } = usePlayerStore()
   const { user } = useAppStore()
+  const nonGhost = (items) => (Array.isArray(items) ? items.filter(item => !String(item?.file_path || '').startsWith('ghost://')) : [])
 
   const load = () => {
     const uid = user?.id
-    api.getTracks({ sort: 'added_at DESC', limit: 10 }).then(t => setRecentTracks(Array.isArray(t) ? t : []))
+    api.getTracks({ sort: 'added_at DESC', limit: 10 }).then(t => setRecentTracks(nonGhost(t)))
     api.getArtists().then(a => setArtists((Array.isArray(a) ? a : []).slice(0, 12)))
-    api.getSuggestions(uid).then(s => setSuggestions(Array.isArray(s) ? s : []))
+    api.getSuggestions(uid).then(s => setSuggestions(nonGhost(s)))
     api.getHistory(uid, 30).then(h => setHistory(Array.isArray(h) ? h : []))
-    api.getMixes(uid).then(m => setMixes(Array.isArray(m) ? m : []))
+    api.getMixes(uid).then(m => setMixes((Array.isArray(m) ? m : []).map(mix => ({ ...mix, tracks: nonGhost(mix.tracks) })).filter(mix => mix.tracks.length > 0)))
   }
 
   useEffect(() => { load() }, [user?.id])
