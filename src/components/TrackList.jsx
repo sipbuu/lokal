@@ -1,6 +1,6 @@
-import React, { useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Play, Pause, Heart, Plus, Camera, Trash2, Music, LibraryBig, Clock, ListEnd, GripVertical, X, Check, Edit2 } from 'lucide-react'
+import { Play, Pause, Heart, Plus, Camera, Trash2, Music, LibraryBig, Clock, ListEnd, GripVertical, X, Check, Edit2, Search, Download, AlertCircle } from 'lucide-react'
 import { usePlayerStore, useAppStore } from '../store/player'
 import { api } from '../api'
 import TrackEditModal from './TrackEditModal'
@@ -9,6 +9,7 @@ import Modal from './Modal'
 
 const RECENT_ITEMS_KEY = 'lokal-recent-items'
 const MAX_RECENT = 5
+const LARGE_LIST_STEP = 200
 
 function getRecentItems() {
   try {
@@ -63,11 +64,98 @@ export default function TrackList({ tracks = [], showAlbum = true, onRemove = nu
   const [showBatchEdit, setShowBatchEdit] = useState(false)
   const [trackToDelete, setTrackToDelete] = useState(null)
   const [trackOverrides, setTrackOverrides] = useState({})
+  const [visibleCount, setVisibleCount] = useState(LARGE_LIST_STEP)
+  const [ghostTrack, setGhostTrack] = useState(null)
+  const [ghostQuery, setGhostQuery] = useState('')
+  const [ghostSearchResults, setGhostSearchResults] = useState([])
+  const [ghostSearchLoading, setGhostSearchLoading] = useState(false)
+  const [ghostLocalResults, setGhostLocalResults] = useState([])
+  const [ghostLocalLoading, setGhostLocalLoading] = useState(false)
+  const [ghostActionStatus, setGhostActionStatus] = useState('')
+  const loaderRef = useRef(null)
   const shouldAnimateRows = !reduceMotion && tracks.length <= 120
   const mergedTracks = tracks.map(track => trackOverrides[track.id] ? { ...track, ...trackOverrides[track.id] } : track)
+  const isLargeList = mergedTracks.length > LARGE_LIST_STEP
+  const visibleTracks = isLargeList ? mergedTracks.slice(0, visibleCount) : mergedTracks
+
+  useEffect(() => {
+    setVisibleCount(LARGE_LIST_STEP)
+  }, [tracks.length])
+
+  useEffect(() => {
+    if (!isLargeList || !loaderRef.current) return
+    const node = loaderRef.current
+    const observer = new IntersectionObserver((entries) => {
+      const entry = entries[0]
+      if (entry?.isIntersecting) {
+        setVisibleCount(v => Math.min(v + LARGE_LIST_STEP, mergedTracks.length))
+      }
+    }, { rootMargin: '600px 0px' })
+    observer.observe(node)
+    return () => observer.disconnect()
+  }, [isLargeList, mergedTracks.length, visibleCount])
+
+  useEffect(() => {
+    if (!ghostTrack) {
+      setGhostQuery('')
+      setGhostSearchResults([])
+      setGhostSearchLoading(false)
+      setGhostLocalResults([])
+      setGhostLocalLoading(false)
+      setGhostActionStatus('')
+      return
+    }
+    const run = async () => {
+      setGhostSearchLoading(true)
+      setGhostLocalLoading(true)
+      setGhostActionStatus('')
+      try {
+        const query = [ghostTrack.artist, ghostTrack.title].filter(Boolean).join(' - ')
+        setGhostQuery(query)
+        const result = await api.searchYT(query, 1)
+        setGhostSearchResults(Array.isArray(result?.results) ? result.results.slice(0, 6) : Array.isArray(result) ? result.slice(0, 6) : [])
+        const localResult = await api.searchTracks(query)
+        setGhostLocalResults(Array.isArray(localResult?.tracks) ? localResult.tracks.slice(0, 8) : [])
+      } catch (e) {
+        setGhostActionStatus('Search failed: ' + e.message)
+      } finally {
+        setGhostSearchLoading(false)
+        setGhostLocalLoading(false)
+      }
+    }
+    run()
+  }, [ghostTrack])
+
+  const refreshGhostMatches = async (queryOverride = '') => {
+    const query = String(queryOverride || ghostQuery || [ghostTrack?.artist, ghostTrack?.title].filter(Boolean).join(' - ')).trim()
+    if (!query) {
+      setGhostActionStatus('Enter a search query first.')
+      return
+    }
+    setGhostSearchLoading(true)
+    setGhostLocalLoading(true)
+    setGhostActionStatus('')
+    try {
+      const result = await api.searchYT(query, 1)
+      setGhostSearchResults(Array.isArray(result?.results) ? result.results.slice(0, 6) : Array.isArray(result) ? result.slice(0, 6) : [])
+      const localResult = await api.searchTracks(query)
+      setGhostLocalResults(Array.isArray(localResult?.tracks) ? localResult.tracks.slice(0, 8) : [])
+    } catch (e) {
+      setGhostActionStatus('Search failed: ' + e.message)
+    } finally {
+      setGhostSearchLoading(false)
+      setGhostLocalLoading(false)
+    }
+  }
+
+  const isGhostTrack = (track) => String(track?.file_path || '').startsWith('ghost://')
 
   const handlePlay = (track, e) => {
     e.stopPropagation()
+    if (isGhostTrack(track)) {
+      setGhostTrack(track)
+      return
+    }
     saveRecentTrack(track)
     if (currentTrack?.id === track.id) togglePlay()
     else playTrack(track, mergedTracks)
@@ -211,9 +299,13 @@ export default function TrackList({ tracks = [], showAlbum = true, onRemove = nu
 
   const handlePlayNext = (track, e) => {
     e.stopPropagation()
+    if (isGhostTrack(track)) {
+      setGhostTrack(track)
+      return
+    }
     if (selectedIds.size > 1) {
       const selectedTracks = mergedTracks.filter(t => selectedIds.has(t.id))
-      selectedTracks.forEach(t => playNext(t))
+      selectedTracks.filter(t => !isGhostTrack(t)).forEach(t => playNext(t))
     } else {
       playNext(track)
     }
@@ -221,9 +313,13 @@ export default function TrackList({ tracks = [], showAlbum = true, onRemove = nu
 
   const handleAddToQueue = (track, e) => {
     e.stopPropagation()
+    if (isGhostTrack(track)) {
+      setGhostTrack(track)
+      return
+    }
     if (selectedIds.size > 1) {
       const selectedTracks = mergedTracks.filter(t => selectedIds.has(t.id))
-      selectedTracks.forEach(t => addToQueue(t))
+      selectedTracks.filter(t => !isGhostTrack(t)).forEach(t => addToQueue(t))
     } else {
       addToQueue(track)
     }
@@ -273,6 +369,41 @@ export default function TrackList({ tracks = [], showAlbum = true, onRemove = nu
     setTimeout(() => setQuickAddAnim(null), 600)
   }
 
+  const downloadGhostResult = async (item) => {
+    if (!item?.url) return
+    setGhostActionStatus('Starting download...')
+    try {
+      const result = await api.downloadYT(item.url, {})
+      if (result?.error) {
+        setGhostActionStatus('Download failed: ' + result.error)
+        return
+      }
+      setGhostActionStatus('Download started. Resolve this ghost track after the song finishes indexing.')
+    } catch (e) {
+      setGhostActionStatus('Download failed: ' + e.message)
+    }
+  }
+
+  const assignGhostTrack = async (track) => {
+    if (!ghostTrack?.id || !track?.id) return
+    setGhostActionStatus('Assigning track...')
+    try {
+      const result = await api.resolveGhostTrack(ghostTrack.id, track.id)
+      if (result?.error) {
+        setGhostActionStatus('Assign failed: ' + result.error)
+        return
+      }
+      setGhostActionStatus('Assigned successfully.')
+      window.dispatchEvent(new Event('lokal:refresh'))
+      if (playlistId) {
+        window.dispatchEvent(new CustomEvent('lokal:playlist-updated', { detail: { playlistId } }))
+      }
+      setGhostTrack(null)
+    } catch (e) {
+      setGhostActionStatus('Assign failed: ' + e.message)
+    }
+  }
+
   return (
     <div className="w-full" onClick={handleContainerClick}>
       {selectedIds.size > 0 && (
@@ -304,7 +435,7 @@ export default function TrackList({ tracks = [], showAlbum = true, onRemove = nu
         <span className="text-right">Time</span>
       </div>
 
-      {mergedTracks.map((track, i) => {
+      {visibleTracks.map((track, i) => {
         const isCurrent = currentTrack?.id === track.id
         const isHov = hoveredId === track.id
         const isSelected = selectedIds.has(track.id)
@@ -312,6 +443,7 @@ export default function TrackList({ tracks = [], showAlbum = true, onRemove = nu
         const isDragOver = dragOverId === track.id
         const liked = likedIds.has(track.id)
         const src = artSrc(track)
+        const isGhost = isGhostTrack(track)
         const RowComponent = shouldAnimateRows ? motion.div : 'div'
         const motionProps = shouldAnimateRows ? {
           initial: { opacity: 0, y: 2 },
@@ -332,7 +464,8 @@ export default function TrackList({ tracks = [], showAlbum = true, onRemove = nu
             onMouseLeave={() => setHoveredId(null)}
             onClick={(e) => handleTrackClick(track, e)}
             onDoubleClick={e => handlePlay(track, e)}
-            className={`grid gap-2 px-4 py-1.5 rounded-lg items-center cursor-default group transition-colors ${isCurrent ? 'bg-accent/8' : 'hover:bg-elevated'} ${isSelected ? 'bg-accent/15' : ''} ${isDragging ? 'opacity-50' : ''} ${isDragOver ? 'border-t-2 border-accent' : ''} ${playlistId ? 'grid-cols-[2rem_1.5rem_1fr_auto_5rem]' : 'grid-cols-[2rem_1fr_auto_5rem]'}`}
+            style={{ contentVisibility: 'auto', containIntrinsicSize: '44px' }}
+            className={`grid gap-2 px-4 py-1.5 rounded-lg items-center cursor-default group transition-colors ${isCurrent ? 'bg-accent/8' : 'hover:bg-elevated'} ${isSelected ? 'bg-accent/15' : ''} ${isDragging ? 'opacity-50' : ''} ${isDragOver ? 'border-t-2 border-accent' : ''} ${isGhost ? 'opacity-75' : ''} ${playlistId ? 'grid-cols-[2rem_1.5rem_1fr_auto_5rem]' : 'grid-cols-[2rem_1fr_auto_5rem]'}`}
           >
             {playlistId && (
               <div className="flex items-center justify-center w-6 text-muted opacity-0 group-hover:opacity-100 cursor-grab active:cursor-grabbing">
@@ -341,7 +474,11 @@ export default function TrackList({ tracks = [], showAlbum = true, onRemove = nu
             )}
 
             <div className="flex items-center justify-center w-7 h-7 text-xs text-muted font-display">
-              {isHov || isCurrent ? (
+              {isGhost ? (
+                <button onClick={e => { e.stopPropagation(); setGhostTrack(track) }} className="text-yellow-300 hover:text-yellow-200 transition-colors" title="Ghost song">
+                  <AlertCircle size={14} />
+                </button>
+              ) : isHov || isCurrent ? (
                 <button onClick={e => handlePlay(track, e)} className={isCurrent ? 'text-accent' : 'text-white'}>
                   {isCurrent && isPlaying ? <Pause size={14} fill="currentColor" /> : <Play size={14} fill="currentColor" className="translate-x-px" />}
                 </button>
@@ -358,7 +495,10 @@ export default function TrackList({ tracks = [], showAlbum = true, onRemove = nu
                 )}
               </div>
               <div className="min-w-0">
-                <p className={`text-sm font-medium truncate ${isCurrent ? 'text-accent' : 'text-white'}`}>{track.title}</p>
+                <div className="flex items-center gap-2 min-w-0">
+                  <p className={`text-sm font-medium truncate ${isCurrent ? 'text-accent' : 'text-white'}`}>{track.title}</p>
+                  {isGhost && <span className="px-1.5 py-0.5 rounded-full bg-yellow-400/10 border border-yellow-400/20 text-[10px] uppercase tracking-wide text-yellow-200 flex-shrink-0">Ghost</span>}
+                </div>
                 <p className="text-xs text-muted truncate">{track.artist}</p>
               </div>
             </div>
@@ -368,13 +508,13 @@ export default function TrackList({ tracks = [], showAlbum = true, onRemove = nu
               {playlistId && track.added_at && (
                 <p className="text-xs text-muted/60 mr-2 hidden lg:block">{fmtAddedAt(track.added_at)}</p>
               )}
-              {showPlayNext && (
+              {showPlayNext && !isGhost && (
                 <button onClick={e => handlePlayNext(track, e)}
                   className="opacity-0 group-hover:opacity-100 text-muted hover:text-accent transition-all">
                   <Clock size={14} />
                 </button>
               )}
-              {showAddToQueue && (
+              {showAddToQueue && !isGhost && (
                 <button onClick={e => handleAddToQueue(track, e)}
                   className="opacity-0 group-hover:opacity-100 text-muted hover:text-accent transition-all">
                   <ListEnd size={14} />
@@ -444,6 +584,17 @@ export default function TrackList({ tracks = [], showAlbum = true, onRemove = nu
           </RowComponent>
         )
       })}
+
+      {isLargeList && visibleCount < mergedTracks.length && (
+        <div ref={loaderRef} className="flex justify-center pt-4">
+          <button
+            onClick={() => setVisibleCount(v => Math.min(v + LARGE_LIST_STEP, mergedTracks.length))}
+            className="px-4 py-2 rounded-xl bg-card border border-border text-sm text-muted hover:text-white hover:border-accent/30 transition-colors"
+          >
+            Show More ({mergedTracks.length - visibleCount} left)
+          </button>
+        </div>
+      )}
       
       <TrackEditModal 
         track={editingTrack} 
@@ -487,6 +638,111 @@ export default function TrackList({ tracks = [], showAlbum = true, onRemove = nu
           <div className="flex gap-2">
             <button onClick={() => setTrackToDelete(null)} className="flex-1 py-2.5 bg-card border border-border rounded-xl text-sm text-muted hover:text-white transition-colors">Cancel</button>
             <button onClick={async () => { if (trackToDelete?.file_path) { await api.deleteTrackByPath(trackToDelete.file_path); window.dispatchEvent(new Event('lokal:refresh')) }; setTrackToDelete(null) }} className="flex-1 py-2.5 bg-red-500/20 border border-red-500/30 text-red-400 rounded-xl text-sm font-medium hover:bg-red-500/30 transition-colors">Delete</button>
+          </div>
+        </div>
+      </Modal>
+
+      <Modal
+        open={!!ghostTrack}
+        onClose={() => setGhostTrack(null)}
+        title="Resolve Ghost Song"
+        width="max-w-2xl"
+      >
+        <div className="space-y-4">
+          <div className="rounded-xl border border-yellow-400/20 bg-yellow-400/5 p-4">
+            <div className="flex items-start gap-3">
+              <div className="w-10 h-10 rounded-full bg-yellow-400/10 border border-yellow-400/20 flex items-center justify-center flex-shrink-0">
+                <AlertCircle size={18} className="text-yellow-200" />
+              </div>
+              <div className="min-w-0">
+                <p className="text-sm text-white font-medium">{ghostTrack?.title}</p>
+                <p className="text-xs text-muted mt-1">{ghostTrack?.artist || 'Unknown Artist'}{ghostTrack?.album ? ` · ${ghostTrack.album}` : ''}</p>
+                <p className="text-xs text-muted mt-2">This song was imported from another platform but Lokal could not match it to a local file yet. It stays in the playlist as a placeholder until you resolve it.</p>
+              </div>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap gap-2">
+            <button
+              onClick={() => refreshGhostMatches()}
+              className="px-3 py-2 rounded-lg bg-card border border-border text-sm text-muted hover:text-white hover:border-accent/30 transition-colors flex items-center gap-2"
+            >
+              <Search size={14} /> Refresh Matches
+            </button>
+          </div>
+
+          <div className="flex gap-2">
+            <input
+              value={ghostQuery}
+              onChange={e => setGhostQuery(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') refreshGhostMatches(e.currentTarget.value) }}
+              placeholder="Search manually for a better match"
+              className="flex-1 bg-card border border-border rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-accent/50"
+            />
+            <button
+              onClick={() => refreshGhostMatches()}
+              className="px-3 py-2 rounded-lg bg-accent/15 border border-accent/25 text-accent text-sm hover:bg-accent/25 transition-colors"
+            >
+              Search
+            </button>
+          </div>
+
+          <div className="rounded-xl border border-border bg-card/30 overflow-hidden">
+            <div className="px-4 py-3 border-b border-border text-xs uppercase tracking-widest text-muted font-display">Assign Existing Local Track</div>
+            <div className="divide-y divide-border">
+              {ghostLocalLoading && (
+                <div className="px-4 py-6 text-sm text-muted">Searching local library…</div>
+              )}
+              {!ghostLocalLoading && ghostLocalResults.map((item) => (
+                <div key={item.id} className="px-4 py-3 flex items-center gap-3">
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm text-white truncate">{item.title}</p>
+                    <p className="text-xs text-muted truncate">{item.artist}{item.album ? ` · ${item.album}` : ''}</p>
+                  </div>
+                  <button
+                    onClick={() => assignGhostTrack(item)}
+                    className="px-3 py-1.5 rounded-lg bg-accent/15 border border-accent/25 text-accent text-xs hover:bg-accent/25 transition-colors flex items-center gap-1.5"
+                  >
+                    <Check size={12} /> Assign
+                  </button>
+                </div>
+              ))}
+              {!ghostLocalLoading && !ghostLocalResults.length && (
+                <div className="px-4 py-6 text-sm text-muted">No strong local matches yet. If you just downloaded the song, try Refresh Matches after indexing finishes.</div>
+              )}
+            </div>
+          </div>
+
+          <div className="rounded-xl border border-border bg-card/30 overflow-hidden">
+            <div className="px-4 py-3 border-b border-border text-xs uppercase tracking-widest text-muted font-display">Suggested Downloads</div>
+            <div className="divide-y divide-border">
+              {ghostSearchLoading && (
+                <div className="px-4 py-6 text-sm text-muted">Searching…</div>
+              )}
+              {!ghostSearchLoading && ghostSearchResults.map((item) => (
+                <div key={item.id || item.url} className="px-4 py-3 flex items-center gap-3">
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm text-white truncate">{item.title}</p>
+                    <p className="text-xs text-muted truncate">{item.channel || item.artist || item.url}</p>
+                  </div>
+                  <button
+                    onClick={() => downloadGhostResult(item)}
+                    className="px-3 py-1.5 rounded-lg bg-accent/15 border border-accent/25 text-accent text-xs hover:bg-accent/25 transition-colors flex items-center gap-1.5"
+                  >
+                    <Download size={12} /> Download
+                  </button>
+                </div>
+              ))}
+              {!ghostSearchLoading && !ghostSearchResults.length && (
+                <div className="px-4 py-6 text-sm text-muted">No suggestions yet. Try Search YouTube.</div>
+              )}
+            </div>
+          </div>
+
+          {ghostActionStatus && <p className="text-xs text-muted">{ghostActionStatus}</p>}
+
+          <div className="flex gap-2">
+            <button onClick={() => setGhostTrack(null)} className="flex-1 py-2.5 bg-card border border-border rounded-xl text-sm text-muted hover:text-white transition-colors">Close</button>
           </div>
         </div>
       </Modal>
