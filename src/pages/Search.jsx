@@ -2,9 +2,8 @@ import React, { useState, useEffect, useCallback, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Search as SearchIcon, Music, Disc3, Shuffle, Clock, User, X, Play } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
-import { usePlayerStore, useAppStore } from '../store/player'
+import { usePlayerStore } from '../store/player'
 import TrackList from '../components/TrackList'
-import AlbumsModal from '../components/AlbumsModal'
 import { api } from '../api'
 
 const RECENT_SEARCHES_KEY = 'lokal-recent-searches'
@@ -61,7 +60,6 @@ export default function Search() {
   const searchInputRef = useRef(null)
   const nav = useNavigate()
   const { playQueue, queue, playTrack } = usePlayerStore()
-  const { openAlbums } = useAppStore()
 
   useEffect(() => {
     setRecentSearches(getRecentSearches())
@@ -131,7 +129,7 @@ export default function Search() {
       year: album.year,
       type: 'album'
     })
-    openAlbums(album)
+    nav('/albums', { state: { album } })
   }
 
   const handleRecentSearchClick = (recent) => {
@@ -148,7 +146,7 @@ export default function Search() {
         playQueue(queue, trackIndex)
       }
     } else if (item.type === 'album') {
-      openAlbums(item)
+      nav('/albums', { state: { album: item } })
     }
   }
 
@@ -364,8 +362,6 @@ export default function Search() {
           )}
         </>
       )}
-
-      <AlbumsModal />
     </div>
   )
 }
