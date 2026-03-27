@@ -1012,6 +1012,13 @@ export default function Settings() {
             {settings.index_while_downloading === '1' ? 'Yes' : 'No'}
           </button>
         </Row>
+        <Row label="Prefer Cleaner Download Metadata" desc="Choose whether Lokal should prefer a simpler artist name when indexing yt-dlp downloads instead of using every embedded contributor from the file metadata.">
+          <button
+            onClick={() => set('clean_download_metadata', settings.clean_download_metadata === '0' ? '1' : '0')}
+            className={`px-4 py-1.5 rounded-lg text-xs font-display uppercase tracking-wider border transition-colors ${settings.clean_download_metadata !== '0' ? 'bg-accent/20 border-accent/50 text-accent' : 'border-border text-muted hover:text-white'}`}>
+            {settings.clean_download_metadata !== '0' ? 'Yes' : 'No'}
+          </button>
+        </Row>
         <Row label="Skip Drum-kit Pattern" desc="Skip tracks with drum-kit/loop/sample keywords in title">
           <button
             onClick={() => set('skip_drumkit_pattern', settings.skip_drumkit_pattern === '0' ? '1' : '0')}

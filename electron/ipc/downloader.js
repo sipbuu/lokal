@@ -772,6 +772,7 @@ async function runPlaylistDownload(window, url, opts = {}) {
         const destinationMatch = line.match(/Destination:\s+(.+)/)
         if (destinationMatch) {
           currentSong = destinationMatch[1].trim()
+          if (!filepaths.includes(currentSong)) filepaths.push(currentSong)
           pushUpdate({
             song: currentSong,
             message: `Downloading: ${path.basename(currentSong)}`,
@@ -779,6 +780,7 @@ async function runPlaylistDownload(window, url, opts = {}) {
             currentTrack: currentTrack || null,
             downloadedTracks: [...downloadedTracks],
           })
+          setImmediate(() => { indexTrackImmediately(currentSong) })
           continue
         }
 
