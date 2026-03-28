@@ -293,6 +293,58 @@ function addArtistFallback(db, artist) {
   return { ...artist, image_path: firstTrack?.artwork_path || null }
 }
 
+function lineToSearchText(line) {
+  if (!line) return ''
+  if (typeof line.text === 'string' && line.text.trim()) return line.text.trim()
+  if (Array.isArray(line.words) && line.words.length) {
+    return line.words.map((word, index) => {
+      const value = String(word?.word || '')
+      if (index === 0) return value
+      const prev = String(line.words[index - 1]?.word || '')
+      return prev.endsWith('-') ? value : ` ${value}`
+    }).join('').trim()
+  }
+  return ''
+}
+
+function buildLyricsSnippet(lines, query) {
+  const needle = String(query || '').trim().toLowerCase()
+  if (!needle) return ''
+  const texts = (Array.isArray(lines) ? lines : []).map(lineToSearchText).filter(Boolean)
+  const match = texts.find(text => text.toLowerCase().includes(needle))
+  if (!match) return texts[0] || ''
+  const lower = match.toLowerCase()
+  const start = lower.indexOf(needle)
+  const snippetStart = Math.max(0, start - 36)
+  const snippetEnd = Math.min(match.length, start + needle.length + 36)
+  const prefix = snippetStart > 0 ? '…' : ''
+  const suffix = snippetEnd < match.length ? '…' : ''
+  return `${prefix}${match.slice(snippetStart, snippetEnd).trim()}${suffix}`
+}
+
+function searchLyricsEntries(db, query) {
+  const trimmed = String(query || '').trim()
+  if (trimmed.length < 3) return []
+  const term = `%${trimmed.toLowerCase()}%`
+  const rows = db.prepare(`
+    SELECT t.*, lc.content
+    FROM lyrics_cache lc
+    JOIN tracks t ON t.id = lc.track_id
+    WHERE t.file_path NOT LIKE 'ghost://%'
+      AND LOWER(lc.content) LIKE ?
+    ORDER BY t.play_count DESC, t.title
+    LIMIT 24
+  `).all(term)
+  return rows.map(row => {
+    let lines = []
+    try { lines = JSON.parse(row.content || '[]') } catch {}
+    return {
+      ...row,
+      lyricSnippet: buildLyricsSnippet(lines, trimmed),
+    }
+  }).filter(row => row.lyricSnippet)
+}
+
 function findArtistById(db, id) {
   let artist = db.prepare('SELECT * FROM artists WHERE id = ?').get(id)
   if (!artist) {
@@ -791,6 +843,9 @@ function registerScannerHandlers(ipcMain) {
     const artistsWithFallback = artists.map(artist => addArtistFallback(db, artist))
     const tracks = db.prepare(`SELECT * FROM tracks WHERE file_path NOT LIKE 'ghost://%' AND (title LIKE ? OR artist LIKE ? OR album LIKE ?) LIMIT 40`).all(term, term, term)
     return { artists: artistsWithFallback, tracks }
+  })
+  ipcMain.handle('scanner:searchLyrics', (_, q) => {
+    return searchLyricsEntries(getDB(), q)
   })
   ipcMain.handle('scanner:toggleLike', (_, trackId, userId) => {
     const db = getDB(); const uid = userId || 'guest'
