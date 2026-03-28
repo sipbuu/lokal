@@ -173,6 +173,7 @@ export default function Settings() {
   const [toolsLoading, setToolsLoading] = useState(false)
   const [showPlaylistImportModal, setShowPlaylistImportModal] = useState(false)
   const [showPlatformImportGuide, setShowPlatformImportGuide] = useState(false)
+  const [platformImportMode, setPlatformImportMode] = useState('playlist')
   const [platformImportName, setPlatformImportName] = useState('')
   const [platformImportPlatform, setPlatformImportPlatform] = useState('spotify')
   const [platformImportFileName, setPlatformImportFileName] = useState('')
@@ -834,8 +835,8 @@ export default function Settings() {
       setPlatformImportFileContent(content)
       setPlatformImportFileType(fileType)
       setPlatformImportPreview(preview)
-      setPlatformImportStatus(preview.total ? `Ready to import ${preview.total} tracks` : 'No tracks found in file')
-      if (!platformImportName.trim()) {
+      setPlatformImportStatus(preview.total ? `Ready to ${platformImportMode === 'metadata' ? 'apply metadata to' : 'import'} ${preview.total} tracks` : 'No tracks found in file')
+      if (platformImportMode !== 'metadata' && !platformImportName.trim()) {
         const baseName = fp.split(/[/\\]/).pop().replace(/\.[^.]+$/, '')
         setPlatformImportName(baseName)
       }
@@ -847,7 +848,7 @@ export default function Settings() {
 
   const handlePlatformImport = async () => {
     const uid = user?.id
-    if (!platformImportName.trim()) {
+    if (platformImportMode !== 'metadata' && !platformImportName.trim()) {
       setPlatformImportStatus('Please enter a playlist name')
       return
     }
@@ -858,26 +859,38 @@ export default function Settings() {
     setPlatformImporting(true)
     setPlatformImportStatus('Importing...')
     try {
-      const result = await api.importExternalPlaylist({
-        name: platformImportName.trim(),
-        fileContent: platformImportFileContent,
-        fileType: platformImportFileType,
-        userId: uid || 'guest',
-        sourcePlatform: platformImportPlatform,
-      })
+      const result = platformImportMode === 'metadata'
+        ? await api.importExternalTrackMetadata({
+            fileContent: platformImportFileContent,
+            fileType: platformImportFileType,
+            sourcePlatform: platformImportPlatform,
+          })
+        : await api.importExternalPlaylist({
+            name: platformImportName.trim(),
+            fileContent: platformImportFileContent,
+            fileType: platformImportFileType,
+            userId: uid || 'guest',
+            sourcePlatform: platformImportPlatform,
+          })
       if (result?.error) {
         setPlatformImportStatus('Error: ' + result.error)
       } else {
-        setPlatformImportStatus(`Imported ${result.matched}/${result.total} matches with ${result.ghosted || 0} ghost songs`)
+        setPlatformImportStatus(platformImportMode === 'metadata'
+          ? `Applied metadata to ${result.matched}/${result.total} matched tracks. Skipped ${result.skipped || 0}.`
+          : `Imported ${result.matched}/${result.total} matches with ${result.ghosted || 0} ghost songs`)
         setPlatformImportPreview(prev => prev ? {
           ...prev,
           imported: result,
         } : prev)
-        window.dispatchEvent(
-          new CustomEvent('lokal:playlists-changed', {
-            detail: { playlistId: result.playlistId, action: 'imported' }
-          })
-        )
+        if (platformImportMode === 'metadata') {
+          window.dispatchEvent(new Event('lokal:refresh'))
+        } else {
+          window.dispatchEvent(
+            new CustomEvent('lokal:playlists-changed', {
+              detail: { playlistId: result.playlistId, action: 'imported' }
+            })
+          )
+        }
       }
     } catch (e) {
       setPlatformImportStatus('Error: ' + e.message)
@@ -1278,9 +1291,15 @@ export default function Settings() {
           </button>
         </Row>
         <Row label="Import from Other Platforms" desc="Import CSV, JSON, or M3U exports from tools like Exportify, Google Takeout, and other playlist export services, then resolve anything missing inside Lokal.">
-          <button onClick={() => setShowPlatformImportGuide(true)}
+          <button onClick={() => { setPlatformImportMode('playlist'); setPlatformImportStatus(''); setPlatformImportPreview(null); setShowPlatformImportGuide(true) }}
             className="flex items-center gap-2 px-4 py-2 bg-card border border-border rounded-lg text-sm text-muted hover:text-white hover:border-accent/30 transition-colors">
             <Link size={14} /> Import
+          </button>
+        </Row>
+        <Row label="Import Track Metadata" desc="Apply genres, explicit flags, labels, and audio-feature data from exports like Exportify onto songs already in your Lokal library.">
+          <button onClick={() => { setPlatformImportMode('metadata'); setPlatformImportStatus(''); setPlatformImportPreview(null); setShowPlatformImportGuide(true) }}
+            className="flex items-center gap-2 px-4 py-2 bg-card border border-border rounded-lg text-sm text-muted hover:text-white hover:border-accent/30 transition-colors">
+            <Link size={14} /> Import Metadata
           </button>
         </Row>
       </Section>
@@ -2476,17 +2495,20 @@ Stairway to Heaven"
         </div>
       </Modal>
 
-      <Modal open={showPlatformImportGuide} onClose={() => { setShowPlatformImportGuide(false); setPlatformImportStatus('') }} title="Import from Other Platforms" width="max-w-3xl">
+      <Modal open={showPlatformImportGuide} onClose={() => { setShowPlatformImportGuide(false); setPlatformImportStatus('') }} title={platformImportMode === 'metadata' ? 'Import Track Metadata' : 'Import from Other Platforms'} width="max-w-3xl">
         <div className="space-y-5">
           <div className="rounded-xl border border-border bg-card/40 p-4 space-y-2">
-            <p className="text-sm text-white">Bring in playlists from Spotify, Apple Music, YouTube Music, Last.fm exports, and other CSV-style sources.</p>
+            <p className="text-sm text-white">{platformImportMode === 'metadata' ? 'Use CSV, JSON, or M3U exports to enrich songs already in your library.' : 'Bring in playlists from Spotify, Apple Music, YouTube Music, Last.fm exports, and other CSV-style sources.'}</p>
             <p className="text-xs text-muted leading-relaxed">
-              Lokal will try to match each imported row to your library first. If it cannot find a confident match, it keeps the song in the playlist as a ghost entry so the structure is preserved and you can resolve it later.
+              {platformImportMode === 'metadata'
+                ? 'Lokal will match each row against your library and apply imported metadata like genres, explicit flags, labels, and audio features. Unmatched rows are skipped without creating ghosts.'
+                : 'Lokal will try to match each imported row to your library first. If it cannot find a confident match, it keeps the song in the playlist as a ghost entry so the structure is preserved and you can resolve it later.'}
             </p>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-[1.1fr_1fr] gap-4">
             <div className="space-y-4">
+              {platformImportMode !== 'metadata' && (
               <div>
                 <label className="text-xs font-display text-muted uppercase tracking-widest block mb-1.5">Playlist Name</label>
                 <input
@@ -2496,6 +2518,7 @@ Stairway to Heaven"
                   className="w-full bg-card border border-border rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-accent/50"
                 />
               </div>
+              )}
               <div>
                 <label className="text-xs font-display text-muted uppercase tracking-widest block mb-1.5">Source Platform</label>
                 <select
@@ -2532,9 +2555,19 @@ Stairway to Heaven"
             <div className="rounded-xl border border-border bg-card/30 p-4 space-y-3">
               <p className="text-sm text-white">What Lokal will do</p>
               <div className="space-y-2 text-xs text-muted leading-relaxed">
-                <p>Matched songs go straight into the playlist using your existing local tracks.</p>
-                <p>Unmatched songs become ghost entries so the playlist stays complete.</p>
-                <p>Ghost songs can later be replaced by a local file or downloaded with the YouTube downloader.</p>
+                {platformImportMode === 'metadata' ? (
+                  <>
+                    <p>Matched songs stay in place and get enriched with imported metadata.</p>
+                    <p>Multi-genre values, explicit flags, labels, and audio features can then feed mixes and queue suggestions.</p>
+                    <p>Unmatched rows are skipped cleanly without creating playlist entries or ghost songs.</p>
+                  </>
+                ) : (
+                  <>
+                    <p>Matched songs go straight into the playlist using your existing local tracks.</p>
+                    <p>Unmatched songs become ghost entries so the playlist stays complete.</p>
+                    <p>Ghost songs can later be replaced by a local file or downloaded with the YouTube downloader.</p>
+                  </>
+                )}
               </div>
               <div className="grid grid-cols-3 gap-2 pt-2">
                 <div className="rounded-lg bg-elevated/70 px-3 py-3 text-center">
@@ -2547,7 +2580,7 @@ Stairway to Heaven"
                 </div>
                 <div className="rounded-lg bg-elevated/70 px-3 py-3 text-center">
                   <p className="text-lg text-white font-medium">{platformImportPreview?.ghostable || 0}</p>
-                  <p className="text-[10px] uppercase tracking-[0.22em] text-muted">Ghosts</p>
+                  <p className="text-[10px] uppercase tracking-[0.22em] text-muted">{platformImportMode === 'metadata' ? 'Skipped' : 'Ghosts'}</p>
                 </div>
               </div>
             </div>
@@ -2557,7 +2590,7 @@ Stairway to Heaven"
             <div className="flex items-center justify-between gap-3">
               <div>
                 <p className="text-sm text-white font-medium">Preview</p>
-                <p className="text-xs text-muted mt-1">This is what the imported playlist will look like before unresolved songs get filled in later.</p>
+                <p className="text-xs text-muted mt-1">{platformImportMode === 'metadata' ? 'This preview shows which rows Lokal can match before applying imported metadata.' : 'This is what the imported playlist will look like before unresolved songs get filled in later.'}</p>
               </div>
               <div className="flex flex-wrap justify-end gap-2">
                 <span className="px-2.5 py-1 rounded-full border border-border text-[10px] uppercase tracking-[0.22em] text-muted">CSV</span>
@@ -2581,7 +2614,7 @@ Stairway to Heaven"
                     <span className="text-muted truncate pr-3">{row.artist}</span>
                     <span className="text-muted truncate pr-3">{row.album}</span>
                     <span className="text-accent truncate pr-3">{row.status}</span>
-                    <span className="text-muted truncate">{row.action}</span>
+                    <span className="text-muted truncate">{platformImportMode === 'metadata' ? (row.status === 'Matched' ? 'Apply imported metadata' : 'Skip row') : row.action}</span>
                   </div>
                 ))}
                 {!platformImportPreview?.rows?.length && (
@@ -2602,7 +2635,7 @@ Stairway to Heaven"
           <div className="flex gap-2">
             <button onClick={() => setShowPlatformImportGuide(false)} className="flex-1 py-2.5 bg-card border border-border rounded-xl text-sm text-muted hover:text-white transition-colors">Cancel</button>
             <button onClick={handlePlatformImport} disabled={platformImporting || !platformImportPreview?.total} className="flex-1 py-2.5 bg-accent text-base rounded-xl text-sm font-medium transition-colors disabled:opacity-50">
-              {platformImporting ? 'Importing...' : 'Import Playlist'}
+              {platformImporting ? 'Importing...' : platformImportMode === 'metadata' ? 'Apply Metadata' : 'Import Playlist'}
             </button>
           </div>
         </div>

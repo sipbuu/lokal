@@ -1,5 +1,17 @@
 import { create } from 'zustand'
 
+function isGhostTrack(track) {
+  return String(track?.file_path || '').startsWith('ghost://')
+}
+
+function sanitizeTrackList(tracks) {
+  return Array.isArray(tracks) ? tracks.filter(track => track?.id && !isGhostTrack(track)) : []
+}
+
+function sanitizeSingleTrack(track) {
+  return track?.id && !isGhostTrack(track) ? track : null
+}
+
 function loadQueue() {
   try {
     const data = localStorage.getItem('lokal-queue')
@@ -7,8 +19,18 @@ function loadQueue() {
     const parsed = JSON.parse(data)
 
     if (Array.isArray(parsed.queue)) {
+      const queue = sanitizeTrackList(parsed.queue)
+      const shuffleQueue = sanitizeTrackList(parsed.shuffleQueue)
+      const originalQueue = sanitizeTrackList(parsed.originalQueue)
+      const currentTrack = sanitizeSingleTrack(parsed.currentTrack)
       return {
         ...parsed,
+        queue,
+        shuffleQueue,
+        originalQueue,
+        currentTrack,
+        queueIndex: currentTrack ? Math.max(queue.findIndex(track => track.id === currentTrack.id), 0) : -1,
+        shuffleIndex: currentTrack ? Math.max(shuffleQueue.findIndex(track => track.id === currentTrack.id), 0) : -1,
         isPlaying: false,
         progress: 0,
         duration: 0,
@@ -64,13 +86,15 @@ export const usePlayerStore = create((set, get) => ({
   appendRelated: (tracks) => {
     const { queue } = get()
     const ids = new Set(queue.map(t => t.id))
-    const fresh = tracks.filter(t => !ids.has(t.id))
+    const fresh = sanitizeTrackList(tracks).filter(t => !ids.has(t.id))
     if (fresh.length) set({ queue: [...queue, ...fresh] })
   },
 
   initShuffleQueue: (tracks, currentIndex) => {
-    const currentTrack = tracks[currentIndex]
-    const otherTracks = tracks.filter((_, i) => i !== currentIndex)
+    const sanitizedTracks = sanitizeTrackList(tracks)
+    const safeIndex = Math.min(Math.max(currentIndex, 0), Math.max(sanitizedTracks.length - 1, 0))
+    const currentTrack = sanitizedTracks[safeIndex]
+    const otherTracks = sanitizedTracks.filter((_, i) => i !== safeIndex)
     const shuffled = shuffleArray(otherTracks)
     const shuffleQueue = currentTrack ? [currentTrack, ...shuffled] : shuffled
     const shuffleIndex = 0
@@ -125,35 +149,40 @@ export const usePlayerStore = create((set, get) => ({
   },
 
   playTrack: (track, queue = null) => {
-    const q = queue || get().queue
-    const idx = Math.max(q.findIndex(t => t.id === track.id), 0)
+    const playableTrack = sanitizeSingleTrack(track)
+    if (!playableTrack) return
+    const q = sanitizeTrackList(queue || get().queue)
+    if (!q.length) return
+    const idx = Math.max(q.findIndex(t => t.id === playableTrack.id), 0)
     
     if (get().shuffle) {
       get().initShuffleQueue(q, idx)
     }
     
     set({ 
-      currentTrack: track, 
+      currentTrack: playableTrack, 
       queue: q, 
       queueIndex: idx, 
       isPlaying: true, 
-      playHistory: [track.id],
+      playHistory: [playableTrack.id],
       futureHistory: []
     })
   },
 
   playQueue: (tracks, startIndex = 0) => {
-    if (!tracks?.length) return
+    const sanitizedTracks = sanitizeTrackList(tracks)
+    if (!sanitizedTracks.length) return
     
-    const startTrack = tracks[startIndex]
+    const safeIndex = Math.min(Math.max(startIndex, 0), sanitizedTracks.length - 1)
+    const startTrack = sanitizedTracks[safeIndex]
     
     if (get().shuffle) {
-      get().initShuffleQueue(tracks, startIndex)
+      get().initShuffleQueue(sanitizedTracks, safeIndex)
     }
     
     set({ 
-      queue: tracks, 
-      queueIndex: startIndex, 
+      queue: sanitizedTracks, 
+      queueIndex: safeIndex, 
       currentTrack: startTrack, 
       isPlaying: true,
       playHistory: startTrack ? [startTrack.id] : [],
@@ -399,26 +428,30 @@ export const usePlayerStore = create((set, get) => ({
   },
 
   playNext: (track) => {
+    const playableTrack = sanitizeSingleTrack(track)
+    if (!playableTrack) return
     const { shuffle, shuffleQueue, shuffleIndex, queue, queueIndex } = get()
     
     if (shuffle && shuffleQueue.length > 0) {
       const newShuffleQueue = [...shuffleQueue]
-      newShuffleQueue.splice(shuffleIndex + 1, 0, track)
+      newShuffleQueue.splice(shuffleIndex + 1, 0, playableTrack)
       set({ shuffleQueue: newShuffleQueue })
     } else {
       const newQueue = [...queue]
-      newQueue.splice(queueIndex + 1, 0, track)
+      newQueue.splice(queueIndex + 1, 0, playableTrack)
       set({ queue: newQueue })
     }
   },
 
   addToQueue: (track) => {
+    const playableTrack = sanitizeSingleTrack(track)
+    if (!playableTrack) return
     const { shuffle, shuffleQueue, queue } = get()
     
     if (shuffle && shuffleQueue.length > 0) {
-      set({ shuffleQueue: [...shuffleQueue, track] })
+      set({ shuffleQueue: [...shuffleQueue, playableTrack] })
     } else {
-      set({ queue: [...queue, track] })
+      set({ queue: [...queue, playableTrack] })
     }
   },
 
@@ -531,8 +564,9 @@ export const usePlayerStore = create((set, get) => ({
   initLiked: (ids) => set({ likedIds: new Set(ids) }),
   syncTrack: (track) => set((state) => {
     if (!track?.id) return state
-    const syncList = (list) => Array.isArray(list) ? list.map(item => item?.id === track.id ? { ...item, ...track } : item) : list
-    const currentTrack = state.currentTrack?.id === track.id ? { ...state.currentTrack, ...track } : state.currentTrack
+    const syncList = (list) => sanitizeTrackList(Array.isArray(list) ? list.map(item => item?.id === track.id ? { ...item, ...track } : item) : list)
+    const nextCurrent = state.currentTrack?.id === track.id ? { ...state.currentTrack, ...track } : state.currentTrack
+    const currentTrack = sanitizeSingleTrack(nextCurrent)
     return {
       queue: syncList(state.queue),
       shuffleQueue: syncList(state.shuffleQueue),
