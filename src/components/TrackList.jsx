@@ -110,7 +110,7 @@ export default function TrackList({ tracks = [], showAlbum = true, onRemove = nu
       setGhostLocalLoading(true)
       setGhostActionStatus('')
       try {
-        const query = [ghostTrack.artist, ghostTrack.title].filter(Boolean).join(' - ')
+        const query = String(ghostTrack.title || '').trim()
         setGhostQuery(query)
         const result = await api.searchYT(query, 1)
         setGhostSearchResults(Array.isArray(result?.results) ? result.results.slice(0, 6) : Array.isArray(result) ? result.slice(0, 6) : [])
@@ -127,7 +127,7 @@ export default function TrackList({ tracks = [], showAlbum = true, onRemove = nu
   }, [ghostTrack])
 
   const refreshGhostMatches = async (queryOverride = '') => {
-    const query = String(queryOverride || ghostQuery || [ghostTrack?.artist, ghostTrack?.title].filter(Boolean).join(' - ')).trim()
+    const query = String(queryOverride || ghostQuery || ghostTrack?.title || '').trim()
     if (!query) {
       setGhostActionStatus('Enter a search query first.')
       return
