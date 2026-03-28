@@ -27,16 +27,44 @@ function lineToSearchText(line) {
   return ''
 }
 
+function normalizeLyricsSearchText(value) {
+  return String(value || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+function tokenizeLyricsSearch(value) {
+  return normalizeLyricsSearchText(value).split(' ').filter(Boolean)
+}
+
+function countLyricTokenMatches(text, tokens) {
+  if (!tokens.length) return 0
+  const normalized = normalizeLyricsSearchText(text)
+  let matches = 0
+  for (const token of tokens) {
+    if (normalized.includes(token)) matches += 1
+  }
+  return matches
+}
+
 function buildLyricsSnippet(lines, query) {
-  const needle = String(query || '').trim().toLowerCase()
-  if (!needle) return ''
+  const tokens = tokenizeLyricsSearch(query)
+  if (!tokens.length) return ''
   const texts = (Array.isArray(lines) ? lines : []).map(lineToSearchText).filter(Boolean)
-  const match = texts.find(text => text.toLowerCase().includes(needle))
+  const scored = texts
+    .map(text => ({ text, score: countLyricTokenMatches(text, tokens) }))
+    .filter(item => item.score > 0)
+    .sort((left, right) => right.score - left.score)
+  const match = scored[0]?.text
   if (!match) return texts[0] || ''
+  const normalizedMatch = normalizeLyricsSearchText(match)
+  const firstToken = tokens.find(token => normalizedMatch.includes(token)) || tokens[0]
   const lower = match.toLowerCase()
-  const start = lower.indexOf(needle)
+  const start = Math.max(0, lower.indexOf(firstToken))
   const snippetStart = Math.max(0, start - 36)
-  const snippetEnd = Math.min(match.length, start + needle.length + 36)
+  const snippetEnd = Math.min(match.length, start + firstToken.length + 36)
   const prefix = snippetStart > 0 ? '…' : ''
   const suffix = snippetEnd < match.length ? '…' : ''
   return `${prefix}${match.slice(snippetStart, snippetEnd).trim()}${suffix}`
@@ -45,7 +73,9 @@ function buildLyricsSnippet(lines, query) {
 function searchLyricsEntries(db, query) {
   const trimmed = String(query || '').trim()
   if (trimmed.length < 3) return []
-  const term = `%${trimmed.toLowerCase()}%`
+  const tokens = tokenizeLyricsSearch(trimmed)
+  if (!tokens.length) return []
+  const term = `%${tokens[0]}%`
   const rows = db.prepare(`
     SELECT t.*, lc.content
     FROM lyrics_cache lc
@@ -53,16 +83,21 @@ function searchLyricsEntries(db, query) {
     WHERE t.file_path NOT LIKE 'ghost://%'
       AND LOWER(lc.content) LIKE ?
     ORDER BY t.play_count DESC, t.title
-    LIMIT 24
+    LIMIT 80
   `).all(term)
   return rows.map(row => {
     let lines = []
     try { lines = JSON.parse(row.content || '[]') } catch {}
+    const textBlob = (Array.isArray(lines) ? lines : []).map(lineToSearchText).join(' ')
+    const matchedTokens = countLyricTokenMatches(textBlob, tokens)
     return {
       ...row,
+      matchedTokens,
       lyricSnippet: buildLyricsSnippet(lines, trimmed),
     }
-  }).filter(row => row.lyricSnippet)
+  }).filter(row => row.lyricSnippet && row.matchedTokens >= Math.max(1, Math.ceil(tokens.length * 0.6)))
+    .sort((left, right) => right.matchedTokens - left.matchedTokens || (right.play_count || 0) - (left.play_count || 0))
+    .slice(0, 24)
 }
 
 function normalizeDuplicateText(value, type = 'title') {
