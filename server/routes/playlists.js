@@ -215,11 +215,20 @@ function parseJSON(fileContent) {
   return []
 }
 
+function normalizeImportEntry(entry = {}) {
+  return {
+    ...entry,
+    artist: normalizeArtistList(entry.artist),
+    album_artist: normalizeArtistList(entry.album_artist),
+  }
+}
+
 function parseImportEntries(fileContent, fileType) {
-  if (fileType === 'm3u' || fileType === 'm3u8') return parseM3U(fileContent)
-  if (fileType === 'csv') return parseCSV(fileContent)
-  if (fileType === 'json') return parseJSON(fileContent)
-  return []
+  let entries = []
+  if (fileType === 'm3u' || fileType === 'm3u8') entries = parseM3U(fileContent)
+  else if (fileType === 'csv') entries = parseCSV(fileContent)
+  else if (fileType === 'json') entries = parseJSON(fileContent)
+  return entries.map(normalizeImportEntry)
 }
 
 function normalizeMatchValue(value) {
