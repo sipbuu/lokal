@@ -403,6 +403,33 @@ function resolveGhostTrack(db, ghostTrackId, targetTrackId) {
   return { ok: true, track: db.prepare('SELECT * FROM tracks WHERE id = ?').get(targetTrackId) };
 }
 
+function importExternalMetadata(db, payload = {}) {
+  const { fileContent = '', fileType = 'csv', sourcePlatform = 'generic' } = payload || {}
+  const entries = parseImportEntries(fileContent, fileType)
+  let matched = 0
+  const unmatched = []
+  for (const entry of entries) {
+    const track = findTrack(db, entry)
+    if (!track) {
+      unmatched.push({
+        title: entry.title || 'Unknown Track',
+        artist: entry.artist || 'Unknown Artist',
+        album: entry.album || null,
+      })
+      continue
+    }
+    applyImportedMetadata(db, track.id, { ...entry, sourcePlatform })
+    matched++
+  }
+  return {
+    ok: true,
+    total: entries.length,
+    matched,
+    skipped: Math.max(entries.length - matched, 0),
+    unmatched: unmatched.slice(0, 50),
+  }
+}
+
 function registerPlaylistHandlers() {
   ipcMain.handle('playlist:import', async (event, ...args) => {
     let payload;
@@ -544,6 +571,14 @@ function registerPlaylistHandlers() {
       };
     } catch (e) {
       return { error: e.message };
+    }
+  });
+
+  ipcMain.handle('playlist:importExternalMetadata', async (event, payload = {}) => {
+    try {
+      return importExternalMetadata(getDB(), payload)
+    } catch (e) {
+      return { error: e.message }
     }
   });
 
