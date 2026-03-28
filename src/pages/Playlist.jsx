@@ -19,7 +19,7 @@ export default function Playlist() {
   const [loadingRecs, setLoadingRecs] = useState(false)
   const [showAddSongs, setShowAddSongs] = useState(false)
   const [showResolveGhosts, setShowResolveGhosts] = useState(false)
-  const [selectedGhostId, setSelectedGhostId] = useState(null)
+  const [selectedGhostKey, setSelectedGhostKey] = useState(null)
   const [ghostQuery, setGhostQuery] = useState('')
   const [ghostLocalResults, setGhostLocalResults] = useState([])
   const [ghostYtResults, setGhostYtResults] = useState([])
@@ -30,7 +30,8 @@ export default function Playlist() {
   const isLiked = id === 'liked'
   const playableTracks = useMemo(() => tracks.filter(track => !String(track.file_path || '').startsWith('ghost://')), [tracks])
   const ghostTracks = useMemo(() => tracks.filter(track => String(track.file_path || '').startsWith('ghost://')), [tracks])
-  const selectedGhost = ghostTracks.find(track => track.id === selectedGhostId) || ghostTracks[0] || null
+  const getGhostKey = useCallback((track) => String(track?.playlist_track_id || track?.added_at || track?.id || ''), [])
+  const selectedGhost = ghostTracks.find(track => getGhostKey(track) === selectedGhostKey) || ghostTracks[0] || null
 
   const load = useCallback(() => {
     if (isLiked) {
@@ -86,14 +87,14 @@ export default function Playlist() {
 
   useEffect(() => {
     if (!ghostTracks.length) {
-      setSelectedGhostId(null)
+      setSelectedGhostKey(null)
       setShowResolveGhosts(false)
       return
     }
-    if (!selectedGhostId || !ghostTracks.some(track => track.id === selectedGhostId)) {
-      setSelectedGhostId(ghostTracks[0].id)
+    if (!selectedGhostKey || !ghostTracks.some(track => getGhostKey(track) === selectedGhostKey)) {
+      setSelectedGhostKey(getGhostKey(ghostTracks[0]))
     }
-  }, [ghostTracks, selectedGhostId])
+  }, [ghostTracks, selectedGhostKey, getGhostKey])
 
   const removeTrack = async (track) => {
     await api.removeFromPlaylist(id, track.playlist_track_id)
@@ -253,7 +254,7 @@ export default function Playlist() {
       }
       setGhostActionStatus('Assigned successfully.')
       const remainingGhosts = ghostTracks.filter(track => track.id !== ghostTrackId)
-      setSelectedGhostId(remainingGhosts[0]?.id || null)
+      setSelectedGhostKey(remainingGhosts[0] ? getGhostKey(remainingGhosts[0]) : null)
       setGhostLocalResults([])
       setGhostYtResults([])
       setGhostQuery('')
@@ -453,11 +454,12 @@ export default function Playlist() {
               </div>
               <div className="max-h-[28rem] overflow-y-auto divide-y divide-border">
                 {ghostTracks.map(track => {
-                  const active = track.id === selectedGhost?.id
+                  const trackKey = getGhostKey(track)
+                  const active = trackKey === (selectedGhost ? getGhostKey(selectedGhost) : '')
                   return (
                     <button
-                      key={track.id}
-                      onClick={() => setSelectedGhostId(track.id)}
+                      key={trackKey}
+                      onClick={() => setSelectedGhostKey(trackKey)}
                       className={`w-full text-left px-4 py-3 transition-colors ${active ? 'bg-accent/10' : 'hover:bg-elevated'}`}
                     >
                       <p className={`text-sm truncate ${active ? 'text-accent' : 'text-white'}`}>{track.title}</p>
