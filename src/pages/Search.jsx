@@ -51,6 +51,7 @@ export default function Search() {
   const [tracks, setTracks] = useState([])
   const [artists, setArtists] = useState([])
   const [albums, setAlbums] = useState([])
+  const [lyricMatches, setLyricMatches] = useState([])
   const [searching, setSearching] = useState(false)
   const [randomLoading, setRandomLoading] = useState(false)
   const [recentSearches, setRecentSearches] = useState([])
@@ -77,15 +78,17 @@ export default function Search() {
   }, [])
 
   const doSearch = useCallback(async (q) => {
-    if (!q.trim()) { setTracks([]); setArtists([]); setAlbums([]); return }
+    if (!q.trim()) { setTracks([]); setArtists([]); setAlbums([]); setLyricMatches([]); return }
     setSearching(true)
-    const [res, albumRes] = await Promise.all([
+    const [res, albumRes, lyricsRes] = await Promise.all([
       api.searchTracks(q),
       api.searchAlbums(q),
+      api.searchLyrics(q),
     ])
     if (res?.artists) { setArtists(res.artists || []); setTracks(res.tracks || []) }
     else { setArtists([]); setTracks(Array.isArray(res) ? res : []) }
     setAlbums(Array.isArray(albumRes) ? albumRes : [])
+    setLyricMatches(Array.isArray(lyricsRes) ? lyricsRes : [])
     setSearching(false)
   }, [])
 
@@ -168,12 +171,25 @@ export default function Search() {
       setTracks([])
       setArtists([])
       setAlbums([])
+      setLyricMatches([])
     } else {
       setShowSearchDropdown(false)
     }
   }
 
-  const showSearchResults = isSearchStarted && query && (tracks.length > 0 || artists.length > 0 || albums.length > 0 || searching)
+  const handleLyricMatchPlay = (track) => {
+    saveRecentSearch(query.trim())
+    saveRecentItem({
+      id: track.id,
+      name: track.title,
+      artist: track.artist,
+      artwork_path: track.artwork_path,
+      type: 'track',
+    })
+    playTrack(track, [track])
+  }
+
+  const showSearchResults = isSearchStarted && query && (tracks.length > 0 || artists.length > 0 || albums.length > 0 || lyricMatches.length > 0 || searching)
 
   return (
     <div className="p-6 space-y-6 pb-10">
@@ -354,7 +370,37 @@ export default function Search() {
             </section>
           )}
 
-          {query && !searching && !tracks.length && !artists.length && !albums.length && (
+          {lyricMatches.length > 0 && (
+            <section>
+              <h2 className="text-xs font-display text-muted uppercase tracking-widest mb-3">Lyrics Matches</h2>
+              <div className="space-y-2">
+                {lyricMatches.map((track, i) => (
+                  <motion.button
+                    key={`${track.id}-lyrics-${i}`}
+                    initial={{ opacity: 0, y: 4 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: i * 0.02 }}
+                    onClick={() => handleLyricMatchPlay(track)}
+                    className="w-full text-left rounded-xl border border-border bg-elevated/70 hover:border-accent/30 hover:bg-card transition-colors px-4 py-3"
+                  >
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="text-sm text-white truncate">{track.title}</p>
+                        <p className="text-xs text-muted truncate">{track.artist}{track.album ? ` · ${track.album}` : ''}</p>
+                      </div>
+                      <div className="flex items-center gap-2 text-accent flex-shrink-0">
+                        <span className="text-[10px] font-display uppercase tracking-[0.22em]">Play</span>
+                        <Play size={13} fill="currentColor" />
+                      </div>
+                    </div>
+                    <p className="text-xs text-muted mt-2 truncate">{track.lyricSnippet}</p>
+                  </motion.button>
+                ))}
+              </div>
+            </section>
+          )}
+
+          {query && !searching && !tracks.length && !artists.length && !albums.length && !lyricMatches.length && (
             <div className="text-center py-16 text-muted">
               <Music size={36} className="mx-auto mb-3 opacity-20" />
               <p className="text-sm">No results for "{query}"</p>

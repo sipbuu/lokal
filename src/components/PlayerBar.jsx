@@ -138,7 +138,14 @@ export default function PlayerBar() {
         <div className="min-w-0 flex-1">
           <AnimatePresence mode="wait">
             <motion.div key={currentTrack?.id||'none'} initial={{ opacity: 0, y: 3 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} transition={{ duration: 0.15 }}>
-              <p className="text-sm font-medium truncate text-white">{currentTrack?.title || '—'}</p>
+              <div className="flex items-center gap-2 min-w-0">
+                <p className="text-sm font-medium truncate text-white">{currentTrack?.title || '—'}</p>
+                {!!currentTrack?.explicit && (
+                  <span className="px-1.5 py-0.5 rounded border border-border bg-card text-[10px] font-display uppercase tracking-wide text-muted flex-shrink-0">
+                    E
+                  </span>
+                )}
+              </div>
               {currentTrack ? (
                 <button onClick={handleArtistClick}
                   className="text-xs text-muted hover:text-accent transition-colors truncate max-w-full block text-left">
@@ -285,3 +292,4 @@ export default function PlayerBar() {
     </>
   )
 }
+
