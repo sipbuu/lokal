@@ -254,19 +254,26 @@ function splitGenreValues(value) {
 
 function scoreRelatedTrack(baseTrack, candidate) {
   let score = 0
-  if (candidate.artist && baseTrack.artist && candidate.artist.toLowerCase() === baseTrack.artist.toLowerCase()) score += 8
-  if (candidate.album && baseTrack.album && candidate.album.toLowerCase() === baseTrack.album.toLowerCase()) score += 3
+  const sameArtist = candidate.artist && baseTrack.artist && candidate.artist.toLowerCase() === baseTrack.artist.toLowerCase()
+  if (sameArtist) score += 14
+  if (candidate.album && baseTrack.album && candidate.album.toLowerCase() === baseTrack.album.toLowerCase()) score += sameArtist ? 4 : 2
   const baseGenres = splitGenreValues(baseTrack.genres || baseTrack.genre)
   const candidateGenres = new Set(splitGenreValues(candidate.genres || candidate.genre))
+  let sharedGenres = 0
   for (const genre of baseGenres) {
-    if (candidateGenres.has(genre)) score += 4
+    if (candidateGenres.has(genre)) {
+      sharedGenres += 1
+      score += sameArtist ? 2.5 : 3.5
+    }
   }
   const numericFields = ['danceability', 'energy', 'valence', 'acousticness', 'instrumentalness', 'liveness', 'speechiness']
+  let strongFeatureMatches = 0
   for (const field of numericFields) {
     const left = Number(baseTrack[field])
     const right = Number(candidate[field])
     if (!Number.isFinite(left) || !Number.isFinite(right)) continue
     const diff = Math.abs(left - right)
+    if (diff <= 0.08) strongFeatureMatches += 1
     score += Math.max(0, 2.5 - diff * 10)
   }
   const tempoA = Number(baseTrack.tempo)
@@ -274,6 +281,7 @@ function scoreRelatedTrack(baseTrack, candidate) {
   if (Number.isFinite(tempoA) && Number.isFinite(tempoB)) {
     score += Math.max(0, 2 - Math.abs(tempoA - tempoB) / 15)
   }
+  if (!sameArtist && sharedGenres > 0 && strongFeatureMatches >= 2) score += 4
   if (baseTrack.explicit && candidate.explicit) score += 0.5
   return score
 }
