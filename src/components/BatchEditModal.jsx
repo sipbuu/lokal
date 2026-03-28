@@ -8,8 +8,12 @@ const FIELD_LABELS = {
   artist: 'Artist',
   album: 'Album',
   album_artist: 'Album Artist',
+  track_num: 'Track #',
   year: 'Year',
   genre: 'Genre',
+  genres: 'Genres',
+  record_label: 'Record Label',
+  explicit: 'Explicit',
   artwork: 'Artwork',
 }
 
@@ -18,8 +22,12 @@ const DEFAULT_MODES = {
   artist: 'ignore',
   album: 'ignore',
   album_artist: 'ignore',
+  track_num: 'ignore',
   year: 'ignore',
   genre: 'ignore',
+  genres: 'ignore',
+  record_label: 'ignore',
+  explicit: 'ignore',
   artwork: 'ignore',
 }
 
@@ -29,8 +37,12 @@ function createDefaultValues() {
     artist: '',
     album: '',
     album_artist: '',
+    track_num: '',
     year: '',
     genre: '',
+    genres: '',
+    record_label: '',
+    explicit: '',
     artwork: '',
   }
 }
@@ -59,7 +71,7 @@ export default function BatchEditModal({ tracks = [], open, onClose, onSave }) {
     const rows = []
     for (const track of tracks.slice(0, 12)) {
       const changes = []
-      for (const field of ['title', 'artist', 'album', 'album_artist', 'year', 'genre']) {
+      for (const field of ['title', 'artist', 'album', 'album_artist', 'track_num', 'year', 'genre', 'genres', 'record_label', 'explicit']) {
         const mode = modes[field]
         if (mode === 'ignore') continue
         if (mode === 'clear') {
@@ -119,8 +131,12 @@ export default function BatchEditModal({ tracks = [], open, onClose, onSave }) {
       artist: { mode: modes.artist, value: values.artist || null },
       album: { mode: modes.album, value: values.album || null },
       album_artist: { mode: modes.album_artist, value: values.album_artist || null },
+      track_num: { mode: modes.track_num, value: values.track_num ? parseInt(values.track_num, 10) : null },
       year: { mode: modes.year, value: values.year ? parseInt(values.year, 10) : null },
       genre: { mode: modes.genre, value: values.genre || null },
+      genres: { mode: modes.genres, value: values.genres || null },
+      record_label: { mode: modes.record_label, value: values.record_label || null },
+      explicit: { mode: modes.explicit, value: values.explicit === '' ? null : values.explicit === '1' ? 1 : 0 },
       artwork: { mode: modes.artwork, value: values.artwork || null },
     }
     const result = await api.batchUpdateTracks(tracks.map(track => track.id), operations)
@@ -147,7 +163,7 @@ export default function BatchEditModal({ tracks = [], open, onClose, onSave }) {
           <span className="text-xs font-display text-muted uppercase tracking-widest">Mode</span>
           <span className="text-xs font-display text-muted uppercase tracking-widest">Value</span>
 
-          {['title', 'artist', 'album', 'album_artist', 'year', 'genre'].map(field => (
+          {['title', 'artist', 'album', 'album_artist', 'track_num', 'year', 'genre', 'genres', 'record_label', 'explicit'].map(field => (
             <React.Fragment key={field}>
               <label className="text-sm text-white">{FIELD_LABELS[field]}</label>
               <select
@@ -160,12 +176,25 @@ export default function BatchEditModal({ tracks = [], open, onClose, onSave }) {
                 <option value="fillMissing">Fill missing</option>
                 <option value="clear">Clear</option>
               </select>
-              <input
-                value={values[field]}
-                onChange={(e) => setValue(field, e.target.value)}
-                disabled={modes[field] === 'clear'}
-                className="w-full bg-card border border-border rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-accent/50 disabled:opacity-40"
-              />
+              {field === 'explicit' ? (
+                <select
+                  value={values[field]}
+                  onChange={(e) => setValue(field, e.target.value)}
+                  disabled={modes[field] === 'clear'}
+                  className="w-full bg-card border border-border rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-accent/50 disabled:opacity-40"
+                >
+                  <option value="">Select…</option>
+                  <option value="1">Explicit</option>
+                  <option value="0">Clean</option>
+                </select>
+              ) : (
+                <input
+                  value={values[field]}
+                  onChange={(e) => setValue(field, e.target.value)}
+                  disabled={modes[field] === 'clear'}
+                  className="w-full bg-card border border-border rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-accent/50 disabled:opacity-40"
+                />
+              )}
             </React.Fragment>
           ))}
 
