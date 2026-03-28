@@ -245,6 +245,39 @@ function normalizeAlbumTracks(tracks = []) {
   })
 }
 
+function splitGenreValues(value) {
+  return String(value || '')
+    .split(',')
+    .map(part => part.trim().toLowerCase())
+    .filter(Boolean)
+}
+
+function scoreRelatedTrack(baseTrack, candidate) {
+  let score = 0
+  if (candidate.artist && baseTrack.artist && candidate.artist.toLowerCase() === baseTrack.artist.toLowerCase()) score += 8
+  if (candidate.album && baseTrack.album && candidate.album.toLowerCase() === baseTrack.album.toLowerCase()) score += 3
+  const baseGenres = splitGenreValues(baseTrack.genres || baseTrack.genre)
+  const candidateGenres = new Set(splitGenreValues(candidate.genres || candidate.genre))
+  for (const genre of baseGenres) {
+    if (candidateGenres.has(genre)) score += 4
+  }
+  const numericFields = ['danceability', 'energy', 'valence', 'acousticness', 'instrumentalness', 'liveness', 'speechiness']
+  for (const field of numericFields) {
+    const left = Number(baseTrack[field])
+    const right = Number(candidate[field])
+    if (!Number.isFinite(left) || !Number.isFinite(right)) continue
+    const diff = Math.abs(left - right)
+    score += Math.max(0, 2.5 - diff * 10)
+  }
+  const tempoA = Number(baseTrack.tempo)
+  const tempoB = Number(candidate.tempo)
+  if (Number.isFinite(tempoA) && Number.isFinite(tempoB)) {
+    score += Math.max(0, 2 - Math.abs(tempoA - tempoB) / 15)
+  }
+  if (baseTrack.explicit && candidate.explicit) score += 0.5
+  return score
+}
+
 async function applyBatchTrackUpdates(db, trackIds = [], operations = {}) {
   if (!Array.isArray(trackIds) || !trackIds.length) return []
   const { getStorageDir } = require('../../electron/ipc/db')
@@ -269,7 +302,7 @@ async function applyBatchTrackUpdates(db, trackIds = [], operations = {}) {
       const updates = []
       const params = []
       const nextValues = {}
-      for (const field of ['title', 'artist', 'album', 'album_artist', 'track_num', 'year', 'genre']) {
+      for (const field of ['title', 'artist', 'album', 'album_artist', 'track_num', 'year', 'genre', 'genres', 'record_label', 'explicit']) {
         const result = applyBatchField(track[field], operations[field])
         if (result.changed) {
           updates.push(`${field} = ?`)
@@ -536,15 +569,34 @@ router.get('/:id/related', (req, res) => {
   const db = getDB()
   const track = db.prepare('SELECT * FROM tracks WHERE id = ?').get(req.params.id)
   if (!track) return res.json([])
-  let related = db.prepare(`
-    SELECT * FROM tracks WHERE id != ? AND (genre = ? OR artist = ?)
-    AND id NOT IN (SELECT track_id FROM play_history WHERE user_id = ? ORDER BY played_at DESC LIMIT 100)
-    ORDER BY RANDOM() LIMIT 25
-  `).all(req.params.id, track.genre || '', track.artist, userId)
+  const recentIds = db.prepare('SELECT track_id FROM play_history WHERE user_id = ? ORDER BY played_at DESC LIMIT 100').all(userId).map(row => row.track_id)
+  const recentSet = new Set(recentIds)
+  const candidates = db.prepare(`
+    SELECT * FROM tracks
+    WHERE id != ?
+      AND file_path NOT LIKE 'ghost://%'
+      AND (
+        artist = ?
+        OR LOWER(COALESCE(genre, '')) = LOWER(?)
+        OR LOWER(COALESCE(genres, '')) LIKE LOWER(?)
+        OR (danceability IS NOT NULL AND ABS(danceability - ?) <= 0.18)
+        OR (energy IS NOT NULL AND ABS(energy - ?) <= 0.18)
+        OR (tempo IS NOT NULL AND ABS(tempo - ?) <= 18)
+      )
+    ORDER BY RANDOM()
+    LIMIT 180
+  `).all(req.params.id, track.artist || '', track.genre || '', `%${track.genre || ''}%`, Number(track.danceability) || -99, Number(track.energy) || -99, Number(track.tempo) || -999)
+  let related = candidates
+    .filter(candidate => !recentSet.has(candidate.id))
+    .map(candidate => ({ track: candidate, score: scoreRelatedTrack(track, candidate) }))
+    .filter(item => item.score > 0)
+    .sort((left, right) => right.score - left.score)
+    .map(item => item.track)
+    .slice(0, 25)
   if (related.length < 10) {
-    const extra = db.prepare('SELECT * FROM tracks WHERE id != ? ORDER BY RANDOM() LIMIT 25').all(req.params.id)
+    const extra = db.prepare("SELECT * FROM tracks WHERE id != ? AND file_path NOT LIKE 'ghost://%' ORDER BY RANDOM() LIMIT 40").all(req.params.id)
     const ids = new Set(related.map(r => r.id))
-    related = [...related, ...extra.filter(r => !ids.has(r.id))].slice(0, 25)
+    related = [...related, ...extra.filter(r => !ids.has(r.id) && !recentSet.has(r.id))].slice(0, 25)
   }
   res.json(related)
 })
