@@ -32,6 +32,14 @@ function firstGenre(value) {
   return String(value || '').split(',').map(part => part.trim()).filter(Boolean)[0] || null
 }
 
+function normalizeArtistList(value) {
+  const parts = String(value || '')
+    .split(/\s*[;,]\s*/)
+    .map(part => part.trim())
+    .filter(Boolean)
+  return parts.length ? [...new Set(parts)].join(', ') : null
+}
+
 function normalizeGenres(value) {
   const parts = String(value || '').split(',').map(part => part.trim()).filter(Boolean)
   return parts.length ? [...new Set(parts)].join(', ') : null
@@ -114,7 +122,7 @@ function parseCSV(fileContent) {
   for (let i = 1; i < lines.length; i++) {
     const values = parseCsvLine(lines[i])
     const title = values[titleCol]
-    const artist = artistCol !== -1 ? values[artistCol].replace(/\s*;\s*/g, ', ') : null
+    const artist = artistCol !== -1 ? normalizeArtistList(values[artistCol]) : null
     const album = albumCol !== -1 ? values[albumCol] : null
     const genres = genreCol !== -1 ? normalizeGenres(values[genreCol]) : null
     const releaseDate = releaseDateCol !== -1 ? values[releaseDateCol] : null
@@ -152,7 +160,7 @@ function parseJSON(fileContent) {
     if (Array.isArray(json)) {
       return json.map(t => ({
         title: t.title || t.name || null,
-        artist: t.artist || t.artistName || t.performer || null,
+        artist: normalizeArtistList(t.artist || t.artistName || t.performer || null),
         album: t.album || t.albumName || null,
         file_path: t.file_path || t.path || null,
         duration: t.duration || t.duration_ms || null,
@@ -179,7 +187,7 @@ function parseJSON(fileContent) {
     if (Array.isArray(json.tracks)) {
       return json.tracks.map(t => ({
         title: t.title || t.name || null,
-        artist: t.artist || t.artistName || null,
+        artist: normalizeArtistList(t.artist || t.artistName || null),
         album: t.album || t.albumName || null,
         file_path: t.file_path || t.path || null,
         duration: t.duration || t.duration_ms || null,
@@ -226,7 +234,8 @@ function normalizeMatchValue(value) {
 
 function findTrack(db, entry) {
   let track = null
-  const primaryArtist = String(entry.artist || '').split(/\s*;\s*|\s*,\s*/).map(s => s.trim()).filter(Boolean)[0] || null
+  const normalizedArtist = normalizeArtistList(entry.artist)
+  const primaryArtist = String(normalizedArtist || '').split(/\s*,\s*/).map(s => s.trim()).filter(Boolean)[0] || null
   if (entry.file_path) {
     track = db.prepare('SELECT id FROM tracks WHERE file_path = ?').get(entry.file_path)
     if (!track) {
@@ -234,8 +243,8 @@ function findTrack(db, entry) {
       track = db.prepare('SELECT id FROM tracks WHERE LOWER(title) = ? LIMIT 1').get(filename)
     }
   }
-  if (!track && entry.title && entry.artist) {
-    track = db.prepare('SELECT id FROM tracks WHERE LOWER(title) = ? AND LOWER(artist) = ? LIMIT 1').get(entry.title.toLowerCase(), entry.artist.toLowerCase())
+  if (!track && entry.title && normalizedArtist) {
+    track = db.prepare('SELECT id FROM tracks WHERE LOWER(title) = ? AND LOWER(artist) = ? LIMIT 1').get(entry.title.toLowerCase(), normalizedArtist.toLowerCase())
   }
   if (!track && entry.title && primaryArtist) {
     track = db.prepare('SELECT id FROM tracks WHERE LOWER(title) = ? AND (LOWER(artist) = ? OR LOWER(artist) LIKE ?) LIMIT 1').get(entry.title.toLowerCase(), primaryArtist.toLowerCase(), `%${primaryArtist.toLowerCase()}%`)
@@ -243,9 +252,9 @@ function findTrack(db, entry) {
   if (!track && entry.title) {
     track = db.prepare('SELECT id FROM tracks WHERE LOWER(title) = ? LIMIT 1').get(entry.title.toLowerCase())
   }
-  if (!track && entry.title && entry.artist) {
+  if (!track && entry.title && normalizedArtist) {
     const titleNorm = normalizeMatchValue(entry.title)
-    const artistNorm = normalizeMatchValue(entry.artist)
+    const artistNorm = normalizeMatchValue(normalizedArtist)
     const candidates = db.prepare('SELECT id, title, artist FROM tracks WHERE LOWER(title) LIKE ? LIMIT 50').all(`%${entry.title.toLowerCase().slice(0, 18)}%`)
     let best = null
     let bestScore = 0
@@ -271,7 +280,7 @@ function createGhostTrack(db, entry, sourcePlatform = 'generic', playlistId = 'i
   const id = `g-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
   const safePlatform = String(sourcePlatform || 'generic').toLowerCase().replace(/[^a-z0-9_-]+/g, '-') || 'generic'
   const title = String(entry.title || 'Unknown Track').trim() || 'Unknown Track'
-  const artist = String(entry.artist || 'Unknown Artist').trim() || 'Unknown Artist'
+  const artist = normalizeArtistList(entry.artist) || 'Unknown Artist'
   const filePath = `ghost://${safePlatform}/${playlistId}/${id}`
   db.prepare(`
     INSERT INTO tracks
@@ -284,7 +293,7 @@ function createGhostTrack(db, entry, sourcePlatform = 'generic', playlistId = 'i
     title,
     artist,
     entry.album || null,
-    entry.artist || null,
+    normalizeArtistList(entry.artist) || null,
     null,
     entry.year || null,
     entry.genre || null,
@@ -314,32 +323,36 @@ function createGhostTrack(db, entry, sourcePlatform = 'generic', playlistId = 'i
 function applyImportedMetadata(db, trackId, entry = {}) {
   const track = db.prepare('SELECT * FROM tracks WHERE id = ?').get(trackId)
   if (!track) return null
+  const genre = entry.genre || firstGenre(entry.genres)
+  const genres = entry.genres || null
+  const explicitValue = entry.explicit ? 1 : 0
   db.prepare(`
     UPDATE tracks SET
-      year = COALESCE(year, ?),
-      genre = COALESCE(NULLIF(genre, ''), ?),
-      genres = COALESCE(NULLIF(genres, ''), ?),
-      record_label = COALESCE(NULLIF(record_label, ''), ?),
-      explicit = CASE WHEN explicit = 1 THEN 1 ELSE ? END,
-      danceability = COALESCE(danceability, ?),
-      energy = COALESCE(energy, ?),
-      track_key = COALESCE(track_key, ?),
-      loudness = COALESCE(loudness, ?),
-      mode = COALESCE(mode, ?),
-      speechiness = COALESCE(speechiness, ?),
-      acousticness = COALESCE(acousticness, ?),
-      instrumentalness = COALESCE(instrumentalness, ?),
-      liveness = COALESCE(liveness, ?),
-      valence = COALESCE(valence, ?),
-      tempo = COALESCE(tempo, ?),
-      time_signature = COALESCE(time_signature, ?)
+      year = COALESCE(?, year),
+      genre = COALESCE(NULLIF(?, ''), genre),
+      genres = COALESCE(NULLIF(?, ''), genres),
+      record_label = COALESCE(NULLIF(?, ''), record_label),
+      explicit = CASE WHEN ? IS NULL THEN explicit ELSE ? END,
+      danceability = COALESCE(?, danceability),
+      energy = COALESCE(?, energy),
+      track_key = COALESCE(?, track_key),
+      loudness = COALESCE(?, loudness),
+      mode = COALESCE(?, mode),
+      speechiness = COALESCE(?, speechiness),
+      acousticness = COALESCE(?, acousticness),
+      instrumentalness = COALESCE(?, instrumentalness),
+      liveness = COALESCE(?, liveness),
+      valence = COALESCE(?, valence),
+      tempo = COALESCE(?, tempo),
+      time_signature = COALESCE(?, time_signature)
     WHERE id = ?
   `).run(
     entry.year ?? null,
-    entry.genre || firstGenre(entry.genres),
-    entry.genres || null,
+    genre,
+    genres,
     entry.record_label || null,
-    entry.explicit ? 1 : 0,
+    entry.explicit === undefined || entry.explicit === null || entry.explicit === '' ? null : explicitValue,
+    entry.explicit === undefined || entry.explicit === null || entry.explicit === '' ? null : explicitValue,
     entry.danceability ?? null,
     entry.energy ?? null,
     entry.track_key ?? null,
