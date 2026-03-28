@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { X, Plus, Check, Music, Heart } from 'lucide-react'
 import { useAppStore, usePlayerStore } from '../store/player'
 import { api } from '../api'
+import PlaylistCover from './PlaylistCover'
 
 export default function AddToPlaylistModal() {
   const { addToPlaylistTrack, addToPlaylistTrackIds, closeAddToPlaylist, user } = useAppStore()
@@ -129,9 +130,7 @@ export default function AddToPlaylistModal() {
                   return (
                     <motion.button key={pl.id} onClick={() => !done && addTrack(pl)} whileTap={{ scale: 0.97 }}
                       className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all ${done ? 'opacity-50' : 'hover:bg-elevated'}`}>
-                      <div className="w-9 h-9 rounded-lg bg-card flex items-center justify-center flex-shrink-0 border border-border">
-                        <Music size={14} className="text-muted" />
-                      </div>
+                      <PlaylistCover playlistId={pl.id} coverPath={pl.cover_path} size={36} className="border border-border bg-card" />
                       <span className="text-sm text-white flex-1 text-left truncate">{pl.name}</span>
                       <AnimatePresence>
                         {done && (
