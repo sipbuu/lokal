@@ -188,6 +188,7 @@ function buildYtDlpBaseArgs(settings, ffmpeg) {
   }
   if (settings.clean_download_metadata !== '0') {
     args.push('--parse-metadata', 'uploader:%(artist)s')
+    args.push('--replace-in-metadata', 'artist', ' - Topic$', '')
   }
   return args
 }
