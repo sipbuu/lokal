@@ -356,6 +356,7 @@ export default function TrackList({ tracks = [], showAlbum = true, onRemove = nu
       nextOverrides[updatedTrack.id] = updatedTrack
     }
     setTrackOverrides(prev => ({ ...prev, ...nextOverrides }))
+    window.dispatchEvent(new Event('lokal:refresh'))
   }
 
   const handleQuickAdd = async (track, e) => {
@@ -603,8 +604,10 @@ export default function TrackList({ tracks = [], showAlbum = true, onRemove = nu
         onClose={() => setEditingTrack(null)} 
         onSave={(updatedTrack) => {
           if (!updatedTrack?.id) return
+          syncTrack(updatedTrack)
           setTrackOverrides(prev => ({ ...prev, [updatedTrack.id]: updatedTrack }))
           setEditingTrack(updatedTrack)
+          window.dispatchEvent(new Event('lokal:refresh'))
         }}
       />
 
