@@ -102,6 +102,7 @@ export const api = {
   playlistImportFile: (name, fileContent, fileType, userId) => isE() ? el().playlistImportFile(name, fileContent, fileType, userId || 'guest') : apiFetch('/playlists/import-file', { method:'POST', body:{name, fileContent, fileType, userId:userId||'guest'} }),
   previewExternalPlaylistImport: (payload) => isE() ? el().previewExternalPlaylistImport(payload) : apiFetch('/playlists/external-import-preview', { method:'POST', body:payload }),
   importExternalPlaylist: (payload) => isE() ? el().importExternalPlaylist(payload) : apiFetch('/playlists/external-import', { method:'POST', body:payload }),
+  importExternalTrackMetadata: (payload) => isE() ? el().importExternalTrackMetadata(payload) : apiFetch('/playlists/external-import-metadata', { method:'POST', body:payload }),
   resolveGhostTrack: (ghostTrackId, targetTrackId) => isE() ? el().resolveGhostTrack(ghostTrackId, targetTrackId) : apiFetch('/playlists/resolve-ghost', { method:'POST', body:{ ghostTrackId, targetTrackId } }),
   reorderPlaylist: (pl, trackIds) => isE() ? el().reorderPlaylist(pl, trackIds) : apiFetch(`/playlists/${pl}/reorder`, { method:'PUT', body:{trackIds} }),
   getMixes: (uid) => isE() ? el().getMixes(uid) : apiFetch(`/mixes?userId=${uid||'guest'}`),
