@@ -613,6 +613,7 @@ export default function App() {
     lastfmPlaybackKeyRef.current = `${track.id}:${startedAt}`
 
     api.getSettings().then((settings) => {
+      if (settings?.lastfm_enabled === '0') return
       if (!settings?.lastfm_session_key || !settings?.lastfm_api_key || !settings?.lastfm_api_secret) return
       if (!track.artist || !track.title) return
       pushLastfmStatus({
@@ -657,6 +658,7 @@ export default function App() {
     if (!shouldScrobbleLastfmTrack(playedSeconds, track)) return
 
     api.getSettings().then((settings) => {
+      if (settings?.lastfm_enabled === '0') return
       if (settings?.lastfm_scrobbling !== '1') return
       if (!settings?.lastfm_session_key || !settings?.lastfm_api_key || !settings?.lastfm_api_secret) return
       pushLastfmStatus({

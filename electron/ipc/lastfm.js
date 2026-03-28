@@ -4,6 +4,32 @@ const crypto = require('crypto')
 
 const API_ROOT = 'https://ws.audioscrobbler.com/2.0/'
 
+function getKeepCommaArtists() {
+  const keepComma = new Set([
+    'tyler, the creator', 'earth, wind & fire', 'crosby, stills & nash',
+    'crosby, stills, nash & young', 'simon & garfunkel', 'emerson, lake & palmer',
+    'syd barrett', 'pete & bas', 'pe & ne',
+  ])
+  try {
+    const db = getDB()
+    const setting = db.prepare("SELECT value FROM settings WHERE key = 'keep_comma_artists'").get()
+    if (setting?.value) {
+      const userDefined = JSON.parse(setting.value)
+      userDefined.forEach(artist => keepComma.add(String(artist || '').toLowerCase().trim()))
+    }
+  } catch {}
+  return keepComma
+}
+
+function getPrimaryLastfmArtist(artist) {
+  const raw = String(artist || '').trim()
+  if (!raw) return ''
+  const keepCommaArtists = getKeepCommaArtists()
+  const lower = raw.toLowerCase()
+  if (keepCommaArtists.has(lower)) return raw
+  return raw.split(',')[0].trim() || raw
+}
+
 
 function generateSignature(params, secret) {
   const sorted = Object.keys(params)
@@ -90,9 +116,10 @@ async function scrobbleTrack(artist, track, album, duration, timestamp, apiKey, 
   if (!sessionKey || !apiKey || !apiSecret) {
     return { error: 'Last.fm not configured - missing API key, secret, or session key' }
   }
-  
+
+  const resolvedArtist = getPrimaryLastfmArtist(artist)
   const params = {
-    'artist[0]': artist,
+    'artist[0]': resolvedArtist,
     'track[0]': track,
     'timestamp[0]': timestamp.toString(),
     'sk': sessionKey
@@ -109,9 +136,10 @@ async function updateNowPlaying(artist, track, album, duration, apiKey, apiSecre
   if (!sessionKey || !apiKey || !apiSecret) {
     return { error: 'Last.fm not configured' }
   }
-  
+
+  const resolvedArtist = getPrimaryLastfmArtist(artist)
   const params = {
-    artist,
+    artist: resolvedArtist,
     track,
     sk: sessionKey
   }
@@ -136,6 +164,7 @@ function registerLastFmHandlers(ipcMain) {
       apiSecret: settings.lastfm_api_secret || '',
       username: settings.lastfm_username || '',
       sessionKey: settings.lastfm_session_key || '',
+      enabled: settings.lastfm_enabled !== '0',
       scrobblingEnabled: settings.lastfm_scrobbling === '1'
     }
   })
@@ -154,6 +183,9 @@ function registerLastFmHandlers(ipcMain) {
     }
     if (settings.sessionKey !== undefined) {
       db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('lastfm_session_key', ?)").run(settings.sessionKey || '')
+    }
+    if (settings.enabled !== undefined) {
+      db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('lastfm_enabled', ?)").run(settings.enabled ? '1' : '0')
     }
     if (settings.scrobblingEnabled !== undefined) {
       db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('lastfm_scrobbling', ?)").run(settings.scrobblingEnabled ? '1' : '0')
@@ -232,9 +264,13 @@ function registerLastFmHandlers(ipcMain) {
       apiKey: db.prepare("SELECT value FROM settings WHERE key = 'lastfm_api_key'").get()?.value,
       apiSecret: db.prepare("SELECT value FROM settings WHERE key = 'lastfm_api_secret'").get()?.value,
       sessionKey: db.prepare("SELECT value FROM settings WHERE key = 'lastfm_session_key'").get()?.value,
+      enabled: db.prepare("SELECT value FROM settings WHERE key = 'lastfm_enabled'").get()?.value !== '0',
       scrobblingEnabled: db.prepare("SELECT value FROM settings WHERE key = 'lastfm_scrobbling'").get()?.value === '1'
     }
-    
+
+    if (!settings.enabled) {
+      return { skipped: true, reason: 'Last.fm disabled' }
+    }
     if (!settings.scrobblingEnabled) {
       return { skipped: true, reason: 'Scrobbling disabled' }
     }
@@ -253,9 +289,12 @@ function registerLastFmHandlers(ipcMain) {
       apiKey: db.prepare("SELECT value FROM settings WHERE key = 'lastfm_api_key'").get()?.value,
       apiSecret: db.prepare("SELECT value FROM settings WHERE key = 'lastfm_api_secret'").get()?.value,
       sessionKey: db.prepare("SELECT value FROM settings WHERE key = 'lastfm_session_key'").get()?.value,
-      scrobblingEnabled: db.prepare("SELECT value FROM settings WHERE key = 'lastfm_scrobbling'").get()?.value === '1'
+      enabled: db.prepare("SELECT value FROM settings WHERE key = 'lastfm_enabled'").get()?.value !== '0'
     }
-    
+
+    if (!settings.enabled) {
+      return { skipped: true, reason: 'Last.fm disabled' }
+    }
     if (!settings.apiKey || !settings.apiSecret || !settings.sessionKey) {
       return { skipped: true }
     }

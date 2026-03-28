@@ -1599,6 +1599,13 @@ export default function Settings() {
             </button>
           </div>
         </Row>
+        <Row label="Last.fm Integration" desc="Turn Last.fm off completely, including now playing updates and end-of-track scrobbles.">
+          <button
+            onClick={() => set('lastfm_enabled', settings.lastfm_enabled === '0' ? '1' : '0')}
+            className={`px-4 py-1.5 rounded-lg text-xs font-display uppercase tracking-wider border transition-colors ${settings.lastfm_enabled !== '0' ? 'bg-accent/20 border-accent/50 text-accent' : 'border-border text-muted hover:text-white'}`}>
+            {settings.lastfm_enabled !== '0' ? 'On' : 'Off'}
+          </button>
+        </Row>
         <Row label="Scrobbling" desc="Submit plays to Last.fm when tracks finish">
           <button
             onClick={() => { const v = settings.lastfm_scrobbling !== '1'; set('lastfm_scrobbling', v ? '1' : '0') }}
