@@ -7,6 +7,7 @@ const mm = require('music-metadata')
 const { getDB, getStorageDir, importAppData, resetAppData } = require('./db')
 const { ipcMain } = require('electron')
 const { emitPluginHook } = require('./plugins')
+const { applyPendingImportedMetadataToTrack } = require('./playlists')
 const { cacheArtistMetadata, searchArtistMetadataCandidates, applyArtistMetadataSelection, clearArtistImageOverride } = require('./artistMetadata')
 
 const DEFAULT_MUSIC_PATH = 'C:\\Users\\sipbuu\\Music'
@@ -236,6 +237,7 @@ async function scanFolder(folderPath) {
           console.warn(`[scanFolder] Failed to link artist ${aid} to track ${trackId}:`, linkErr.message)
         }
       }
+      applyPendingImportedMetadataToTrack(db, trackId)
     }
   })
   const insertBatch = async (items) => {
@@ -1355,6 +1357,7 @@ async function indexSingleFile(filePath, opts = {}) {
         console.warn(`[indexSingleFile] Failed to link artist ${aid} to track ${trackId}:`, linkErr.message)
       }
     }
+    applyPendingImportedMetadataToTrack(db, trackId)
   })
   
   insertTransaction()
