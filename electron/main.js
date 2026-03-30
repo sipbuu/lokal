@@ -324,12 +324,14 @@ app.whenReady().then(() => {
     const r = await require('electron').dialog.showOpenDialog(mainWindow, { properties: ['openDirectory'] })
     return r.filePaths[0] || null
   })
-  ipcMain.handle('dialog:openFile', async (_, filters) => {
+  ipcMain.handle('dialog:openFile', async (_, options) => {
+    const normalized = Array.isArray(options) ? { filters: options } : (options || {})
+    const properties = normalized.multiple ? ['openFile', 'multiSelections'] : ['openFile']
     const r = await require('electron').dialog.showOpenDialog(mainWindow, {
-      properties: ['openFile'],
-      filters: filters || [{ name: 'Files', extensions: ['jpg','jpeg','png','webp','lrc','txt','ttl','ttml'] }]
+      properties,
+      filters: normalized.filters || [{ name: 'Files', extensions: ['jpg','jpeg','png','webp','lrc','txt','ttl','ttml'] }]
     })
-    return r.filePaths[0] || null
+    return normalized.multiple ? r.filePaths : (r.filePaths[0] || null)
   })
   ipcMain.handle('dialog:readFileBinary', async (_, fp) => require('fs').readFileSync(fp, 'utf8'))
   ipcMain.handle('dialog:readFileAsDataURL', async (_, fp) => {
