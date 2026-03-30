@@ -42,6 +42,7 @@ export default function Profile() {
   const [uploadingBanner, setUploadingBanner] = useState(false)
   const [stats, setStats] = useState(null)
   const [statsLoading, setStatsLoading] = useState(false)
+  const [topArtistProfile, setTopArtistProfile] = useState(null)
   const [playlists, setPlaylists] = useState([])
   const [editingBio, setEditingBio] = useState(false)
   const [bioDraft, setBioDraft] = useState('')
@@ -83,6 +84,31 @@ export default function Profile() {
       setPlaylists(Array.isArray(result) ? result.slice(0, 6) : [])
     }).catch(() => setPlaylists([]))
   }, [user?.id])
+
+  useEffect(() => {
+    const topArtistName = String(stats?.topArtists?.[0]?.artist || '').trim()
+    if (!topArtistName) {
+      setTopArtistProfile(null)
+      return
+    }
+
+    let cancelled = false
+    api.getArtistsPage({ search: topArtistName, limit: 10, offset: 0 }).then((result) => {
+      if (cancelled) return
+      const artists = Array.isArray(result) ? result : result?.items
+      const match = Array.isArray(artists)
+        ? artists.find((artist) => String(artist?.name || '').trim().toLowerCase() === topArtistName.toLowerCase())
+          || artists.find((artist) => String(artist?.name || '').trim().toLowerCase().includes(topArtistName.toLowerCase()))
+        : null
+      setTopArtistProfile(match || null)
+    }).catch(() => {
+      if (!cancelled) setTopArtistProfile(null)
+    })
+
+    return () => {
+      cancelled = true
+    }
+  }, [stats?.topArtists])
 
   useEffect(() => {
     setBioDraft(user?.bio || '')
@@ -136,6 +162,9 @@ export default function Profile() {
   const bannerSrc = bannerData || avatarSrc || ''
   const hours = stats ? Math.round((stats.totalMinutes || 0) / 60) : 0
   const topArtist = stats?.topArtists?.[0]?.artist || 'No listening data yet'
+  const topArtistImageSrc = topArtistProfile?.id && topArtistProfile?.image_path
+    ? (api.isElectron ? `file://${topArtistProfile.image_path}` : `/api/artist-image/${encodeURIComponent(topArtistProfile.id)}`)
+    : null
   const topTrackData = stats?.topTracks?.[0] || null
   const topTrack = topTrackData ? `${topTrackData.title} · ${topTrackData.artist}` : 'No top track yet'
   const topTrackArt = topTrackData?.artwork_path
@@ -391,7 +420,11 @@ export default function Profile() {
                 >
                   <div className="flex items-center gap-3">
                     <div className="w-16 h-16 rounded-xl bg-card border border-border flex items-center justify-center overflow-hidden flex-shrink-0">
-                      <span className="text-xl font-display text-accent">{topArtist?.[0]?.toUpperCase() || 'A'}</span>
+                      {topArtistImageSrc ? (
+                        <img src={topArtistImageSrc} alt={topArtist} className="w-full h-full object-cover" />
+                      ) : (
+                        <span className="text-xl font-display text-accent">{topArtist?.[0]?.toUpperCase() || 'A'}</span>
+                      )}
                     </div>
                     <div className="min-w-0">
                       <p className="text-sm text-white">Top Artist</p>
