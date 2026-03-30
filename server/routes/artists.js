@@ -56,6 +56,7 @@ router.get('/', (req, res) => {
   const offset = hasPaging ? Math.max(0, parseInt(req.query.offset, 10) || 0) : 0
   const params = []
   const where = search ? 'WHERE a.name LIKE ?' : ''
+  const groupBy = 'GROUP BY a.id'
   const having = 'HAVING COUNT(DISTINCT atl.track_id) > 0'
 
   if (search) {
@@ -65,7 +66,6 @@ router.get('/', (req, res) => {
   const baseSql = `
     FROM artists a
     LEFT JOIN artist_track_links atl ON atl.artist_id = a.id
-    GROUP BY a.id
   `
   const selectSql = `
     SELECT a.*, COUNT(t.id) as track_count FROM artists a
@@ -83,6 +83,7 @@ router.get('/', (req, res) => {
     SELECT a.*, COUNT(DISTINCT atl.track_id) as track_count
     ${baseSql}
     ${where}
+    ${groupBy}
     ${having}
     ORDER BY a.name
     LIMIT ? OFFSET ?
@@ -93,6 +94,7 @@ router.get('/', (req, res) => {
       SELECT a.id
       ${baseSql}
       ${where}
+      ${groupBy}
       ${having}
     ) grouped_artists
   `).get(...params)

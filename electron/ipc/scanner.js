@@ -396,6 +396,7 @@ function getArtistsPage(db, opts = {}) {
   const rawSearch = typeof opts.search === 'string' ? opts.search.trim() : ''
   const params = []
   const where = rawSearch ? 'WHERE a.name LIKE ?' : ''
+  const groupBy = 'GROUP BY a.id'
   const having = 'HAVING COUNT(DISTINCT atl.track_id) > 0'
 
   if (rawSearch) {
@@ -405,12 +406,12 @@ function getArtistsPage(db, opts = {}) {
   const baseSql = `
     FROM artists a
     LEFT JOIN artist_track_links atl ON atl.artist_id = a.id
-    GROUP BY a.id
   `
   const rows = db.prepare(`
     SELECT a.*, COUNT(DISTINCT atl.track_id) as track_count
     ${baseSql}
     ${where}
+    ${groupBy}
     ${having}
     ORDER BY a.name
     LIMIT ? OFFSET ?
@@ -421,6 +422,7 @@ function getArtistsPage(db, opts = {}) {
       SELECT a.id
       ${baseSql}
       ${where}
+      ${groupBy}
       ${having}
     ) grouped_artists
   `).get(...params)
