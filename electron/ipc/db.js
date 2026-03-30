@@ -126,6 +126,36 @@ function initDB() {
       fetched_at INTEGER DEFAULT 0,
       PRIMARY KEY (track_id, target_lang, source_hash)
     );
+    CREATE TABLE IF NOT EXISTS pending_import_metadata (
+      id TEXT PRIMARY KEY,
+      title TEXT NOT NULL,
+      normalized_title TEXT NOT NULL,
+      artist TEXT,
+      normalized_artist TEXT,
+      album TEXT,
+      normalized_album TEXT,
+      year INTEGER,
+      genre TEXT,
+      genres TEXT,
+      record_label TEXT,
+      explicit INTEGER,
+      danceability REAL,
+      energy REAL,
+      track_key INTEGER,
+      loudness REAL,
+      mode INTEGER,
+      speechiness REAL,
+      acousticness REAL,
+      instrumentalness REAL,
+      liveness REAL,
+      valence REAL,
+      tempo REAL,
+      time_signature INTEGER,
+      duration REAL,
+      source_url TEXT,
+      source_platform TEXT,
+      created_at INTEGER DEFAULT (unixepoch())
+    );
     CREATE TABLE IF NOT EXISTS users (
       id TEXT PRIMARY KEY,
       username TEXT UNIQUE NOT NULL,
@@ -179,6 +209,7 @@ function initDB() {
     `ALTER TABLE tracks ADD COLUMN time_signature INTEGER`,
     `CREATE TABLE IF NOT EXISTS artist_track_links (artist_id TEXT NOT NULL, track_id TEXT NOT NULL, PRIMARY KEY (artist_id, track_id))`,
     `CREATE TABLE IF NOT EXISTS play_history (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id TEXT NOT NULL, track_id TEXT NOT NULL, seconds_played INTEGER DEFAULT 0, played_at INTEGER DEFAULT (unixepoch()))`,
+    `CREATE TABLE IF NOT EXISTS pending_import_metadata (id TEXT PRIMARY KEY, title TEXT NOT NULL, normalized_title TEXT NOT NULL, artist TEXT, normalized_artist TEXT, album TEXT, normalized_album TEXT, year INTEGER, genre TEXT, genres TEXT, record_label TEXT, explicit INTEGER, danceability REAL, energy REAL, track_key INTEGER, loudness REAL, mode INTEGER, speechiness REAL, acousticness REAL, instrumentalness REAL, liveness REAL, valence REAL, tempo REAL, time_signature INTEGER, duration REAL, source_url TEXT, source_platform TEXT, created_at INTEGER DEFAULT (unixepoch()))`,
   ]
   
   const quickMigrations = [
@@ -222,6 +253,7 @@ function initDB() {
       created_at INTEGER DEFAULT (unixepoch()),
       last_downloaded_at INTEGER
     )`,
+    `CREATE TABLE IF NOT EXISTS pending_import_metadata (id TEXT PRIMARY KEY, title TEXT NOT NULL, normalized_title TEXT NOT NULL, artist TEXT, normalized_artist TEXT, album TEXT, normalized_album TEXT, year INTEGER, genre TEXT, genres TEXT, record_label TEXT, explicit INTEGER, danceability REAL, energy REAL, track_key INTEGER, loudness REAL, mode INTEGER, speechiness REAL, acousticness REAL, instrumentalness REAL, liveness REAL, valence REAL, tempo REAL, time_signature INTEGER, duration REAL, source_url TEXT, source_platform TEXT, created_at INTEGER DEFAULT (unixepoch()))`,
   ]
   for (const m of quickMigrations) { try { db.exec(m) } catch {} }
   
@@ -288,6 +320,7 @@ function clearDatabaseTables() {
   db.prepare('DELETE FROM artist_track_links').run()
   db.prepare('DELETE FROM lyrics_translations').run()
   db.prepare('DELETE FROM lyrics_cache').run()
+  try { db.prepare('DELETE FROM pending_import_metadata').run() } catch {}
   try { db.prepare('DELETE FROM downloaded_playlists').run() } catch {}
   db.prepare('DELETE FROM playlists').run()
   db.prepare('DELETE FROM tracks').run()
