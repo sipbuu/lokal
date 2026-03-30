@@ -231,6 +231,31 @@ function parseImportEntries(fileContent, fileType) {
   return entries.map(normalizeImportEntry)
 }
 
+function collectImportEntries(payload = {}) {
+  const files = Array.isArray(payload.files) && payload.files.length
+    ? payload.files
+    : [{ fileContent: payload.fileContent || '', fileType: payload.fileType || 'csv', fileName: payload.fileName || '' }]
+
+  const entries = []
+  const fileSummaries = []
+  for (const file of files) {
+    const fileType = file?.fileType || 'csv'
+    const parsed = parseImportEntries(file?.fileContent || '', fileType)
+    fileSummaries.push({
+      fileName: file?.fileName || '',
+      fileType,
+      total: parsed.length,
+    })
+    entries.push(...parsed)
+  }
+
+  return {
+    entries,
+    fileCount: files.filter(file => file?.fileContent || file?.fileName).length,
+    fileSummaries,
+  }
+}
+
 function normalizeMatchValue(value) {
   return String(value || '')
     .toLowerCase()
@@ -283,6 +308,49 @@ function findTrack(db, entry) {
     if (best && bestScore >= 72) track = { id: best.id }
   }
   return track
+}
+
+function queuePendingImportedMetadata(db, entry = {}, sourcePlatform = 'generic') {
+  const title = String(entry.title || '').trim()
+  if (!title) return null
+  db.prepare(`
+    INSERT INTO pending_import_metadata (
+      id, title, normalized_title, artist, normalized_artist, album, normalized_album,
+      year, genre, genres, record_label, explicit, danceability, energy, track_key, loudness,
+      mode, speechiness, acousticness, instrumentalness, liveness, valence, tempo, time_signature,
+      duration, source_url, source_platform, created_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    `pim-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    title,
+    normalizeMatchValue(title),
+    normalizeArtistList(entry.artist) || null,
+    normalizeMatchValue(normalizeArtistList(entry.artist)),
+    entry.album || null,
+    normalizeMatchValue(entry.album),
+    entry.year ?? null,
+    entry.genre || firstGenre(entry.genres),
+    entry.genres || null,
+    entry.record_label || null,
+    entry.explicit === undefined || entry.explicit === null || entry.explicit === '' ? null : (entry.explicit ? 1 : 0),
+    entry.danceability ?? null,
+    entry.energy ?? null,
+    entry.track_key ?? null,
+    entry.loudness ?? null,
+    entry.mode ?? null,
+    entry.speechiness ?? null,
+    entry.acousticness ?? null,
+    entry.instrumentalness ?? null,
+    entry.liveness ?? null,
+    entry.valence ?? null,
+    entry.tempo ?? null,
+    entry.time_signature ?? null,
+    entry.duration ?? null,
+    entry.source_url || null,
+    sourcePlatform || 'generic',
+    Date.now()
+  )
+  return true
 }
 
 function createGhostTrack(db, entry, sourcePlatform = 'generic', playlistId = 'import') {
@@ -419,13 +487,16 @@ function resolveGhostTrack(db, ghostTrackId, targetTrackId) {
 }
 
 function importExternalMetadata(db, payload = {}) {
-  const { fileContent = '', fileType = 'csv', sourcePlatform = 'generic' } = payload || {}
-  const entries = parseImportEntries(fileContent, fileType)
+  const { sourcePlatform = 'generic' } = payload || {}
+  const { entries, fileCount } = collectImportEntries(payload)
   let matched = 0
+  let savedForLater = 0
   const unmatched = []
   for (const entry of entries) {
     const track = findTrack(db, entry)
     if (!track) {
+      queuePendingImportedMetadata(db, entry, sourcePlatform)
+      savedForLater++
       unmatched.push({
         title: entry.title || 'Unknown Track',
         artist: entry.artist || 'Unknown Artist',
@@ -438,9 +509,11 @@ function importExternalMetadata(db, payload = {}) {
   }
   return {
     ok: true,
+    fileCount,
     total: entries.length,
     matched,
     skipped: Math.max(entries.length - matched, 0),
+    savedForLater,
     unmatched: unmatched.slice(0, 50),
   }
 }
@@ -633,18 +706,23 @@ router.post('/import-file', (req, res) => {
 })
 
 router.post('/external-import-preview', (req, res) => {
-  const { fileContent = '', fileType = 'csv' } = req.body || {}
   const db = getDB()
-  const entries = parseImportEntries(fileContent, fileType)
-  res.json({ ok: true, fileType, ...buildImportPreview(db, entries) })
+  const { entries, fileCount, fileSummaries } = collectImportEntries(req.body || {})
+  res.json({
+    ok: true,
+    fileType: req.body?.fileType || req.body?.files?.[0]?.fileType || 'csv',
+    fileCount,
+    files: fileSummaries,
+    ...buildImportPreview(db, entries),
+  })
 })
 
 router.post('/external-import', (req, res) => {
-  const { name, fileContent = '', fileType = 'csv', userId = 'guest', sourcePlatform = 'generic' } = req.body || {}
+  const { name, userId = 'guest', sourcePlatform = 'generic' } = req.body || {}
   const db = getDB()
   const playlistId = 'pl-' + Date.now()
   const uid = userId || 'guest'
-  const entries = parseImportEntries(fileContent, fileType)
+  const { entries, fileCount } = collectImportEntries(req.body || {})
   db.prepare('INSERT INTO playlists (id, name, user_id) VALUES (?, ?, ?)').run(playlistId, name, uid)
   let matched = 0
   let ghosted = 0
@@ -668,7 +746,7 @@ router.post('/external-import', (req, res) => {
     const max = db.prepare('SELECT MAX(position) as m FROM playlist_tracks WHERE playlist_id = ?').get(playlistId)
     db.prepare('INSERT INTO playlist_tracks (playlist_id, track_id, position, added_by, added_at) VALUES (?, ?, ?, ?, ?)').run(playlistId, track.id, (max?.m || 0) + 1, uid, Date.now())
   }
-  res.json({ ok: true, playlistId, name, total: entries.length, matched, ghosted, unresolved: unresolved.slice(0, 50) })
+  res.json({ ok: true, playlistId, name, fileCount, total: entries.length, matched, ghosted, unresolved: unresolved.slice(0, 50) })
 })
 
 router.post('/external-import-metadata', (req, res) => {
