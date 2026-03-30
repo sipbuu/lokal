@@ -17,7 +17,7 @@ export default function Modal({ open, onClose, title, children, width = 'max-w-m
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
           transition={{ duration: 0.15 }}
-          className="fixed inset-0 z-50 flex items-center justify-center p-4"
+          className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4"
         >
           <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={onClose} />
           <motion.div
@@ -25,11 +25,11 @@ export default function Modal({ open, onClose, title, children, width = 'max-w-m
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.94, y: 8 }}
             transition={{ type: 'spring', stiffness: 380, damping: 30 }}
-            className={`relative z-10 w-full ${width} bg-elevated border border-border rounded-2xl shadow-2xl overflow-hidden`}
+            className={`relative z-10 flex max-h-[calc(100vh-1.5rem)] w-full flex-col ${width} bg-elevated border border-border rounded-2xl shadow-2xl overflow-hidden sm:max-h-[calc(100vh-2rem)]`}
             onClick={(e) => e.stopPropagation()}
           >
             {title && (
-              <div className="flex items-center justify-between px-6 pt-5 pb-0">
+              <div className="flex items-center justify-between px-5 pt-4 pb-0 sm:px-6 sm:pt-5">
                 <h2 className="font-display text-sm uppercase tracking-widest text-white">{title}</h2>
                 {onClose && (
                   <button onClick={onClose} className="w-7 h-7 flex items-center justify-center rounded-lg text-muted hover:text-white hover:bg-card transition-colors">
@@ -38,7 +38,7 @@ export default function Modal({ open, onClose, title, children, width = 'max-w-m
                 )}
               </div>
             )}
-            <div className="p-6">
+            <div className="min-h-0 overflow-y-auto p-5 sm:p-6">
               {children}
             </div>
           </motion.div>
