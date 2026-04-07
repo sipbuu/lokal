@@ -165,6 +165,15 @@ export default function Albums() {
   const location = useLocation()
   const { playQueue, currentTrack, isPlaying, togglePlay, playTrack } = usePlayerStore()
 
+  const loadAlbums = () => {
+    setLoadingAlbums(true)
+    Promise.all([api.getAllAlbums(), api.getSettings().catch(() => ({}))]).then(([result, loadedSettings]) => {
+      setAlbums(Array.isArray(result) ? result : [])
+      setSettings(loadedSettings || {})
+      setLoadingAlbums(false)
+    })
+  }
+
   useEffect(() => {
     let active = true
     Promise.all([api.getAllAlbums(), api.getSettings().catch(() => ({}))]).then(([result, loadedSettings]) => {
@@ -177,6 +186,21 @@ export default function Albums() {
       active = false
     }
   }, [])
+
+  useEffect(() => {
+    const handleRefresh = () => {
+      loadAlbums()
+      if (selectedAlbum?.title) {
+        setLoadingTracks(true)
+        api.getAlbumTracks(selectedAlbum.title).then((tracks) => {
+          setAlbumTracks(Array.isArray(tracks) ? tracks : [])
+          setLoadingTracks(false)
+        })
+      }
+    }
+    window.addEventListener('lokal:refresh', handleRefresh)
+    return () => window.removeEventListener('lokal:refresh', handleRefresh)
+  }, [selectedAlbum?.title])
 
   useEffect(() => {
     if (!albums.length) return

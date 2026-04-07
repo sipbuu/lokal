@@ -99,6 +99,17 @@ export default function Search() {
     }
   }, [query, isSearchStarted])
 
+  useEffect(() => {
+    const handleRefresh = () => {
+      if (query.trim()) {
+        doSearch(query)
+      }
+      setRecentItems(getRecentItems())
+    }
+    window.addEventListener('lokal:refresh', handleRefresh)
+    return () => window.removeEventListener('lokal:refresh', handleRefresh)
+  }, [query, doSearch])
+
   const artSrc = (a) => a.image_path ? (api.isElectron ? `file://${a.image_path}` : null) : null
   const albumArt = (a) => a.artwork_path ? (api.isElectron ? `file://${a.artwork_path}` : api.artworkURL(a.id)) : null
 

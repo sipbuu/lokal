@@ -38,6 +38,14 @@ export default function Artist() {
 
   useEffect(() => { load() }, [id])
 
+  useEffect(() => {
+    const handleRefresh = () => {
+      load()
+    }
+    window.addEventListener('lokal:refresh', handleRefresh)
+    return () => window.removeEventListener('lokal:refresh', handleRefresh)
+  }, [id])
+
   const pickArtistImage = async () => {
     if (!artist) return
     if (api.isElectron) {
@@ -162,6 +170,14 @@ function AlbumTracks({ album }) {
 
   useEffect(() => {
     api.getAlbumTracks(album).then((result) => setTracks(result || []))
+  }, [album])
+
+  useEffect(() => {
+    const handleRefresh = () => {
+      api.getAlbumTracks(album).then((result) => setTracks(result || []))
+    }
+    window.addEventListener('lokal:refresh', handleRefresh)
+    return () => window.removeEventListener('lokal:refresh', handleRefresh)
   }, [album])
 
   return (

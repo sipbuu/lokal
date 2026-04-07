@@ -127,6 +127,11 @@ export default function Home() {
 
   useEffect(() => { load() }, [user?.id])
 
+  useEffect(() => {
+    window.addEventListener('lokal:refresh', load)
+    return () => window.removeEventListener('lokal:refresh', load)
+  }, [user?.id])
+
   const artSrc = (a) => a.image_path ? (api.isElectron ? `file://${a.image_path}` : null) : null
   const trackArt = (t) => t.artwork_path ? (api.isElectron ? `file://${t.artwork_path}` : api.artworkURL(t.id)) : null
 
