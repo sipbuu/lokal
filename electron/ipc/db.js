@@ -46,6 +46,7 @@ function initDB() {
       genres TEXT,
       record_label TEXT,
       explicit INTEGER DEFAULT 0,
+      instrumental INTEGER,
       danceability REAL,
       energy REAL,
       track_key INTEGER,
@@ -195,6 +196,7 @@ function initDB() {
     `ALTER TABLE tracks ADD COLUMN genres TEXT`,
     `ALTER TABLE tracks ADD COLUMN record_label TEXT`,
     `ALTER TABLE tracks ADD COLUMN explicit INTEGER DEFAULT 0`,
+    `ALTER TABLE tracks ADD COLUMN instrumental INTEGER`,
     `ALTER TABLE tracks ADD COLUMN danceability REAL`,
     `ALTER TABLE tracks ADD COLUMN energy REAL`,
     `ALTER TABLE tracks ADD COLUMN track_key INTEGER`,
@@ -225,6 +227,7 @@ function initDB() {
     `ALTER TABLE tracks ADD COLUMN genres TEXT`,
     `ALTER TABLE tracks ADD COLUMN record_label TEXT`,
     `ALTER TABLE tracks ADD COLUMN explicit INTEGER DEFAULT 0`,
+    `ALTER TABLE tracks ADD COLUMN instrumental INTEGER`,
     `ALTER TABLE tracks ADD COLUMN danceability REAL`,
     `ALTER TABLE tracks ADD COLUMN energy REAL`,
     `ALTER TABLE tracks ADD COLUMN track_key INTEGER`,
@@ -412,7 +415,7 @@ function importAppData(payload = {}) {
       )
     }
 
-    const insertTrack = db.prepare('INSERT INTO tracks (id, file_path, file_hash, title, artist, album, album_artist, track_num, year, genre, genres, record_label, explicit, danceability, energy, track_key, loudness, mode, speechiness, acousticness, instrumentalness, liveness, valence, tempo, time_signature, duration, artwork_path, bitrate, last_modified, replaygain, play_count, liked, added_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+    const insertTrack = db.prepare('INSERT INTO tracks (id, file_path, file_hash, title, artist, album, album_artist, track_num, year, genre, genres, record_label, explicit, instrumental, danceability, energy, track_key, loudness, mode, speechiness, acousticness, instrumentalness, liveness, valence, tempo, time_signature, duration, artwork_path, bitrate, last_modified, replaygain, play_count, liked, added_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
     for (const track of tracks) {
       insertTrack.run(
         track.id,
@@ -428,6 +431,7 @@ function importAppData(payload = {}) {
         track.genres || null,
         track.record_label || null,
         track.explicit ? 1 : 0,
+        track.instrumental ?? null,
         track.danceability ?? null,
         track.energy ?? null,
         track.track_key ?? null,

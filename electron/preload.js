@@ -45,6 +45,7 @@ contextBridge.exposeInMainWorld('electron', {
   incrementPlayTime: (id, uid, secs) => invoke('scanner:incrementPlayTime', id, uid, secs),
   getRandomTrack: () => invoke('scanner:getRandomTrack'),
   getTopGenres: () => invoke('scanner:getTopGenres'),
+  getAllGenres: () => invoke('scanner:getAllGenres'),
   fetchMissingGenres: () => invoke('scanner:fetchMissingGenres'),
   readFileAsDataURL: (path) => ipcRenderer.invoke('dialog:readFileAsDataURL', path),
   

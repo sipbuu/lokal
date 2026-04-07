@@ -574,6 +574,21 @@ export const usePlayerStore = create((set, get) => ({
       currentTrack,
     }
   }),
+  syncTracks: (tracks) => set((state) => {
+    const updates = new Map((Array.isArray(tracks) ? tracks : []).filter(track => track?.id).map(track => [track.id, track]))
+    if (!updates.size) return state
+    const syncList = (list) => sanitizeTrackList(Array.isArray(list) ? list.map(item => item?.id && updates.has(item.id) ? { ...item, ...updates.get(item.id) } : item) : list)
+    const nextCurrent = state.currentTrack?.id && updates.has(state.currentTrack.id)
+      ? { ...state.currentTrack, ...updates.get(state.currentTrack.id) }
+      : state.currentTrack
+    const currentTrack = sanitizeSingleTrack(nextCurrent)
+    return {
+      queue: syncList(state.queue),
+      shuffleQueue: syncList(state.shuffleQueue),
+      originalQueue: syncList(state.originalQueue),
+      currentTrack,
+    }
+  }),
 }))
 
 export const useAppStore = create((set, get) => ({

@@ -154,6 +154,7 @@ export const api = {
   onToolsDownloadProgress: (fn) => { if (isE()) return el().onToolsDownloadProgress(fn); return () => {} },
   getRandomTrack: () => isE() ? el().getRandomTrack() : apiFetch('/tracks/random'),
   getTopGenres: () => isE() ? el().getTopGenres() : apiFetch('/tracks/top-genres'),
+  getAllGenres: () => isE() ? el().getAllGenres() : apiFetch('/tracks/genres'),
   historyExport: (uid, format) => isE() ? el().historyExport(uid, format) : apiFetch(`/tracks/history/export?userId=${uid||'guest'}&format=${format||'json'}`),
   register: (d) => isE() ? el().register(d) : apiFetch('/users/register', { method:'POST', body:d }),
   login: (d) => isE() ? el().login(d) : apiFetch('/users/login', { method:'POST', body:d }),
