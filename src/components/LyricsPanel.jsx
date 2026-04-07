@@ -297,6 +297,7 @@ export default function LyricsPanel({
   const [source, setSource] = useState(null)
   const [loading, setLoading] = useState(false)
   const [activeIdx, setActiveIdx] = useState(-1)
+  const [instrumentalTrack, setInstrumentalTrack] = useState(false)
   const [isOnline, setIsOnline] = useState(typeof navigator !== 'undefined' ? navigator.onLine : true)
   const [autoTranslate, setAutoTranslate] = useState(false)
   const [targetLang, setTargetLang] = useState('en')
@@ -348,8 +349,9 @@ export default function LyricsPanel({
 
   useEffect(() => {
     if (!track?.id) return
-    setLoading(true); setLines([]); setActiveIdx(-1); setLyricsType(null); setSource(null); setDetectedLang('unknown'); setTranslatedLines([]); setTranslationView('original'); setTranslating(false)
-    api.getLyrics(track.id, track.title, track.artist, track.album, track.duration).then(r => {
+    setLoading(true); setLines([]); setActiveIdx(-1); setLyricsType(null); setSource(null); setDetectedLang('unknown'); setTranslatedLines([]); setTranslationView('original'); setTranslating(false); setInstrumentalTrack(false)
+    api.getLyrics(track.id, track.title, track.artist, track.album, track.duration, track.file_path).then(r => {
+      setInstrumentalTrack(!!r?.instrumental)
       if (r?.lines) {
         setLines(r.lines);
         setLyricsType(r.type);
@@ -556,7 +558,11 @@ export default function LyricsPanel({
       {!loading && !displayedLines.length && (
         <div className="flex flex-col items-center justify-center flex-1 gap-3 opacity-30 select-none">
           <Mic2 size={fullscreen ? 40 : 28} />
-          {!isOnline ? (
+          {instrumentalTrack ? (
+            <p className={fullscreen ? 'text-sm' : 'text-xs'}>
+              Instrumental track. Lyrics search is skipped for this one.
+            </p>
+          ) : !isOnline ? (
             <p className={fullscreen ? 'text-sm' : 'text-xs'}>
               Hey. You're currently offline.. lyrics will pull once online.
             </p>
