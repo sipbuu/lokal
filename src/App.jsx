@@ -42,6 +42,20 @@ const EQ_AUDIO_BANDS = [
   { frequency: 16000, type: 'highshelf', q: 0.7 },
 ]
 const LASTFM_STATUS_KEY = 'lokal-lastfm-status-feed'
+const YTDLP_DISMISS_KEY = 'lokal-ytdlp-version-dismissed'
+
+function formatRelativeDays(days) {
+  if (!Number.isFinite(days) || days <= 0) return 'up to date'
+  if (days < 30) return `${days} day${days === 1 ? '' : 's'} behind`
+  const months = Math.floor(days / 30)
+  if (months < 12) return `${months} month${months === 1 ? '' : 's'} behind`
+  const years = Math.floor(months / 12)
+  return `${years} year${years === 1 ? '' : 's'} behind`
+}
+
+function getYtDlpDismissKey(status) {
+  return `${status?.installedVersion || 'missing'}::${status?.latestVersion || 'unknown'}`
+}
 
 function pushLastfmStatus(entry) {
   try {
@@ -121,6 +135,22 @@ export default function App() {
     progress: 0,
     error: null,
   })
+  const [ytDlpVersionState, setYtDlpVersionState] = useState({
+    checking: false,
+    visible: false,
+    installedVersion: null,
+    latestVersion: null,
+    latestPublishedAt: null,
+    latestUrl: null,
+    releasesBehind: null,
+    daysBehind: null,
+    upToDate: null,
+    found: false,
+    source: null,
+    error: null,
+    downloadState: 'idle',
+    downloadMessage: '',
+  })
   const [showRecapStories, setShowRecapStories] = useState(() => {
     try {
       return localStorage.getItem('lokal-dev-recap') === '1'
@@ -199,6 +229,37 @@ export default function App() {
     }
   }, []);
 
+  const refreshYtDlpVersionStatus = useCallback(async (forceVisible = false) => {
+    if (!api.isElectron) return
+    setYtDlpVersionState(prev => ({ ...prev, checking: true, error: null }))
+    try {
+      const status = await api.getYtDlpVersionStatus()
+      const dismissed = localStorage.getItem(YTDLP_DISMISS_KEY)
+      const dismissKey = getYtDlpDismissKey(status)
+      const shouldShow = Boolean(
+        status?.found &&
+        status?.latestVersion &&
+        status?.installedVersion &&
+        status?.upToDate === false &&
+        (forceVisible || dismissed !== dismissKey)
+      )
+      setYtDlpVersionState(prev => ({
+        ...prev,
+        ...status,
+        checking: false,
+        visible: shouldShow,
+        downloadState: prev.downloadState === 'downloading' ? prev.downloadState : 'idle',
+        downloadMessage: prev.downloadState === 'downloading' ? prev.downloadMessage : '',
+      }))
+    } catch (error) {
+      setYtDlpVersionState(prev => ({
+        ...prev,
+        checking: false,
+        error: error.message,
+      }))
+    }
+  }, [])
+
   useEffect(() => {
     api.getTheme().then(t => {
       if (t) {
@@ -254,6 +315,27 @@ export default function App() {
     return cleanup
   }, [fetchChangelog])
 
+  useEffect(() => {
+    if (!api.isElectron) return
+    refreshYtDlpVersionStatus()
+    const unsubscribe = api.onToolsDownloadProgress((_, payload) => {
+      if (payload?.tool !== 'yt-dlp') return
+      setYtDlpVersionState(prev => ({
+        ...prev,
+        visible: true,
+        downloadState: payload.status === 'error' ? 'error' : 'downloading',
+        downloadMessage: payload.message || '',
+      }))
+    })
+    const interval = setInterval(() => {
+      refreshYtDlpVersionStatus()
+    }, 1000 * 60 * 60 * 6)
+    return () => {
+      clearInterval(interval)
+      if (typeof unsubscribe === 'function') unsubscribe()
+    }
+  }, [refreshYtDlpVersionStatus])
+
   const handleInstallUpdate = async () => {
     await api.updaterInstall()
   }
@@ -266,6 +348,63 @@ export default function App() {
       error: null,
     })
     setChangelog('')
+  }
+
+  const handleDismissYtDlpNotice = () => {
+    try {
+      localStorage.setItem(YTDLP_DISMISS_KEY, getYtDlpDismissKey(ytDlpVersionState))
+    } catch {}
+    setYtDlpVersionState(prev => ({
+      ...prev,
+      visible: false,
+      downloadState: 'idle',
+      downloadMessage: '',
+    }))
+  }
+
+  const handleUpdateYtDlp = async () => {
+    setYtDlpVersionState(prev => ({
+      ...prev,
+      visible: true,
+      downloadState: 'downloading',
+      downloadMessage: 'Starting yt-dlp update...',
+      error: null,
+    }))
+    try {
+      const result = await api.downloadYtDlp()
+      if (result?.error) {
+        setYtDlpVersionState(prev => ({
+          ...prev,
+          downloadState: 'error',
+          downloadMessage: '',
+          error: result.error,
+        }))
+        return
+      }
+      const status = await api.getYtDlpVersionStatus()
+      setYtDlpVersionState(prev => ({
+        ...prev,
+        ...status,
+        visible: status?.upToDate === false,
+        downloadState: 'done',
+        downloadMessage: status?.upToDate === false ? 'yt-dlp updated, but another newer release is still available.' : 'yt-dlp is up to date.',
+      }))
+      setTimeout(() => {
+        setYtDlpVersionState(prev => ({
+          ...prev,
+          visible: prev.upToDate === false,
+          downloadState: 'idle',
+          downloadMessage: '',
+        }))
+      }, 1400)
+    } catch (error) {
+      setYtDlpVersionState(prev => ({
+        ...prev,
+        downloadState: 'error',
+        downloadMessage: '',
+        error: error.message,
+      }))
+    }
   }
 
   const initAudioCtx = useCallback(() => {
@@ -1197,6 +1336,101 @@ export default function App() {
     );
   };
 
+  const renderYtDlpNotice = () => {
+    if (!ytDlpVersionState.visible) return null
+
+    const isDownloading = ytDlpVersionState.downloadState === 'downloading'
+    const isDone = ytDlpVersionState.downloadState === 'done'
+    const summary = ytDlpVersionState.releasesBehind
+      ? `${ytDlpVersionState.releasesBehind} release${ytDlpVersionState.releasesBehind === 1 ? '' : 's'} behind`
+      : formatRelativeDays(ytDlpVersionState.daysBehind)
+    const latestDate = ytDlpVersionState.latestPublishedAt
+      ? new Date(ytDlpVersionState.latestPublishedAt).toLocaleDateString()
+      : null
+
+    return (
+      <div className="fixed inset-0 z-[95] flex items-center justify-center bg-black/55 backdrop-blur-sm">
+        <div className="w-full max-w-lg overflow-hidden rounded-3xl border border-white/10 bg-elevated/90 shadow-[0_32px_64px_-12px_rgba(0,0,0,0.8)] ring-1 ring-white/5">
+          <div className="flex items-center justify-between bg-white/5 p-7">
+            <div className="flex items-center gap-4">
+              <div className="rounded-2xl bg-yellow-500/15 p-4 text-yellow-300">
+                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M12 9v4" />
+                  <path d="M12 17h.01" />
+                  <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z" />
+                </svg>
+              </div>
+              <div>
+                <h4 className="text-xl font-black tracking-tight text-white">yt-dlp Update Recommended</h4>
+                <p className="mt-1 text-xs font-bold uppercase tracking-[0.2em] text-yellow-200/80">{summary}</p>
+              </div>
+            </div>
+            <button
+              onClick={handleDismissYtDlpNotice}
+              className="rounded-full p-2 text-muted transition-colors hover:bg-white/10 hover:text-white"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+            </button>
+          </div>
+
+          <div className="space-y-5 p-7">
+            <div className="rounded-2xl border border-white/8 bg-black/20 p-4">
+              <div className="flex items-center justify-between gap-4 text-sm">
+                <div>
+                  <p className="text-[11px] uppercase tracking-[0.22em] text-muted">Installed</p>
+                  <p className="mt-1 font-semibold text-white">{ytDlpVersionState.installedVersion || 'Unknown'}</p>
+                </div>
+                <div className="text-right">
+                  <p className="text-[11px] uppercase tracking-[0.22em] text-muted">Latest</p>
+                  <p className="mt-1 font-semibold text-white">{ytDlpVersionState.latestVersion || 'Unknown'}</p>
+                </div>
+              </div>
+              <div className="mt-4 flex flex-wrap gap-2 text-xs text-muted">
+                {ytDlpVersionState.source && <span className="rounded-full border border-white/10 px-2.5 py-1 uppercase tracking-[0.18em]">{ytDlpVersionState.source}</span>}
+                {Number.isFinite(ytDlpVersionState.daysBehind) && ytDlpVersionState.daysBehind > 0 && <span className="rounded-full border border-white/10 px-2.5 py-1">{formatRelativeDays(ytDlpVersionState.daysBehind)}</span>}
+                {latestDate && <span className="rounded-full border border-white/10 px-2.5 py-1">Latest released {latestDate}</span>}
+              </div>
+            </div>
+
+            <p className="text-sm leading-relaxed text-muted">
+              Older yt-dlp builds can break when sites change. Updating usually fixes downloader errors without changing your library.
+            </p>
+
+            {ytDlpVersionState.error && (
+              <div className="rounded-2xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-200">
+                {ytDlpVersionState.error}
+              </div>
+            )}
+
+            {ytDlpVersionState.downloadMessage && (
+              <div className={`rounded-2xl border px-4 py-3 text-sm ${isDone ? 'border-green-500/20 bg-green-500/10 text-green-200' : 'border-white/10 bg-white/5 text-muted'}`}>
+                {ytDlpVersionState.downloadMessage}
+              </div>
+            )}
+
+            <div className="flex gap-3 pt-1">
+              {!isDone && (
+                <button
+                  onClick={handleUpdateYtDlp}
+                  disabled={isDownloading}
+                  className="flex-1 rounded-2xl bg-accent py-4 text-sm font-bold text-white transition-all hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {isDownloading ? 'Updating yt-dlp...' : 'Update yt-dlp'}
+                </button>
+              )}
+              <button
+                onClick={handleDismissYtDlpNotice}
+                className="rounded-2xl bg-white/5 px-6 py-4 text-sm font-bold text-white transition-all hover:bg-white/10"
+              >
+                Later
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <Router>
       <div className="flex flex-col h-screen bg-transparent overflow-hidden" onClick={initAudioCtx}>
@@ -1249,6 +1483,7 @@ export default function App() {
             
             <PostOnboardingTour />
             
+            {renderYtDlpNotice()}
             {renderUpdateToast()}
           </>
         )}
