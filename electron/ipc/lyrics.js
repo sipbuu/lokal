@@ -261,6 +261,18 @@ async function fetchLyricsOVH(title, artist) {
   return { type: 'unsynced', lines: r.lyrics.split('\n').filter(l => l.trim()).map(text => ({ text })), source: 'lyrics.ovh' }
 }
 
+function getInstrumentalLyricsResult(db, trackId, filePath = null) {
+  if (!trackId) return null
+  const track = db.prepare('SELECT instrumental FROM tracks WHERE id = ?').get(trackId)
+  if (!track?.instrumental) return null
+  db.prepare('DELETE FROM lyrics_cache WHERE track_id = ?').run(trackId)
+  db.prepare('DELETE FROM lyrics_translations WHERE track_id = ?').run(trackId)
+  if (filePath) {
+    try { db.prepare('DELETE FROM lyrics_cache WHERE file_path = ?').run(filePath) } catch {}
+  }
+  return { type: 'instrumental', lines: [], source: 'instrumental-tag', instrumental: true }
+}
+
 const NEGATIVE_CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000
 const ENGLISH_COMMON_WORDS = new Set(['the', 'and', 'you', 'that', 'for', 'with', 'love', 'this', 'not', 'are', 'have', 'all', 'your', 'me', 'my', 'we', 'it', 'to', 'of', 'in', 'on', 'at', 'is', 'be'])
 
@@ -421,6 +433,9 @@ function registerLyricsHandlers(ipcMain) {
   })
 
   ipcMain.handle('lyrics:get', async (_, trackId, title, artist, album, duration, filePath) => {
+    const instrumentalResult = getInstrumentalLyricsResult(db, trackId, filePath)
+    if (instrumentalResult) return instrumentalResult
+
     const cached = mapCached(db.prepare('SELECT * FROM lyrics_cache WHERE track_id = ?').get(trackId))
     if (cached) {
       if (cached.source === 'no-results' && cached._fetchedAt && (Date.now() - cached._fetchedAt) < NEGATIVE_CACHE_TTL_MS) {
