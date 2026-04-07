@@ -146,6 +146,7 @@ export const api = {
   getDownloadQueue: () => isE() ? el().getDownloadQueue() : apiFetch('/download/queue'),
   updaterDownload: () => isE() ? el().updaterDownload() : Promise.resolve({ error: 'Electron only' }),
   getToolsStatus: () => isE() ? el().getToolsStatus() : Promise.resolve({}),
+  getYtDlpVersionStatus: () => isE() ? el().getYtDlpVersionStatus() : Promise.resolve({ found: false, error: 'Electron only' }),
   downloadYtDlp: () => isE() ? el().downloadYtDlp() : Promise.resolve({ error: 'Electron only' }),
   downloadFfmpeg: () => isE() ? el().downloadFfmpeg() : Promise.resolve({ error: 'Electron only' }),
   setCustomToolPath: (tool, path) => isE() ? el().setCustomToolPath(tool, path) : Promise.resolve({ error: 'Electron only' }),
