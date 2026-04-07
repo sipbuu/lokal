@@ -112,6 +112,7 @@ contextBridge.exposeInMainWorld('electron', {
 
   
   getToolsStatus: () => invoke('tools:status'),
+  getYtDlpVersionStatus: () => invoke('tools:getYtDlpVersionStatus'),
   downloadYtDlp: () => invoke('tools:downloadYtDlp'),
   downloadFfmpeg: () => invoke('tools:downloadFfmpeg'),
   setCustomToolPath: (tool, path) => invoke('tools:setCustomPath', { tool, customPath: path }),
