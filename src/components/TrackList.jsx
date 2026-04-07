@@ -52,7 +52,7 @@ function fmtAddedAt(ts) {
 }
 
 export default function TrackList({ tracks = [], showAlbum = true, onRemove = null, showPlayNext = true, showAddToQueue = true, playlistId = null, onReorder = null, onQuickAdd = null, reduceMotion = false }) {
-  const { currentTrack, isPlaying, playTrack, togglePlay, likedIds, setLiked, playNext, addToQueue, syncTrack } = usePlayerStore()
+  const { currentTrack, isPlaying, playTrack, togglePlay, likedIds, setLiked, playNext, addToQueue, syncTrack, syncTracks } = usePlayerStore()
   const { user, openAddToPlaylist, openAddMultipleToPlaylist } = useAppStore()
   const [hoveredId, setHoveredId] = useState(null)
   const [likeAnim, setLikeAnim] = useState(null)
@@ -350,12 +350,13 @@ export default function TrackList({ tracks = [], showAlbum = true, onRemove = nu
   const handleBatchSave = (updatedTracks) => {
     if (!Array.isArray(updatedTracks) || !updatedTracks.length) return
     const nextOverrides = {}
+    syncTracks(updatedTracks)
     for (const updatedTrack of updatedTracks) {
       if (!updatedTrack?.id) continue
-      syncTrack(updatedTrack)
       nextOverrides[updatedTrack.id] = updatedTrack
     }
     setTrackOverrides(prev => ({ ...prev, ...nextOverrides }))
+    setSelectedIds(new Set())
     window.dispatchEvent(new Event('lokal:refresh'))
   }
 
@@ -408,21 +409,21 @@ export default function TrackList({ tracks = [], showAlbum = true, onRemove = nu
   return (
     <div className="w-full" onClick={handleContainerClick}>
       {selectedIds.size > 0 && (
-        <div className="flex items-center gap-3 px-4 py-2 mb-2 bg-accent/10 border border-accent/30 rounded-xl">
+        <div onClick={(e) => e.stopPropagation()} className="flex items-center gap-3 px-4 py-2 mb-2 bg-accent/10 border border-accent/30 rounded-xl">
           <span className="text-sm text-accent font-medium">{selectedIds.size} selected</span>
           <div className="flex items-center gap-2 ml-auto">
-            <button onClick={handleSelectedAddToPlaylist} className="flex items-center gap-1.5 px-3 py-1.5 bg-accent/20 text-accent rounded-lg text-xs hover:bg-accent/30 transition-colors">
+            <button onClick={(e) => { e.stopPropagation(); handleSelectedAddToPlaylist() }} className="flex items-center gap-1.5 px-3 py-1.5 bg-accent/20 text-accent rounded-lg text-xs hover:bg-accent/30 transition-colors">
               <Plus size={12} /> Add to Playlist
             </button>
-            <button onClick={() => setShowBatchEdit(true)} className="flex items-center gap-1.5 px-3 py-1.5 bg-card border border-border text-muted rounded-lg text-xs hover:text-white transition-colors">
+            <button onClick={(e) => { e.stopPropagation(); setShowBatchEdit(true) }} className="flex items-center gap-1.5 px-3 py-1.5 bg-card border border-border text-muted rounded-lg text-xs hover:text-white transition-colors">
               <Edit2 size={12} /> Batch Edit
             </button>
             {onRemove && (
-              <button onClick={handleSelectedDelete} className="flex items-center gap-1.5 px-3 py-1.5 bg-red-500/20 text-red-400 rounded-lg text-xs hover:bg-red-500/30 transition-colors">
+              <button onClick={(e) => { e.stopPropagation(); handleSelectedDelete() }} className="flex items-center gap-1.5 px-3 py-1.5 bg-red-500/20 text-red-400 rounded-lg text-xs hover:bg-red-500/30 transition-colors">
                 <Trash2 size={12} /> Remove
               </button>
             )}
-            <button onClick={() => setSelectedIds(new Set())} className="p-1.5 text-muted hover:text-white transition-colors">
+            <button onClick={(e) => { e.stopPropagation(); setSelectedIds(new Set()) }} className="p-1.5 text-muted hover:text-white transition-colors">
               <X size={14} />
             </button>
           </div>
