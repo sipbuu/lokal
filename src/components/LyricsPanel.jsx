@@ -2,6 +2,7 @@ import React, { useEffect, useState, useRef, useMemo } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Mic2, Search, Languages } from 'lucide-react'
 import { api } from '../api'
+import { usePlayerStore } from '../store/player'
 
 function WaveLoader() {
   return (
@@ -209,9 +210,11 @@ function RAFWordLine({ words, bgWords, liveProgressRef }) {
 }
 
 const Line = React.memo(function Line({
-  line, isActive, isPast, fullscreen, darkMode, wordSync, lyricsType, liveProgressRef, onRef, distanceFromActive, textScale = 1, index, progress = 0, hasNextLine = false,
+  line, isActive, isPast, fullscreen, darkMode, wordSync, lyricsType, liveProgressRef, onRef, distanceFromActive, textScale = 1, index, progress = 0, hasNextLine = false, onSeek = null,
 }) {
   const useRAF = wordSync && lyricsType === 'synced' && isActive && line.words?.length > 0
+  const seekTime = typeof line.time === 'number' ? line.time : null
+  const seekable = seekTime !== null && Number.isFinite(seekTime)
 
   const blurAmount = Math.min(distanceFromActive * 1, 8)
   const isBlurred = blurAmount > 0.1
@@ -235,9 +238,27 @@ const Line = React.memo(function Line({
     return Math.max(0, Math.min(1, ratio))
   }, [line.end, line.time, progress])
 
+  const handleSeek = () => {
+    if (!seekable || !onSeek) return
+    const selection = window.getSelection?.()
+    if (selection && !selection.isCollapsed && selection.toString().trim()) return
+    onSeek(seekTime)
+  }
+
+  const handleKeyDown = (event) => {
+    if (!seekable || !onSeek) return
+    if (event.key !== 'Enter' && event.key !== ' ') return
+    event.preventDefault()
+    onSeek(seekTime)
+  }
+
   return (
     <motion.div
       ref={onRef}
+      role={seekable ? 'button' : undefined}
+      tabIndex={seekable ? 0 : undefined}
+      onClick={handleSeek}
+      onKeyDown={handleKeyDown}
       animate={{
         opacity: isActive ? 1 : isPast ? 0.18 : 0.35,
         scale: isActive ? (fullscreen ? 1 : 1.01) : 1,
@@ -246,7 +267,7 @@ const Line = React.memo(function Line({
         duration: 0.5,
         ease: [0.16, 1, 0.3, 1]
       }}
-      className="text-center w-full max-w-2xl my-1.5 font-medium cursor-default select-text"
+      className={`text-center w-full max-w-2xl my-1.5 font-medium select-text rounded-2xl px-4 py-2 outline-none transition-colors ${seekable ? 'cursor-pointer hover:bg-white/6 focus-visible:bg-white/6' : 'cursor-default'}`}
       style={{
         color: isActive ? (darkMode ? '#fff' : '#e8ff57') : '#666',
         fontWeight: isActive ? 700 : 500,
@@ -286,12 +307,14 @@ const Line = React.memo(function Line({
   prev.wordSync === next.wordSync &&
   prev.lyricsType === next.lyricsType &&
   prev.distanceFromActive === next.distanceFromActive &&
-  prev.hasNextLine === next.hasNextLine
+  prev.hasNextLine === next.hasNextLine &&
+  prev.onSeek === next.onSeek
 )
 
 export default function LyricsPanel({
   track, progress, darkMode = false, fullscreen = false, wordSync = false, onLyricsAvailable, onSearchRequest, textScale = 1, isAutoSynced = false,
 }) {
+  const setProgressWithAudioUpdate = usePlayerStore(s => s.setProgressWithAudioUpdate)
   const [lines, setLines] = useState([])
   const [lyricsType, setLyricsType] = useState(null)
   const [source, setSource] = useState(null)
@@ -548,6 +571,11 @@ export default function LyricsPanel({
     })
   }
 
+  const handleSeekToLine = (time) => {
+    if (!Number.isFinite(time)) return
+    setProgressWithAudioUpdate(Math.max(0, time))
+  }
+
   return (
     <div ref={containerRef}
       className="w-full h-full overflow-y-auto flex flex-col items-center py-8 px-6"
@@ -649,6 +677,7 @@ export default function LyricsPanel({
           textScale={textScale}
           progress={progress}
           hasNextLine={i < displayedLines.length - 1}
+          onSeek={handleSeekToLine}
         />
       ))}
 
