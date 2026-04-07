@@ -2,6 +2,7 @@ const { app } = require('electron')
 const path = require('path')
 const fs = require('fs-extra')
 const https = require('https')
+const { execFile } = require('child_process')
 const AdmZip = require('adm-zip')
 
 
@@ -34,6 +35,10 @@ function fileExists(fp) {
   } catch {
     return false
   }
+}
+
+function normalizePathCase(fp) {
+  return String(fp || '').replace(/\//g, '\\').toLowerCase()
 }
 
 
@@ -74,6 +79,20 @@ function findYtDlp() {
   } catch {}
 
   return null
+}
+
+function getYtDlpSource(ytdlpPath) {
+  if (!ytdlpPath) return null
+  const ext = process.platform === 'win32' ? '.exe' : ''
+  const normalized = normalizePathCase(ytdlpPath)
+  if (normalized === normalizePathCase(path.join(getUserDataBin(), `yt-dlp${ext}`))) return 'app'
+  if (normalized === normalizePathCase(path.join(getBundledBin(), `yt-dlp${ext}`))) return 'bundled'
+  try {
+    const db = require('./db').getDB()
+    const customPath = db.prepare('SELECT value FROM settings WHERE key = ?').get('custom_ytdlp_path')
+    if (customPath?.value && normalized === normalizePathCase(customPath.value)) return 'custom'
+  } catch {}
+  return 'system'
 }
 
 
@@ -144,6 +163,141 @@ function findFfprobe() {
   }
 
   return null
+}
+
+function parseYtDlpVersion(version) {
+  const match = String(version || '').trim().match(/(\d{4})\.(\d{2})\.(\d{2})(?:\.(\d+))?/)
+  if (!match) return null
+  const year = Number(match[1])
+  const month = Number(match[2])
+  const day = Number(match[3])
+  const revision = Number(match[4] || 0)
+  const date = new Date(Date.UTC(year, month - 1, day))
+  if (Number.isNaN(date.getTime())) return null
+  return {
+    raw: `${year}.${String(month).padStart(2, '0')}.${String(day).padStart(2, '0')}${match[4] ? `.${revision}` : ''}`,
+    parts: [year, month, day, revision],
+    date,
+  }
+}
+
+function compareYtDlpVersions(left, right) {
+  const a = parseYtDlpVersion(left)
+  const b = parseYtDlpVersion(right)
+  if (!a || !b) return 0
+  for (let index = 0; index < 4; index += 1) {
+    const diff = (a.parts[index] || 0) - (b.parts[index] || 0)
+    if (diff !== 0) return diff
+  }
+  return 0
+}
+
+function getVersionDaysBehind(installedVersion, latestVersion) {
+  const installed = parseYtDlpVersion(installedVersion)
+  const latest = parseYtDlpVersion(latestVersion)
+  if (!installed || !latest) return null
+  const diffMs = latest.date.getTime() - installed.date.getTime()
+  return diffMs > 0 ? Math.floor(diffMs / 86400000) : 0
+}
+
+function getExecutableVersion(executable, args = ['--version']) {
+  return new Promise(resolve => {
+    if (!executable) {
+      resolve(null)
+      return
+    }
+    execFile(executable, args, { windowsHide: true, timeout: 10000 }, (error, stdout) => {
+      if (error && !stdout) {
+        resolve(null)
+        return
+      }
+      const version = String(stdout || '').trim().split(/\r?\n/).find(Boolean) || null
+      resolve(version)
+    })
+  })
+}
+
+function fetchJson(url) {
+  return new Promise((resolve, reject) => {
+    const request = https.get(url, {
+      headers: {
+        'User-Agent': 'Lokal',
+        'Accept': 'application/vnd.github+json',
+      },
+    }, response => {
+      if (response.statusCode === 301 || response.statusCode === 302) {
+        const redirectUrl = response.headers.location
+        response.resume()
+        fetchJson(redirectUrl).then(resolve).catch(reject)
+        return
+      }
+      if (response.statusCode !== 200) {
+        response.resume()
+        reject(new Error(`Request failed: ${response.statusCode}`))
+        return
+      }
+      let body = ''
+      response.on('data', chunk => {
+        body += chunk.toString()
+      })
+      response.on('end', () => {
+        try {
+          resolve(JSON.parse(body))
+        } catch (error) {
+          reject(error)
+        }
+      })
+      response.on('error', reject)
+    })
+    request.on('error', reject)
+  })
+}
+
+async function getYtDlpVersionStatus() {
+  const ytdlpPath = findYtDlp()
+  const installedVersion = await getExecutableVersion(ytdlpPath)
+  const result = {
+    found: !!ytdlpPath,
+    path: ytdlpPath,
+    source: getYtDlpSource(ytdlpPath),
+    installedVersion: installedVersion || null,
+    latestVersion: null,
+    latestPublishedAt: null,
+    latestUrl: null,
+    releasesBehind: null,
+    daysBehind: null,
+    upToDate: null,
+    error: null,
+    checkedAt: Date.now(),
+  }
+
+  try {
+    const releases = await fetchJson('https://api.github.com/repos/yt-dlp/yt-dlp/releases?per_page=100')
+    const validReleases = (Array.isArray(releases) ? releases : []).filter(release => {
+      if (!release || release.draft || release.prerelease) return false
+      return Boolean(parseYtDlpVersion(release.tag_name))
+    })
+    const latest = validReleases[0]
+    if (!latest) return result
+
+    result.latestVersion = latest.tag_name
+    result.latestPublishedAt = latest.published_at || null
+    result.latestUrl = latest.html_url || null
+
+    if (!installedVersion) {
+      result.upToDate = false
+      return result
+    }
+
+    const newerReleases = validReleases.filter(release => compareYtDlpVersions(release.tag_name, installedVersion) > 0)
+    result.releasesBehind = newerReleases.length
+    result.daysBehind = getVersionDaysBehind(installedVersion, latest.tag_name)
+    result.upToDate = compareYtDlpVersions(installedVersion, latest.tag_name) >= 0
+    return result
+  } catch (error) {
+    result.error = error.message
+    return result
+  }
 }
 
 
@@ -460,6 +614,10 @@ function registerToolsHandlers(ipcMain) {
       ffprobePath: ffprobe
     }
   })
+
+  ipcMain.handle('tools:getYtDlpVersionStatus', async () => {
+    return getYtDlpVersionStatus()
+  })
 }
 
 module.exports = { 
@@ -469,6 +627,7 @@ module.exports = {
   findFfprobe,
   downloadYtDlp, 
   downloadFfmpeg,
+  getYtDlpVersionStatus,
   getUserDataBin,
   getBundledBin
 }
