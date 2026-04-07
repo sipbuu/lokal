@@ -688,6 +688,31 @@ function buildPossibleDuplicateGroups(tracks = []) {
 function applyBatchField(currentValue, operation) {
   if (!operation || operation.mode === 'ignore') return { changed: false, value: currentValue }
   if (operation.mode === 'clear') return { changed: currentValue !== null && currentValue !== '', value: null }
+  if (operation.mode === 'removeText') {
+    const currentText = String(currentValue ?? '')
+    const needle = String(operation.value ?? '')
+    if (!needle) return { changed: false, value: currentValue }
+    const nextText = currentText.split(needle).join('').trim()
+    return { changed: nextText !== currentText, value: nextText || null }
+  }
+  if (operation.mode === 'keepAfterText') {
+    const currentText = String(currentValue ?? '')
+    const needle = String(operation.value ?? '')
+    if (!needle) return { changed: false, value: currentValue }
+    const index = currentText.indexOf(needle)
+    if (index === -1) return { changed: false, value: currentValue }
+    const nextText = currentText.slice(index + needle.length).trim()
+    return { changed: nextText !== currentText, value: nextText || null }
+  }
+  if (operation.mode === 'keepBeforeText') {
+    const currentText = String(currentValue ?? '')
+    const needle = String(operation.value ?? '')
+    if (!needle) return { changed: false, value: currentValue }
+    const index = currentText.indexOf(needle)
+    if (index === -1) return { changed: false, value: currentValue }
+    const nextText = currentText.slice(0, index).trim()
+    return { changed: nextText !== currentText, value: nextText || null }
+  }
   if (operation.mode === 'fillMissing') {
     const missing = currentValue === null || currentValue === undefined || String(currentValue) === ''
     return missing ? { changed: true, value: operation.value ?? null } : { changed: false, value: currentValue }
@@ -697,6 +722,45 @@ function applyBatchField(currentValue, operation) {
     return { changed: currentValue !== nextValue, value: nextValue }
   }
   return { changed: false, value: currentValue }
+}
+
+function normalizeGenresForBatch(value) {
+  return String(value || '')
+    .split(',')
+    .map(part => part.trim())
+    .filter(Boolean)
+    .join(', ') || null
+}
+
+function firstGenreForBatch(value) {
+  return normalizeGenresForBatch(value)?.split(',').map(part => part.trim()).filter(Boolean)[0] || null
+}
+
+function clearLyricsStateForTrack(db, trackId, filePath = null) {
+  db.prepare('DELETE FROM lyrics_cache WHERE track_id = ?').run(trackId)
+  db.prepare('DELETE FROM lyrics_translations WHERE track_id = ?').run(trackId)
+  if (filePath) {
+    try { db.prepare('DELETE FROM lyrics_cache WHERE file_path = ?').run(filePath) } catch {}
+  }
+}
+
+function collectAllGenres(db) {
+  const rows = db.prepare(`
+    SELECT genre, genres
+    FROM tracks
+    WHERE file_path NOT LIKE 'ghost://%'
+      AND (genre IS NOT NULL OR genres IS NOT NULL)
+  `).all()
+  const values = new Map()
+  for (const row of rows) {
+    for (const source of [row.genre, row.genres]) {
+      for (const genre of String(source || '').split(',').map(part => part.trim()).filter(Boolean)) {
+        const key = genre.toLowerCase()
+        if (!values.has(key)) values.set(key, genre)
+      }
+    }
+  }
+  return [...values.values()].sort((left, right) => left.localeCompare(right, undefined, { sensitivity: 'base' }))
 }
 
 async function applyBatchTrackUpdates(db, trackIds = [], operations = {}) {
@@ -722,7 +786,7 @@ async function applyBatchTrackUpdates(db, trackIds = [], operations = {}) {
       const updates = []
       const params = []
       const nextValues = {}
-      const fields = ['title', 'artist', 'album', 'album_artist', 'track_num', 'year', 'genre', 'genres', 'record_label', 'explicit']
+      const fields = ['title', 'artist', 'album', 'album_artist', 'track_num', 'year', 'genre', 'genres', 'record_label', 'explicit', 'instrumental']
       for (const field of fields) {
         const result = applyBatchField(track[field], operations[field])
         if (result.changed) {
@@ -730,6 +794,25 @@ async function applyBatchTrackUpdates(db, trackIds = [], operations = {}) {
           params.push(result.value)
           nextValues[field] = result.value
         }
+      }
+      const hasGenreUpdate = Object.prototype.hasOwnProperty.call(nextValues, 'genre')
+      const hasGenresUpdate = Object.prototype.hasOwnProperty.call(nextValues, 'genres')
+      if (hasGenreUpdate || hasGenresUpdate) {
+        const normalizedGenres = hasGenresUpdate
+          ? normalizeGenresForBatch(nextValues.genres)
+          : normalizeGenresForBatch(track.genres || nextValues.genre || track.genre)
+        const primaryGenre = hasGenreUpdate
+          ? (nextValues.genre || firstGenreForBatch(normalizedGenres))
+          : firstGenreForBatch(normalizedGenres)
+
+        delete nextValues.genre
+        delete nextValues.genres
+        updates.push('genre = ?')
+        params.push(primaryGenre || null)
+        nextValues.genre = primaryGenre || null
+        updates.push('genres = ?')
+        params.push(normalizedGenres)
+        nextValues.genres = normalizedGenres
       }
       if (artworkOp?.mode === 'clear' && track.artwork_path) {
         updates.push('artwork_path = ?')
@@ -743,16 +826,22 @@ async function applyBatchTrackUpdates(db, trackIds = [], operations = {}) {
       db.prepare(`UPDATE tracks SET ${updates.join(', ')} WHERE id = ?`).run(...params)
       updatedIds.push(track.id)
 
+      if (nextValues.instrumental === 1) {
+        clearLyricsStateForTrack(db, track.id, track.file_path)
+      }
+
       if (Object.prototype.hasOwnProperty.call(nextValues, 'artist')) {
         db.prepare('DELETE FROM artist_track_links WHERE track_id = ?').run(track.id)
         const artistNames = splitArtists(nextValues.artist)
         for (const name of artistNames) {
           const artistId = 'a-' + slugify(name)
           db.prepare('INSERT OR IGNORE INTO artists (id, name) VALUES (?, ?)').run(artistId, name)
+          db.prepare('UPDATE artists SET name = ? WHERE id = ?').run(name, artistId)
           db.prepare('INSERT OR IGNORE INTO artist_track_links (artist_id, track_id) VALUES (?, ?)').run(artistId, track.id)
         }
       }
     }
+    db.prepare('DELETE FROM artists WHERE id NOT IN (SELECT DISTINCT artist_id FROM artist_track_links)').run()
     return updatedIds
   })
 
@@ -1000,6 +1089,8 @@ function registerScannerHandlers(ipcMain) {
   ipcMain.handle('track:setGenre', (_, trackId, genre) => getDB().prepare('UPDATE tracks SET genre = ? WHERE id = ?').run(genre || null, trackId))
   ipcMain.handle('track:update', (_, trackId, data) => {
     const db = getDB()
+    const currentTrack = db.prepare('SELECT * FROM tracks WHERE id = ?').get(trackId)
+    if (!currentTrack) return { error: 'Track not found' }
     const updates = []
     const params = []
     
@@ -1009,10 +1100,9 @@ function registerScannerHandlers(ipcMain) {
     if (data.album_artist !== undefined) { updates.push('album_artist = ?'); params.push(data.album_artist) }
     if (data.track_num !== undefined) { updates.push('track_num = ?'); params.push(data.track_num) }
     if (data.year !== undefined) { updates.push('year = ?'); params.push(data.year) }
-    if (data.genre !== undefined) { updates.push('genre = ?'); params.push(data.genre) }
-    if (data.genres !== undefined) { updates.push('genres = ?'); params.push(data.genres) }
     if (data.record_label !== undefined) { updates.push('record_label = ?'); params.push(data.record_label) }
     if (data.explicit !== undefined) { updates.push('explicit = ?'); params.push(data.explicit ? 1 : 0) }
+    if (data.instrumental !== undefined) { updates.push('instrumental = ?'); params.push(data.instrumental === null ? null : data.instrumental ? 1 : 0) }
     if (data.danceability !== undefined) { updates.push('danceability = ?'); params.push(data.danceability) }
     if (data.energy !== undefined) { updates.push('energy = ?'); params.push(data.energy) }
     if (data.track_key !== undefined) { updates.push('track_key = ?'); params.push(data.track_key) }
@@ -1025,12 +1115,38 @@ function registerScannerHandlers(ipcMain) {
     if (data.valence !== undefined) { updates.push('valence = ?'); params.push(data.valence) }
     if (data.tempo !== undefined) { updates.push('tempo = ?'); params.push(data.tempo) }
     if (data.time_signature !== undefined) { updates.push('time_signature = ?'); params.push(data.time_signature) }
+
+    if (data.genre !== undefined || data.genres !== undefined) {
+      const normalizedGenres = data.genres !== undefined
+        ? normalizeGenresForBatch(data.genres)
+        : normalizeGenresForBatch(currentTrack.genres || data.genre || currentTrack.genre)
+      const primaryGenre = data.genre !== undefined
+        ? (data.genre || firstGenreForBatch(normalizedGenres))
+        : firstGenreForBatch(normalizedGenres)
+      updates.push('genre = ?')
+      params.push(primaryGenre || null)
+      updates.push('genres = ?')
+      params.push(normalizedGenres)
+    }
     
     if (updates.length === 0) return { error: 'No fields to update' }
     
     params.push(trackId)
     const sql = `UPDATE tracks SET ${updates.join(', ')} WHERE id = ?`
     const result = db.prepare(sql).run(...params)
+    if (data.artist !== undefined) {
+      db.prepare('DELETE FROM artist_track_links WHERE track_id = ?').run(trackId)
+      for (const name of splitArtists(data.artist)) {
+        const artistId = 'a-' + slugify(name)
+        db.prepare('INSERT OR IGNORE INTO artists (id, name) VALUES (?, ?)').run(artistId, name)
+        db.prepare('UPDATE artists SET name = ? WHERE id = ?').run(name, artistId)
+        db.prepare('INSERT OR IGNORE INTO artist_track_links (artist_id, track_id) VALUES (?, ?)').run(artistId, trackId)
+      }
+      db.prepare('DELETE FROM artists WHERE id NOT IN (SELECT DISTINCT artist_id FROM artist_track_links)').run()
+    }
+    if (data.instrumental === 1 || data.instrumental === true) {
+      clearLyricsStateForTrack(db, trackId, currentTrack.file_path)
+    }
     const track = db.prepare('SELECT * FROM tracks WHERE id = ?').get(trackId)
     return { success: true, changes: result.changes, track }
   })
@@ -1054,6 +1170,7 @@ function registerScannerHandlers(ipcMain) {
     }
   })
   ipcMain.handle('scanner:getTopGenres', () => getDB().prepare(`SELECT genre, COUNT(*) as count FROM tracks WHERE genre IS NOT NULL GROUP BY genre ORDER BY count DESC LIMIT 10`).all())
+  ipcMain.handle('scanner:getAllGenres', () => collectAllGenres(getDB()))
   ipcMain.handle('scanner:getRandomTrack', () => getDB().prepare("SELECT * FROM tracks WHERE file_path NOT LIKE 'ghost://%' ORDER BY RANDOM() LIMIT 1").get())
   ipcMain.handle('db:clearTracks', () => { const db = getDB(); db.prepare('DELETE FROM artist_track_links').run(); db.prepare('DELETE FROM playlist_tracks').run(); db.prepare('DELETE FROM user_likes').run(); db.prepare('DELETE FROM play_history').run(); db.prepare('DELETE FROM lyrics_cache').run(); db.prepare('DELETE FROM lyrics_translations').run(); db.prepare('DELETE FROM tracks').run(); db.prepare('DELETE FROM artists').run() })
   ipcMain.handle('db:clearLyrics', () => { const db = getDB(); db.prepare('DELETE FROM lyrics_cache').run(); db.prepare('DELETE FROM lyrics_translations').run() })
