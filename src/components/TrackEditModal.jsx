@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { X, Camera, Save, RefreshCw, Check, AlertCircle } from 'lucide-react'
 import { api } from '../api'
 import Modal from './Modal'
+import GenreValueInput from './GenreValueInput'
 import { usePlayerStore } from '../store/player'
 
 function asInput(value) {
@@ -44,6 +45,7 @@ export default function TrackEditModal({ track, open, onClose, onSave }) {
     genres: '',
     record_label: '',
     explicit: false,
+    instrumental: '',
     danceability: '',
     energy: '',
     track_key: '',
@@ -60,6 +62,21 @@ export default function TrackEditModal({ track, open, onClose, onSave }) {
   const [saving, setSaving] = useState(false)
   const [status, setStatus] = useState(null)
   const [artworkPreview, setArtworkPreview] = useState(null)
+  const [genreOptions, setGenreOptions] = useState([])
+
+  useEffect(() => {
+    if (!open) return
+    let active = true
+    api.getAllGenres().then((result) => {
+      if (!active) return
+      setGenreOptions(Array.isArray(result) ? result : [])
+    }).catch(() => {
+      if (active) setGenreOptions([])
+    })
+    return () => {
+      active = false
+    }
+  }, [open])
 
   useEffect(() => {
     if (track) {
@@ -74,6 +91,7 @@ export default function TrackEditModal({ track, open, onClose, onSave }) {
         genres: normalizeGenres(track.genres || track.genre || ''),
         record_label: track.record_label || '',
         explicit: !!track.explicit,
+        instrumental: track.instrumental === null || track.instrumental === undefined ? '' : String(track.instrumental),
         danceability: asInput(track.danceability),
         energy: asInput(track.energy),
         track_key: asInput(track.track_key),
@@ -143,6 +161,7 @@ export default function TrackEditModal({ track, open, onClose, onSave }) {
       if (normalizeGenres(formData.genres) !== normalizeGenres(track.genres || track.genre || '')) updateData.genres = normalizeGenres(formData.genres) || null
       if (formData.record_label !== (track.record_label || '')) updateData.record_label = formData.record_label || null
       if (formData.explicit !== !!track.explicit) updateData.explicit = formData.explicit ? 1 : 0
+      if (String(formData.instrumental) !== String(track.instrumental ?? '')) updateData.instrumental = formData.instrumental === '' ? null : formData.instrumental === '1' ? 1 : 0
       if (String(formData.danceability) !== String(track.danceability ?? '')) updateData.danceability = parseNumberField(formData.danceability)
       if (String(formData.energy) !== String(track.energy ?? '')) updateData.energy = parseNumberField(formData.energy)
       if (String(formData.track_key) !== String(track.track_key ?? '')) updateData.track_key = parseIntegerField(formData.track_key)
@@ -306,10 +325,11 @@ export default function TrackEditModal({ track, open, onClose, onSave }) {
           </div>
           <div>
             <label className="text-xs font-display text-muted uppercase tracking-widest block mb-1">Genre</label>
-            <input 
+            <GenreValueInput
               value={formData.genre}
-              onChange={(e) => handleChange('genre', e.target.value)}
-              className="w-full bg-card border border-border rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-accent/50"
+              onChange={(value) => handleChange('genre', value)}
+              suggestions={genreOptions}
+              listId="track-edit-genre-options"
               placeholder="Rock"
             />
           </div>
@@ -318,10 +338,12 @@ export default function TrackEditModal({ track, open, onClose, onSave }) {
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           <div>
             <label className="text-xs font-display text-muted uppercase tracking-widest block mb-1">Genres</label>
-            <input
+            <GenreValueInput
               value={formData.genres}
-              onChange={(e) => handleChange('genres', e.target.value)}
-              className="w-full bg-card border border-border rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-accent/50"
+              onChange={(value) => handleChange('genres', value)}
+              suggestions={genreOptions}
+              listId="track-edit-genres-options"
+              multi
               placeholder="slowcore, shoegaze"
             />
           </div>
@@ -336,18 +358,33 @@ export default function TrackEditModal({ track, open, onClose, onSave }) {
           </div>
         </div>
 
-        <label className="flex items-center gap-3 rounded-xl border border-border bg-card px-3 py-3 cursor-pointer">
-          <input
-            type="checkbox"
-            checked={formData.explicit}
-            onChange={(e) => handleChange('explicit', e.target.checked)}
-            className="rounded border-border bg-card text-accent focus:ring-accent/40"
-          />
-          <div>
-            <p className="text-sm text-white">Explicit</p>
-            <p className="text-xs text-muted">Show the track with the explicit badge.</p>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <label className="flex items-center gap-3 rounded-xl border border-border bg-card px-3 py-3 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={formData.explicit}
+              onChange={(e) => handleChange('explicit', e.target.checked)}
+              className="rounded border-border bg-card text-accent focus:ring-accent/40"
+            />
+            <div>
+              <p className="text-sm text-white">Explicit</p>
+              <p className="text-xs text-muted">Show the track with the explicit badge.</p>
+            </div>
+          </label>
+          <div className="rounded-xl border border-border bg-card px-3 py-3">
+            <label className="text-xs font-display text-muted uppercase tracking-widest block mb-2">Instrumental</label>
+            <select
+              value={formData.instrumental}
+              onChange={(e) => handleChange('instrumental', e.target.value)}
+              className="w-full bg-surface border border-border rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-accent/50"
+            >
+              <option value="">Unknown</option>
+              <option value="1">Instrumental</option>
+              <option value="0">Has vocals</option>
+            </select>
+            <p className="text-xs text-muted mt-2">Instrumental tracks skip LRCLIB and lyrics lookups.</p>
           </div>
-        </label>
+        </div>
 
         <div className="rounded-2xl border border-border bg-card/70 p-4 space-y-3">
           <div>

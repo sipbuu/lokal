@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react'
 import { Camera, RefreshCw, Save } from 'lucide-react'
 import Modal from './Modal'
 import { api } from '../api'
+import GenreValueInput from './GenreValueInput'
 
 const FIELD_LABELS = {
   title: 'Title',
@@ -14,6 +15,7 @@ const FIELD_LABELS = {
   genres: 'Genres',
   record_label: 'Record Label',
   explicit: 'Explicit',
+  instrumental: 'Instrumental',
   artwork: 'Artwork',
 }
 
@@ -28,7 +30,33 @@ const DEFAULT_MODES = {
   genres: 'ignore',
   record_label: 'ignore',
   explicit: 'ignore',
+  instrumental: 'ignore',
   artwork: 'ignore',
+}
+
+const TEXT_FIELDS = new Set(['title', 'artist', 'album', 'album_artist', 'genre', 'genres', 'record_label'])
+
+function applyTextBatchPreview(currentValue, mode, value) {
+  const currentText = String(currentValue ?? '')
+  const nextValue = String(value ?? '')
+  if (!nextValue) return { changed: false, value: currentValue }
+  if (mode === 'removeText') {
+    const nextText = currentText.split(nextValue).join('').trim()
+    return { changed: nextText !== currentText, value: nextText }
+  }
+  if (mode === 'keepAfterText') {
+    const index = currentText.indexOf(nextValue)
+    if (index === -1) return { changed: false, value: currentValue }
+    const nextText = currentText.slice(index + nextValue.length).trim()
+    return { changed: nextText !== currentText, value: nextText }
+  }
+  if (mode === 'keepBeforeText') {
+    const index = currentText.indexOf(nextValue)
+    if (index === -1) return { changed: false, value: currentValue }
+    const nextText = currentText.slice(0, index).trim()
+    return { changed: nextText !== currentText, value: nextText }
+  }
+  return { changed: false, value: currentValue }
 }
 
 function createDefaultValues() {
@@ -43,8 +71,15 @@ function createDefaultValues() {
     genres: '',
     record_label: '',
     explicit: '',
+    instrumental: '',
     artwork: '',
   }
+}
+
+function formatPreviewValue(field, value) {
+  if (field === 'explicit') return value === '1' ? 'Explicit' : 'Clean'
+  if (field === 'instrumental') return value === '1' ? 'Instrumental' : 'Has vocals'
+  return value
 }
 
 export default function BatchEditModal({ tracks = [], open, onClose, onSave }) {
@@ -52,6 +87,7 @@ export default function BatchEditModal({ tracks = [], open, onClose, onSave }) {
   const [values, setValues] = useState(createDefaultValues())
   const [artworkPreview, setArtworkPreview] = useState(null)
   const [saving, setSaving] = useState(false)
+  const [genreOptions, setGenreOptions] = useState([])
 
   useEffect(() => {
     if (!open) return
@@ -59,6 +95,16 @@ export default function BatchEditModal({ tracks = [], open, onClose, onSave }) {
     setValues(createDefaultValues())
     setArtworkPreview(null)
     setSaving(false)
+    let active = true
+    api.getAllGenres().then((result) => {
+      if (!active) return
+      setGenreOptions(Array.isArray(result) ? result : [])
+    }).catch(() => {
+      if (active) setGenreOptions([])
+    })
+    return () => {
+      active = false
+    }
   }, [open])
 
   const summary = useMemo(() => {
@@ -71,7 +117,7 @@ export default function BatchEditModal({ tracks = [], open, onClose, onSave }) {
     const rows = []
     for (const track of tracks.slice(0, 12)) {
       const changes = []
-      for (const field of ['title', 'artist', 'album', 'album_artist', 'track_num', 'year', 'genre', 'genres', 'record_label', 'explicit']) {
+      for (const field of ['title', 'artist', 'album', 'album_artist', 'track_num', 'year', 'genre', 'genres', 'record_label', 'explicit', 'instrumental']) {
         const mode = modes[field]
         if (mode === 'ignore') continue
         if (mode === 'clear') {
@@ -80,12 +126,19 @@ export default function BatchEditModal({ tracks = [], open, onClose, onSave }) {
         }
         if (mode === 'fillMissing') {
           if (track[field] === null || track[field] === undefined || String(track[field]) === '') {
-            changes.push(`${FIELD_LABELS[field]} -> ${values[field]}`)
+            changes.push(`${FIELD_LABELS[field]} -> ${formatPreviewValue(field, values[field])}`)
+          }
+          continue
+        }
+        if (TEXT_FIELDS.has(field) && ['removeText', 'keepAfterText', 'keepBeforeText'].includes(mode)) {
+          const result = applyTextBatchPreview(track[field], mode, values[field])
+          if (result.changed) {
+            changes.push(`${FIELD_LABELS[field]} -> ${result.value}`)
           }
           continue
         }
         if (mode === 'replace' && String(track[field] ?? '') !== String(values[field] ?? '')) {
-          changes.push(`${FIELD_LABELS[field]} -> ${values[field]}`)
+          changes.push(`${FIELD_LABELS[field]} -> ${formatPreviewValue(field, values[field])}`)
         }
       }
       if (modes.artwork === 'replace' && values.artwork) changes.push('Artwork -> new image')
@@ -100,6 +153,7 @@ export default function BatchEditModal({ tracks = [], open, onClose, onSave }) {
       if (mode === 'ignore') return false
       if (mode === 'clear') return true
       if (field === 'artwork') return Boolean(values.artwork)
+      if (['removeText', 'keepAfterText', 'keepBeforeText'].includes(mode)) return String(values[field] ?? '').trim() !== ''
       return String(values[field] ?? '').trim() !== ''
     })
   }, [modes, values])
@@ -126,27 +180,36 @@ export default function BatchEditModal({ tracks = [], open, onClose, onSave }) {
   const handleSave = async () => {
     if (!canSave) return
     setSaving(true)
-    const operations = {
-      title: { mode: modes.title, value: values.title || null },
-      artist: { mode: modes.artist, value: values.artist || null },
-      album: { mode: modes.album, value: values.album || null },
-      album_artist: { mode: modes.album_artist, value: values.album_artist || null },
-      track_num: { mode: modes.track_num, value: values.track_num ? parseInt(values.track_num, 10) : null },
-      year: { mode: modes.year, value: values.year ? parseInt(values.year, 10) : null },
-      genre: { mode: modes.genre, value: values.genre || null },
-      genres: { mode: modes.genres, value: values.genres || null },
-      record_label: { mode: modes.record_label, value: values.record_label || null },
-      explicit: { mode: modes.explicit, value: values.explicit === '' ? null : values.explicit === '1' ? 1 : 0 },
-      artwork: { mode: modes.artwork, value: values.artwork || null },
+    try {
+      const operations = {
+        title: { mode: modes.title, value: values.title || null },
+        artist: { mode: modes.artist, value: values.artist || null },
+        album: { mode: modes.album, value: values.album || null },
+        album_artist: { mode: modes.album_artist, value: values.album_artist || null },
+        track_num: { mode: modes.track_num, value: values.track_num ? parseInt(values.track_num, 10) : null },
+        year: { mode: modes.year, value: values.year ? parseInt(values.year, 10) : null },
+        genre: { mode: modes.genre, value: values.genre || null },
+        genres: { mode: modes.genres, value: values.genres || null },
+        record_label: { mode: modes.record_label, value: values.record_label || null },
+        explicit: { mode: modes.explicit, value: values.explicit === '' ? null : values.explicit === '1' ? 1 : 0 },
+        instrumental: { mode: modes.instrumental, value: values.instrumental === '' ? null : values.instrumental === '1' ? 1 : 0 },
+        artwork: { mode: modes.artwork, value: values.artwork || null },
+      }
+      const result = await api.batchUpdateTracks(tracks.map(track => track.id), operations)
+      if (result?.error) {
+        alert(result.error)
+        return
+      }
+      const updatedTracks = Array.isArray(result?.tracks) ? result.tracks : []
+      if (!updatedTracks.length) {
+        alert('No tracks were changed.')
+        return
+      }
+      onSave?.(updatedTracks)
+      onClose?.()
+    } finally {
+      setSaving(false)
     }
-    const result = await api.batchUpdateTracks(tracks.map(track => track.id), operations)
-    setSaving(false)
-    if (result?.error) {
-      alert(result.error)
-      return
-    }
-    onSave?.(Array.isArray(result?.tracks) ? result.tracks : [])
-    onClose?.()
   }
 
   return (
@@ -163,7 +226,7 @@ export default function BatchEditModal({ tracks = [], open, onClose, onSave }) {
           <span className="text-xs font-display text-muted uppercase tracking-widest">Mode</span>
           <span className="text-xs font-display text-muted uppercase tracking-widest">Value</span>
 
-          {['title', 'artist', 'album', 'album_artist', 'track_num', 'year', 'genre', 'genres', 'record_label', 'explicit'].map(field => (
+          {['title', 'artist', 'album', 'album_artist', 'track_num', 'year', 'genre', 'genres', 'record_label', 'explicit', 'instrumental'].map(field => (
             <React.Fragment key={field}>
               <label className="text-sm text-white">{FIELD_LABELS[field]}</label>
               <select
@@ -174,19 +237,32 @@ export default function BatchEditModal({ tracks = [], open, onClose, onSave }) {
                 <option value="ignore">Ignore</option>
                 <option value="replace">Replace all</option>
                 <option value="fillMissing">Fill missing</option>
+                {TEXT_FIELDS.has(field) && <option value="removeText">Remove text</option>}
+                {TEXT_FIELDS.has(field) && <option value="keepAfterText">Keep after text</option>}
+                {TEXT_FIELDS.has(field) && <option value="keepBeforeText">Keep before text</option>}
                 <option value="clear">Clear</option>
               </select>
-              {field === 'explicit' ? (
+              {field === 'explicit' || field === 'instrumental' ? (
                 <select
                   value={values[field]}
                   onChange={(e) => setValue(field, e.target.value)}
                   disabled={modes[field] === 'clear'}
                   className="w-full bg-card border border-border rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-accent/50 disabled:opacity-40"
                 >
-                  <option value="">Select…</option>
-                  <option value="1">Explicit</option>
-                  <option value="0">Clean</option>
+                  <option value="">Select...</option>
+                  <option value="1">{field === 'explicit' ? 'Explicit' : 'Instrumental'}</option>
+                  <option value="0">{field === 'explicit' ? 'Clean' : 'Has vocals'}</option>
                 </select>
+              ) : field === 'genre' || field === 'genres' ? (
+                <GenreValueInput
+                  value={values[field]}
+                  onChange={(value) => setValue(field, value)}
+                  disabled={modes[field] === 'clear'}
+                  suggestions={genreOptions}
+                  listId={`batch-edit-${field}-options`}
+                  multi={field === 'genres'}
+                  placeholder={field === 'genre' ? 'Rock' : 'slowcore, shoegaze'}
+                />
               ) : (
                 <input
                   value={values[field]}
