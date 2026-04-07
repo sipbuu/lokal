@@ -86,6 +86,7 @@ function mergeDownload(existing, incoming) {
     indexedTracks: Array.isArray(incoming.indexedTracks) ? incoming.indexedTracks : (existing.indexedTracks || []),
     totalTracks: incoming.totalTracks ?? existing.totalTracks ?? null,
     currentTrack: incoming.currentTrack ?? existing.currentTrack ?? null,
+    playlistId: incoming.playlistId ?? existing.playlistId ?? null,
     kind: incoming.kind || existing.kind || 'single',
   }
 }
@@ -111,6 +112,7 @@ function normalizeDownload(item) {
     indexedTracks: Array.isArray(item.indexedTracks) ? item.indexedTracks : [],
     totalTracks: item.totalTracks ?? null,
     currentTrack: item.currentTrack ?? null,
+    playlistId: item.playlistId ?? null,
   }
   return {
     ...normalized,
@@ -292,6 +294,7 @@ export default function Downloader() {
   })
 
   const manualPlaylistTitle = inferTitleFromUrl(playlistUrl, 'Playlist / Album')
+  const activeDownloads = downloads.filter(download => download.status === 'downloading')
 
   const refreshQueue = async () => {
     try {
@@ -454,6 +457,18 @@ export default function Downloader() {
 
   const clearDone = () => {
     setDownloads(prev => prev.filter(download => download.status === 'downloading'))
+  }
+
+  const stopAllDownloads = async () => {
+    const activeIds = activeDownloads.map(download => download.id)
+    if (!activeIds.length) return
+    setDownloads(prev => prev.map(download => (
+      activeIds.includes(download.id)
+        ? { ...download, message: 'Stopping...' }
+        : download
+    )))
+    await Promise.allSettled(activeIds.map(id => api.cancelDownload(id)))
+    refreshQueue()
   }
 
   const loadDownloadedPlaylists = () => {
@@ -697,7 +712,13 @@ export default function Downloader() {
               <p className="text-sm text-muted">No playlists downloaded yet. Download a playlist to see it here.</p>
             ) : (
               <div className="space-y-3">
-                {downloadedPlaylists.map(playlist => (
+                {downloadedPlaylists.map(playlist => {
+                  const isDownloadingPlaylist = downloads.some(download => (
+                    download.status === 'downloading' &&
+                    download.kind === 'playlist' &&
+                    (download.playlistId === playlist.id || (playlist.url && download.url === playlist.url))
+                  ))
+                  return (
                   <div key={playlist.id} className="flex items-center justify-between gap-4 rounded-2xl border border-border bg-black/15 p-4">
                     <div className="flex-1 min-w-0">
                       <p className="truncate text-sm font-semibold text-white">{displayTitle(playlist, 'Playlist')}</p>
@@ -707,9 +728,10 @@ export default function Downloader() {
                     <div className="flex gap-2">
                       <button
                         onClick={() => handleRedownload(playlist.id)}
-                        className="rounded-xl bg-accent/15 px-3 py-2 text-xs font-semibold text-accent transition-colors hover:bg-accent/25"
+                        disabled={isDownloadingPlaylist}
+                        className="rounded-xl bg-accent/15 px-3 py-2 text-xs font-semibold text-accent transition-colors hover:bg-accent/25 disabled:cursor-not-allowed disabled:opacity-40"
                       >
-                        Re-download
+                        {isDownloadingPlaylist ? 'Downloading' : 'Re-download'}
                       </button>
                       <button
                         onClick={() => handleRemovePlaylist(playlist.id)}
@@ -719,7 +741,7 @@ export default function Downloader() {
                       </button>
                     </div>
                   </div>
-                ))}
+                )})}
               </div>
             )}
         </section>
@@ -817,11 +839,18 @@ export default function Downloader() {
               <Download size={14} />
               <span>Download Queue</span>
             </div>
-            {downloads.some(download => download.status !== 'downloading') && (
-              <button onClick={clearDone} className="text-xs uppercase tracking-[0.2em] text-muted transition-colors hover:text-white">
-                Clear finished
-              </button>
-            )}
+            <div className="flex items-center gap-3">
+              {activeDownloads.length > 0 && (
+                <button onClick={stopAllDownloads} className="text-xs uppercase tracking-[0.2em] text-yellow-200 transition-colors hover:text-white">
+                  Stop active
+                </button>
+              )}
+              {downloads.some(download => download.status !== 'downloading') && (
+                <button onClick={clearDone} className="text-xs uppercase tracking-[0.2em] text-muted transition-colors hover:text-white">
+                  Clear finished
+                </button>
+              )}
+            </div>
           </div>
           <AnimatePresence>
             <div className="space-y-3">

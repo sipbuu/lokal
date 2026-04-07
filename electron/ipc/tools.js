@@ -149,40 +149,91 @@ function findFfprobe() {
 
 function downloadFile(url, dest) {
   return new Promise((resolve, reject) => {
-    fs.ensureDirSync(path.dirname(dest));
-    
-    const file = fs.createWriteStream(dest);
-    const request = https.get(url, (response) => {
+    fs.ensureDirSync(path.dirname(dest))
 
+    let settled = false
+    let request = null
+    const file = fs.createWriteStream(dest)
+
+    const fail = (err) => {
+      if (settled) return
+      settled = true
+      try { request?.destroy() } catch {}
+      try { file.destroy() } catch {}
+      try { fs.unlinkSync(dest) } catch {}
+      console.error(`[Download] Error: ${err.message}`)
+      reject(err)
+    }
+
+    const succeed = () => {
+      if (settled) return
+      settled = true
+      console.log(`[Download] Finished: ${dest}`)
+      resolve()
+    }
+
+    file.on('error', fail)
+
+    request = https.get(url, (response) => {
       if (response.statusCode === 301 || response.statusCode === 302) {
-        const redirectUrl = response.headers.location;
-        console.log(`[Redirect] Following to: ${redirectUrl}`);
-        file.close();
-        return downloadFile(redirectUrl, dest).then(resolve).catch(reject);
+        const redirectUrl = response.headers.location
+        console.log(`[Redirect] Following to: ${redirectUrl}`)
+        response.resume()
+        file.close(() => {
+          try { fs.unlinkSync(dest) } catch {}
+          downloadFile(redirectUrl, dest).then(succeed).catch(fail)
+        })
+        return
       }
 
       if (response.statusCode !== 200) {
-        file.close();
-        reject(new Error(`Download failed: ${response.statusCode}`));
-        return;
+        response.resume()
+        file.close(() => fail(new Error(`Download failed: ${response.statusCode}`)))
+        return
       }
 
-      response.pipe(file);
+      response.on('error', fail)
+      response.pipe(file)
+    })
 
-      file.on('finish', () => {
-        file.close();
-        console.log(`[Download] Finished: ${dest}`);
-        resolve();
-      });
-    });
+    file.on('finish', () => {
+      file.close(succeed)
+    })
 
-    request.on('error', (err) => {
-      file.close();
-      try { fs.unlinkSync(dest); } catch {}
-      console.error(`[Download] Error: ${err.message}`);
-      reject(err);
-    });
-  });
+    request.on('error', fail)
+  })
+}
+
+function isBusyError(err) {
+  return ['EBUSY', 'EPERM', 'EACCES'].includes(err?.code)
+}
+
+function wait(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms))
+}
+
+async function replaceFileWithRetry(source, dest, progressCallback) {
+  try {
+    await fs.move(source, dest, { overwrite: true })
+    return dest
+  } catch (err) {
+    if (!isBusyError(err)) throw err
+
+    if (progressCallback) {
+      progressCallback({ status: 'stopping', message: 'Stopping active yt-dlp processes...' })
+    }
+
+    try {
+      const { stopActiveDownloadsForToolUpdate } = require('./downloader')
+      if (typeof stopActiveDownloadsForToolUpdate === 'function') {
+        await stopActiveDownloadsForToolUpdate()
+      }
+    } catch {}
+
+    await wait(900)
+    await fs.move(source, dest, { overwrite: true })
+    return dest
+  }
 }
 
 
@@ -194,13 +245,16 @@ async function downloadYtDlp(progressCallback) {
     : 'https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp'
   
   const dest = path.join(getUserDataBin(), filename)
+  const tempDest = path.join(getUserDataBin(), `${filename}.download-${process.pid}-${Date.now()}`)
   fs.ensureDirSync(getUserDataBin())
   console.log(`[Tools] Starting download: ${url}`); 
   
   if (progressCallback) progressCallback({ status: 'downloading', message: 'Downloading yt-dlp...' });
   
   try {
-    await downloadFile(url, dest);
+    await downloadFile(url, tempDest);
+    if (progressCallback) progressCallback({ status: 'installing', message: 'Installing yt-dlp...' });
+    await replaceFileWithRetry(tempDest, dest, progressCallback)
     console.log(`[Tools] yt-dlp downloaded successfully to: ${dest}`); 
     
     if (process.platform !== 'win32') {
@@ -210,6 +264,8 @@ async function downloadYtDlp(progressCallback) {
   } catch (err) {
     console.error(`[Tools] Failed to download yt-dlp: ${err.message}`); 
     throw err;
+  } finally {
+    try { fs.removeSync(tempDest) } catch {}
   }
   
   return dest; 

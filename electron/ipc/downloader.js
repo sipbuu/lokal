@@ -6,6 +6,11 @@ const { getDB, getStorageDir } = require('./db')
 const { findYtDlp, findFfmpeg, findFfprobe } = require('./tools')
 
 const downloadQueue = new Map()
+const activeYtDlpProcesses = new Map()
+
+function wait(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms))
+}
 
 function getPlaylistId(url) {
   try {
@@ -61,6 +66,9 @@ function createQueueEntry(data) {
     error: data.error || null,
     proc: data.proc || null,
     window: data.window || null,
+    cancellationRequested: Boolean(data.cancellationRequested),
+    cancelStatus: data.cancelStatus || null,
+    removeAfterCancel: data.removeAfterCancel !== false,
   }
 }
 
@@ -97,6 +105,20 @@ function setQueueEntry(id, patch = {}) {
   }
   downloadQueue.set(id, next)
   return next
+}
+
+function registerYtDlpProcess(proc) {
+  if (!proc) return proc
+
+  const key = proc.pid || `${Date.now()}-${Math.random()}`
+  const cleanup = () => {
+    activeYtDlpProcesses.delete(key)
+  }
+
+  activeYtDlpProcesses.set(key, proc)
+  proc.once('close', cleanup)
+  proc.once('error', cleanup)
+  return proc
 }
 
 function emitProgress(id, payload = {}) {
@@ -253,7 +275,7 @@ function fetchMediaTitle(ytdlp, url) {
       '--quiet',
       '--no-warnings',
     ]
-    const proc = spawn(ytdlp, args, { windowsHide: true })
+    const proc = registerYtDlpProcess(spawn(ytdlp, args, { windowsHide: true }))
     let stdout = ''
 
     proc.stdout.on('data', data => {
@@ -283,13 +305,95 @@ function getFriendlyDownloadError(outputLines, fallback) {
 }
 
 function terminateProcessTree(proc) {
-  if (!proc) return
-  try { proc.kill('SIGKILL') } catch {}
-  if (process.platform === 'win32' && proc.pid) {
-    try {
-      spawn('taskkill', ['/pid', String(proc.pid), '/t', '/f'], { windowsHide: true })
-    } catch {}
+  if (!proc) return Promise.resolve()
+  if (proc.exitCode !== null || proc.signalCode !== null) return Promise.resolve()
+
+  return new Promise(resolve => {
+    let settled = false
+    const finish = () => {
+      if (settled) return
+      settled = true
+      clearTimeout(timeout)
+      resolve()
+    }
+    const timeout = setTimeout(finish, 8000)
+
+    proc.once('close', finish)
+    proc.once('exit', finish)
+    proc.once('error', finish)
+
+    try { proc.kill('SIGTERM') } catch {}
+
+    if (process.platform === 'win32' && proc.pid) {
+      try {
+        const killer = spawn('taskkill', ['/pid', String(proc.pid), '/t', '/f'], { windowsHide: true })
+        killer.once('close', () => {})
+        killer.once('error', () => {})
+      } catch {}
+    } else {
+      try { proc.kill('SIGKILL') } catch {}
+    }
+  })
+}
+
+function scheduleQueueRemoval(id, delayMs = 1500) {
+  setTimeout(() => {
+    const entry = downloadQueue.get(id)
+    if (!entry) return
+    if (entry.status === 'cancelled' || entry.status === 'incomplete') {
+      downloadQueue.delete(id)
+    }
+  }, delayMs)
+}
+
+async function requestCancellation(id, opts = {}) {
+  const entry = downloadQueue.get(id)
+  if (!entry) return { success: false, status: 'missing' }
+
+  const cancelStatus = opts.cancelStatus || (entry.kind === 'playlist' ? 'incomplete' : 'cancelled')
+  const stopMessage = opts.stopMessage || 'Stopping...'
+
+  setQueueEntry(id, {
+    cancellationRequested: true,
+    cancelStatus,
+    removeAfterCancel: opts.removeAfterCancel !== false,
+    message: stopMessage,
+    error: null,
+  })
+  emitProgress(id, snapshotQueueEntry(downloadQueue.get(id)))
+
+  if (entry.kind === 'playlist' && entry.playlistId) {
+    markPlaylistIncomplete(entry.playlistId, entry.downloadedTracks?.length || 0, entry.totalTracks || 0)
   }
+
+  await terminateProcessTree(entry.proc)
+  return { success: true, status: cancelStatus }
+}
+
+async function cancelMatchingDownloads(predicate, opts = {}) {
+  const entries = Array.from(downloadQueue.values()).filter(predicate)
+  if (!entries.length) return { success: true, count: 0, ids: [] }
+  await Promise.all(entries.map(entry => requestCancellation(entry.id, opts)))
+  if (opts.waitAfterMs) {
+    await wait(opts.waitAfterMs)
+  }
+  return { success: true, count: entries.length, ids: entries.map(entry => entry.id) }
+}
+
+async function stopLooseYtDlpProcesses() {
+  const queuedPids = new Set(
+    Array.from(downloadQueue.values())
+      .map(entry => entry.proc?.pid)
+      .filter(Boolean)
+  )
+  const loose = Array.from(activeYtDlpProcesses.values())
+    .filter(proc => proc?.pid && !queuedPids.has(proc.pid))
+
+  if (!loose.length) return { success: true, count: 0 }
+
+  await Promise.all(loose.map(proc => terminateProcessTree(proc)))
+  await wait(300)
+  return { success: true, count: loose.length }
 }
 
 function markPlaylistIncomplete(playlistId, downloadedCount = 0, totalTracks = 0) {
@@ -319,7 +423,7 @@ function runJsonSearch(ytdlp, searchTerm, mapper, page = 1, limit = 10) {
   ]
 
   return new Promise((resolve) => {
-    const proc = spawn(ytdlp, args, { windowsHide: true })
+    const proc = registerYtDlpProcess(spawn(ytdlp, args, { windowsHide: true }))
     let stdout = ''
 
     proc.stdout.on('data', data => {
@@ -456,7 +560,14 @@ async function runSingleDownload(window, url, opts = {}) {
     const downloadedTracks = []
     const indexedTracks = []
     const indexedFilepaths = new Set()
-    const proc = spawn(ytdlp, args, { windowsHide: true })
+    const proc = registerYtDlpProcess(spawn(ytdlp, args, { windowsHide: true }))
+    let settled = false
+
+    const settle = (value) => {
+      if (settled) return
+      settled = true
+      resolve(value)
+    }
 
     downloadQueue.set(downloadId, createQueueEntry({
       id: downloadId,
@@ -562,7 +673,27 @@ async function runSingleDownload(window, url, opts = {}) {
     proc.on('close', async code => {
       const entry = downloadQueue.get(downloadId)
       if (!entry) {
-        resolve({ success: false, cancelled: true })
+        settle({ success: false, cancelled: true })
+        return
+      }
+
+      if (entry.cancellationRequested) {
+        const finalStatus = entry.cancelStatus || 'cancelled'
+        setQueueEntry(downloadId, {
+          status: finalStatus,
+          progress: Math.min(entry.progress || 0, 99),
+          speed: null,
+          eta: null,
+          error: null,
+          message: finalStatus === 'incomplete' ? 'Download stopped before finishing' : 'Download cancelled',
+          output: trimOutput(outputLines),
+          proc: null,
+        })
+        emitProgress(downloadId, snapshotQueueEntry(downloadQueue.get(downloadId)))
+        if (entry.removeAfterCancel !== false) {
+          scheduleQueueRemoval(downloadId)
+        }
+        settle({ success: false, cancelled: true, status: finalStatus })
         return
       }
 
@@ -580,9 +711,10 @@ async function runSingleDownload(window, url, opts = {}) {
           message: finalIndexedTracks.length ? `Indexed ${finalIndexedTracks.length} track(s)` : 'Download complete',
           downloadedTracks: [...downloadedTracks],
           indexedTracks: finalIndexedTracks,
+          proc: null,
         })
         emitProgress(downloadId, snapshotQueueEntry(downloadQueue.get(downloadId)))
-        resolve({ success: true, downloadId, indexedTracks: finalIndexedTracks, downloadedTracks: [...downloadedTracks] })
+        settle({ success: true, downloadId, indexedTracks: finalIndexedTracks, downloadedTracks: [...downloadedTracks] })
         return
       }
 
@@ -592,20 +724,27 @@ async function runSingleDownload(window, url, opts = {}) {
         error: friendlyError,
         message: code === null ? 'Cancelled' : friendlyError,
         output: trimOutput(outputLines),
+        proc: null,
       })
       emitProgress(downloadId, snapshotQueueEntry(downloadQueue.get(downloadId)))
-      resolve({ error: friendlyError, code })
+      settle({ error: friendlyError, code })
     })
 
     proc.on('error', err => {
+      const entry = downloadQueue.get(downloadId)
+      if (entry?.cancellationRequested) {
+        settle({ success: false, cancelled: true, status: entry.cancelStatus || 'cancelled' })
+        return
+      }
       setQueueEntry(downloadId, {
         status: 'error',
         error: err.message,
         message: err.message,
         output: trimOutput(outputLines),
+        proc: null,
       })
       emitProgress(downloadId, snapshotQueueEntry(downloadQueue.get(downloadId)))
-      resolve({ error: err.message })
+      settle({ error: err.message })
     })
   })
 }
@@ -664,7 +803,14 @@ async function runPlaylistDownload(window, url, opts = {}) {
     let currentTrack = 0
     let currentSong = null
 
-    const proc = spawn(ytdlp, args, { windowsHide: true })
+    const proc = registerYtDlpProcess(spawn(ytdlp, args, { windowsHide: true }))
+    let settled = false
+
+    const settle = (value) => {
+      if (settled) return
+      settled = true
+      resolve(value)
+    }
 
     downloadQueue.set(dlId, createQueueEntry({
       id: dlId,
@@ -843,7 +989,34 @@ async function runPlaylistDownload(window, url, opts = {}) {
     proc.on('close', async code => {
       const entry = downloadQueue.get(dlId)
       if (!entry) {
-        resolve({ success: false, cancelled: true })
+        settle({ success: false, cancelled: true })
+        return
+      }
+
+      if (entry.cancellationRequested) {
+        const finalStatus = entry.cancelStatus || 'incomplete'
+        db.prepare('UPDATE downloaded_playlists SET status = ?, downloaded_count = ?, total_tracks = ?, last_downloaded_at = ? WHERE id = ?')
+          .run(finalStatus, downloadedTracks.length, totalTracks || downloadedTracks.length, Date.now(), playlistDbId)
+
+        setQueueEntry(dlId, {
+          status: finalStatus,
+          progress: Math.min(entry.progress || 0, 99),
+          speed: null,
+          eta: null,
+          error: null,
+          message: 'Download stopped before finishing',
+          downloadedTracks: [...downloadedTracks],
+          indexedTracks: [...indexedTracks],
+          totalTracks: totalTracks || null,
+          currentTrack: currentTrack || null,
+          output: trimOutput(outputLines),
+          proc: null,
+        })
+        emitProgress(dlId, snapshotQueueEntry(downloadQueue.get(dlId)))
+        if (entry.removeAfterCancel !== false) {
+          scheduleQueueRemoval(dlId)
+        }
+        settle({ success: false, cancelled: true, status: finalStatus })
         return
       }
 
@@ -870,9 +1043,10 @@ async function runPlaylistDownload(window, url, opts = {}) {
           indexedTracks: [...indexedTracks],
           totalTracks: totalTracks || downloadedTracks.length,
           currentTrack: totalTracks || downloadedTracks.length,
+          proc: null,
         })
         emitProgress(dlId, snapshotQueueEntry(downloadQueue.get(dlId)))
-        resolve({ success: true, count: downloadedTracks.length, indexedTracks: [...indexedTracks] })
+        settle({ success: true, count: downloadedTracks.length, indexedTracks: [...indexedTracks] })
         return
       }
 
@@ -889,12 +1063,18 @@ async function runPlaylistDownload(window, url, opts = {}) {
         totalTracks: totalTracks || null,
         currentTrack: currentTrack || null,
         output: trimOutput(outputLines),
+        proc: null,
       })
       emitProgress(dlId, snapshotQueueEntry(downloadQueue.get(dlId)))
-      resolve({ error: friendlyError, code })
+      settle({ error: friendlyError, code })
     })
 
     proc.on('error', err => {
+      const entry = downloadQueue.get(dlId)
+      if (entry?.cancellationRequested) {
+        settle({ success: false, cancelled: true, status: entry.cancelStatus || 'incomplete' })
+        return
+      }
       db.prepare('UPDATE downloaded_playlists SET status = ?, last_downloaded_at = ? WHERE id = ?')
         .run('failed', Date.now(), playlistDbId)
 
@@ -903,9 +1083,10 @@ async function runPlaylistDownload(window, url, opts = {}) {
         error: err.message,
         message: err.message,
         output: trimOutput(outputLines),
+        proc: null,
       })
       emitProgress(dlId, snapshotQueueEntry(downloadQueue.get(dlId)))
-      resolve({ error: err.message })
+      settle({ error: err.message })
     })
   })
 }
@@ -938,15 +1119,8 @@ function registerDownloaderHandlers(ipcMain) {
     return runSingleDownload(window, url, opts)
   })
 
-  ipcMain.handle('downloader:cancel', (_, id) => {
-    const entry = downloadQueue.get(id)
-    if (!entry) return { success: false }
-    terminateProcessTree(entry.proc)
-    if (entry.kind === 'playlist' && entry.playlistId) {
-      markPlaylistIncomplete(entry.playlistId, entry.downloadedTracks?.length || 0, entry.totalTracks || 0)
-    }
-    downloadQueue.delete(id)
-    return { success: true }
+  ipcMain.handle('downloader:cancel', async (_, id) => {
+    return requestCancellation(id, { removeAfterCancel: true })
   })
 
   ipcMain.handle('downloader:queue', () => {
@@ -985,6 +1159,18 @@ function registerPlaylistArchiveHandlers(ipcMain) {
     const db = getDB()
     const playlist = db.prepare('SELECT * FROM downloaded_playlists WHERE id = ?').get(playlistId)
     if (!playlist) return { error: 'Playlist not found' }
+
+    await cancelMatchingDownloads(entry => (
+      entry.status === 'downloading' && entry.kind === 'playlist' && (
+        entry.playlistId === playlistId ||
+        (playlist.url && entry.url === playlist.url)
+      )
+    ), {
+      cancelStatus: 'incomplete',
+      stopMessage: 'Stopping current download before re-download...',
+      removeAfterCancel: true,
+      waitAfterMs: 600,
+    })
 
     if (playlist.archive_path && fs.existsSync(playlist.archive_path)) {
       try { fs.unlinkSync(playlist.archive_path) } catch {}
@@ -1035,6 +1221,19 @@ module.exports = {
   terminateProcessTree,
   markInterruptedPlaylistsIncomplete,
   markPlaylistIncomplete,
+  stopActiveDownloadsForToolUpdate: async () => {
+    const downloads = await cancelMatchingDownloads(entry => entry.status === 'downloading', {
+      stopMessage: 'Stopping active yt-dlp process...',
+      removeAfterCancel: true,
+      waitAfterMs: 600,
+    })
+    const extras = await stopLooseYtDlpProcesses()
+    return {
+      success: true,
+      count: (downloads.count || 0) + (extras.count || 0),
+      ids: downloads.ids || [],
+    }
+  },
   shutdownActiveDownloads: () => {
     for (const entry of Array.from(downloadQueue.values())) {
       if (entry.kind === 'playlist' && entry.playlistId) {
@@ -1042,6 +1241,10 @@ module.exports = {
       }
       terminateProcessTree(entry.proc)
     }
+    for (const proc of Array.from(activeYtDlpProcesses.values())) {
+      terminateProcessTree(proc)
+    }
     downloadQueue.clear()
+    activeYtDlpProcesses.clear()
   },
 }
