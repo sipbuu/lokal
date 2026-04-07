@@ -1,5 +1,7 @@
 const router = require('express').Router()
 const { getDB } = require('../../electron/ipc/db')
+const path = require('path')
+const fs = require('fs')
 
 
 
@@ -289,6 +291,31 @@ function splitArtists(raw) {
 function applyBatchField(currentValue, operation) {
   if (!operation || operation.mode === 'ignore') return { changed: false, value: currentValue }
   if (operation.mode === 'clear') return { changed: currentValue !== null && currentValue !== '', value: null }
+  if (operation.mode === 'removeText') {
+    const currentText = String(currentValue ?? '')
+    const needle = String(operation.value ?? '')
+    if (!needle) return { changed: false, value: currentValue }
+    const nextText = currentText.split(needle).join('').trim()
+    return { changed: nextText !== currentText, value: nextText || null }
+  }
+  if (operation.mode === 'keepAfterText') {
+    const currentText = String(currentValue ?? '')
+    const needle = String(operation.value ?? '')
+    if (!needle) return { changed: false, value: currentValue }
+    const index = currentText.indexOf(needle)
+    if (index === -1) return { changed: false, value: currentValue }
+    const nextText = currentText.slice(index + needle.length).trim()
+    return { changed: nextText !== currentText, value: nextText || null }
+  }
+  if (operation.mode === 'keepBeforeText') {
+    const currentText = String(currentValue ?? '')
+    const needle = String(operation.value ?? '')
+    if (!needle) return { changed: false, value: currentValue }
+    const index = currentText.indexOf(needle)
+    if (index === -1) return { changed: false, value: currentValue }
+    const nextText = currentText.slice(0, index).trim()
+    return { changed: nextText !== currentText, value: nextText || null }
+  }
   if (operation.mode === 'fillMissing') {
     const missing = currentValue === null || currentValue === undefined || String(currentValue) === ''
     return missing ? { changed: true, value: operation.value ?? null } : { changed: false, value: currentValue }
@@ -298,6 +325,45 @@ function applyBatchField(currentValue, operation) {
     return { changed: currentValue !== nextValue, value: nextValue }
   }
   return { changed: false, value: currentValue }
+}
+
+function normalizeGenresForBatch(value) {
+  return String(value || '')
+    .split(',')
+    .map(part => part.trim())
+    .filter(Boolean)
+    .join(', ') || null
+}
+
+function firstGenreForBatch(value) {
+  return normalizeGenresForBatch(value)?.split(',').map(part => part.trim()).filter(Boolean)[0] || null
+}
+
+function clearLyricsStateForTrack(db, trackId, filePath = null) {
+  db.prepare('DELETE FROM lyrics_cache WHERE track_id = ?').run(trackId)
+  db.prepare('DELETE FROM lyrics_translations WHERE track_id = ?').run(trackId)
+  if (filePath) {
+    try { db.prepare('DELETE FROM lyrics_cache WHERE file_path = ?').run(filePath) } catch {}
+  }
+}
+
+function collectAllGenres(db) {
+  const rows = db.prepare(`
+    SELECT genre, genres
+    FROM tracks
+    WHERE file_path NOT LIKE 'ghost://%'
+      AND (genre IS NOT NULL OR genres IS NOT NULL)
+  `).all()
+  const values = new Map()
+  for (const row of rows) {
+    for (const source of [row.genre, row.genres]) {
+      for (const genre of String(source || '').split(',').map(part => part.trim()).filter(Boolean)) {
+        const key = genre.toLowerCase()
+        if (!values.has(key)) values.set(key, genre)
+      }
+    }
+  }
+  return [...values.values()].sort((left, right) => left.localeCompare(right, undefined, { sensitivity: 'base' }))
 }
 
 function normalizeAlbumTracks(tracks = []) {
@@ -397,13 +463,32 @@ async function applyBatchTrackUpdates(db, trackIds = [], operations = {}) {
       const updates = []
       const params = []
       const nextValues = {}
-      for (const field of ['title', 'artist', 'album', 'album_artist', 'track_num', 'year', 'genre', 'genres', 'record_label', 'explicit']) {
+      for (const field of ['title', 'artist', 'album', 'album_artist', 'track_num', 'year', 'genre', 'genres', 'record_label', 'explicit', 'instrumental']) {
         const result = applyBatchField(track[field], operations[field])
         if (result.changed) {
           updates.push(`${field} = ?`)
           params.push(result.value)
           nextValues[field] = result.value
         }
+      }
+      const hasGenreUpdate = Object.prototype.hasOwnProperty.call(nextValues, 'genre')
+      const hasGenresUpdate = Object.prototype.hasOwnProperty.call(nextValues, 'genres')
+      if (hasGenreUpdate || hasGenresUpdate) {
+        const normalizedGenres = hasGenresUpdate
+          ? normalizeGenresForBatch(nextValues.genres)
+          : normalizeGenresForBatch(track.genres || nextValues.genre || track.genre)
+        const primaryGenre = hasGenreUpdate
+          ? (nextValues.genre || firstGenreForBatch(normalizedGenres))
+          : firstGenreForBatch(normalizedGenres)
+
+        delete nextValues.genre
+        delete nextValues.genres
+        updates.push('genre = ?')
+        params.push(primaryGenre || null)
+        nextValues.genre = primaryGenre || null
+        updates.push('genres = ?')
+        params.push(normalizedGenres)
+        nextValues.genres = normalizedGenres
       }
       if (artworkOp?.mode === 'clear' && track.artwork_path) {
         updates.push('artwork_path = ?')
@@ -416,16 +501,21 @@ async function applyBatchTrackUpdates(db, trackIds = [], operations = {}) {
       params.push(track.id)
       db.prepare(`UPDATE tracks SET ${updates.join(', ')} WHERE id = ?`).run(...params)
       updatedIds.push(track.id)
+      if (nextValues.instrumental === 1) {
+        clearLyricsStateForTrack(db, track.id, track.file_path)
+      }
       if (Object.prototype.hasOwnProperty.call(nextValues, 'artist')) {
         db.prepare('DELETE FROM artist_track_links WHERE track_id = ?').run(track.id)
         const artistNames = splitArtists(nextValues.artist)
         for (const name of artistNames) {
           const artistId = 'a-' + slugify(name)
           db.prepare('INSERT OR IGNORE INTO artists (id, name) VALUES (?, ?)').run(artistId, name)
+          db.prepare('UPDATE artists SET name = ? WHERE id = ?').run(name, artistId)
           db.prepare('INSERT OR IGNORE INTO artist_track_links (artist_id, track_id) VALUES (?, ?)').run(artistId, track.id)
         }
       }
     }
+    db.prepare('DELETE FROM artists WHERE id NOT IN (SELECT DISTINCT artist_id FROM artist_track_links)').run()
     return updatedIds
   })
 
@@ -536,6 +626,10 @@ router.get('/top-genres', (req, res) => {
   `).all())
 })
 
+router.get('/genres', (req, res) => {
+  res.json(collectAllGenres(getDB()))
+})
+
 
 router.put('/:id/genre', (req, res) => {
   const { genre } = req.body
@@ -545,6 +639,8 @@ router.put('/:id/genre', (req, res) => {
 
 router.put('/:id', (req, res) => {
   const db = getDB()
+  const currentTrack = db.prepare('SELECT * FROM tracks WHERE id = ?').get(req.params.id)
+  if (!currentTrack) return res.json({ error: 'Track not found' })
   const {
     title,
     artist,
@@ -556,6 +652,7 @@ router.put('/:id', (req, res) => {
     genres,
     record_label,
     explicit,
+    instrumental,
     danceability,
     energy,
     track_key,
@@ -578,10 +675,9 @@ router.put('/:id', (req, res) => {
   if (album_artist !== undefined) { updates.push('album_artist = ?'); params.push(album_artist) }
   if (track_num !== undefined) { updates.push('track_num = ?'); params.push(track_num) }
   if (year !== undefined) { updates.push('year = ?'); params.push(year) }
-  if (genre !== undefined) { updates.push('genre = ?'); params.push(genre) }
-  if (genres !== undefined) { updates.push('genres = ?'); params.push(genres) }
   if (record_label !== undefined) { updates.push('record_label = ?'); params.push(record_label) }
   if (explicit !== undefined) { updates.push('explicit = ?'); params.push(explicit ? 1 : 0) }
+  if (instrumental !== undefined) { updates.push('instrumental = ?'); params.push(instrumental === null ? null : instrumental ? 1 : 0) }
   if (danceability !== undefined) { updates.push('danceability = ?'); params.push(danceability) }
   if (energy !== undefined) { updates.push('energy = ?'); params.push(energy) }
   if (track_key !== undefined) { updates.push('track_key = ?'); params.push(track_key) }
@@ -594,12 +690,38 @@ router.put('/:id', (req, res) => {
   if (valence !== undefined) { updates.push('valence = ?'); params.push(valence) }
   if (tempo !== undefined) { updates.push('tempo = ?'); params.push(tempo) }
   if (time_signature !== undefined) { updates.push('time_signature = ?'); params.push(time_signature) }
+
+  if (genre !== undefined || genres !== undefined) {
+    const normalizedGenres = genres !== undefined
+      ? normalizeGenresForBatch(genres)
+      : normalizeGenresForBatch(currentTrack.genres || genre || currentTrack.genre)
+    const primaryGenre = genre !== undefined
+      ? (genre || firstGenreForBatch(normalizedGenres))
+      : firstGenreForBatch(normalizedGenres)
+    updates.push('genre = ?')
+    params.push(primaryGenre || null)
+    updates.push('genres = ?')
+    params.push(normalizedGenres)
+  }
   
   if (updates.length === 0) return res.json({ error: 'No fields to update' })
   
   params.push(req.params.id)
   const sql = `UPDATE tracks SET ${updates.join(', ')} WHERE id = ?`
   const result = db.prepare(sql).run(...params)
+  if (artist !== undefined) {
+    db.prepare('DELETE FROM artist_track_links WHERE track_id = ?').run(req.params.id)
+    for (const name of splitArtists(artist)) {
+      const artistId = 'a-' + slugify(name)
+      db.prepare('INSERT OR IGNORE INTO artists (id, name) VALUES (?, ?)').run(artistId, name)
+      db.prepare('UPDATE artists SET name = ? WHERE id = ?').run(name, artistId)
+      db.prepare('INSERT OR IGNORE INTO artist_track_links (artist_id, track_id) VALUES (?, ?)').run(artistId, req.params.id)
+    }
+    db.prepare('DELETE FROM artists WHERE id NOT IN (SELECT DISTINCT artist_id FROM artist_track_links)').run()
+  }
+  if (instrumental === 1 || instrumental === true) {
+    clearLyricsStateForTrack(db, req.params.id, currentTrack.file_path)
+  }
   const track = db.prepare('SELECT * FROM tracks WHERE id = ?').get(req.params.id)
   res.json({ success: true, changes: result.changes, track })
 })
