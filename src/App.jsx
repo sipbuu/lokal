@@ -25,6 +25,7 @@ import Playlist from './pages/Playlist'
 import Downloader from './pages/Downloader'
 import Settings from './pages/Settings'
 import Profile from './pages/Profile'
+import Recap from './pages/Recap'
 import { usePlayerStore, useAppStore } from './store/player'
 import { api } from './api'
 import { THEMES, applyTheme } from './theme'
@@ -97,6 +98,7 @@ function AnimatedRoutes() {
         <Route path="/playlist/:id" element={<motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.2 }}><Playlist /></motion.div>} />
         <Route path="/downloader" element={<motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.2 }}><Downloader /></motion.div>} />
         <Route path="/profile" element={<motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.2 }}><Profile /></motion.div>} />
+        <Route path="/recap" element={<motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.2 }}><Recap /></motion.div>} />
         <Route path="/settings" element={<motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.2 }}><Settings /></motion.div>} />
       </Routes>
     </AnimatePresence>
@@ -844,7 +846,7 @@ export default function App() {
     playSecsRef.current = 0
     if (trackId) lastFlushedTrackIdRef.current = trackId
     tryScrobbleLastfmTrack(flushedTrack, secs)
-    if (secs >= 10 && trackId) api.incrementPlayTime(trackId, userRef.current?.id, secs)
+    if (secs >= 3 && trackId) api.incrementPlayTime(trackId, userRef.current?.id, secs)
   }, [tryScrobbleLastfmTrack])
 
   useEffect(() => {
