@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
-import { Home, Search, Library, Download, Plus, Music, Heart, Settings, LogIn, LogOut, BarChart2, Disc3, Radio, User } from 'lucide-react'
+import { Home, Search, Library, Download, Plus, Music, Heart, Settings, LogIn, LogOut, BarChart2, Disc3, User } from 'lucide-react'
 import { useAppStore, usePlayerStore } from '../store/player'
 import { api } from '../api'
 import PlaylistCover from './PlaylistCover'
@@ -10,8 +10,32 @@ const NAV = [
   { icon: Search, label: 'Search', path: '/search' },
   { icon: Library, label: 'Library', path: '/library' },
   { icon: Download, label: 'Download', path: '/downloader' },
+  { icon: BarChart2, label: 'Recap', path: '/recap' },
   { icon: Settings, label: 'Settings', path: '/settings' },
 ]
+
+function periodEnd(period) {
+  if (period.scope === 'year') return new Date(period.year + 1, 0, 1)
+  if (period.scope === 'quarter') return new Date(period.year, period.quarter * 3, 1)
+  return new Date()
+}
+
+function getCompletedRecapPeriods() {
+  const now = new Date()
+  const year = now.getFullYear()
+  const periods = []
+  for (let y = year; y >= year - 3; y -= 1) {
+    const yearly = { id: `year-${y}`, scope: 'year', year: y }
+    if (periodEnd(yearly) <= now) periods.push({ ...yearly, completedAt: periodEnd(yearly).getTime() })
+  }
+  for (let y = year; y >= year - 2; y -= 1) {
+    for (let q = 4; q >= 1; q -= 1) {
+      const quarterly = { id: `q${q}-${y}`, scope: 'quarter', year: y, quarter: q }
+      if (periodEnd(quarterly) <= now) periods.push({ ...quarterly, completedAt: periodEnd(quarterly).getTime() })
+    }
+  }
+  return periods.sort((left, right) => right.completedAt - left.completedAt)
+}
 
 export default function Sidebar() {
   const nav = useNavigate()
@@ -20,6 +44,7 @@ export default function Sidebar() {
   const [showNewPlaylist, setShowNewPlaylist] = useState(false)
   const [newPlName, setNewPlName] = useState('')
   const [confirmSignOut, setConfirmSignOut] = useState(false)
+  const [showRecapBadge, setShowRecapBadge] = useState(false)
   
   const { user, openAuth, logout, openStats } = useAppStore()
 
@@ -65,6 +90,36 @@ export default function Sidebar() {
 
   useEffect(() => {
     setConfirmSignOut(false)
+  }, [user?.id])
+
+  useEffect(() => {
+    let alive = true
+    const syncRecapBadge = async () => {
+      let latest = ''
+      for (const period of getCompletedRecapPeriods()) {
+        try {
+          const recap = await api.getListeningRecap(user?.id || 'guest', period)
+          if (recap?.totalPlays > 0) {
+            latest = period.id
+            localStorage.setItem('lokal-recap-latest-completed', latest)
+            break
+          }
+        } catch {}
+      }
+      if (!alive) return
+      const viewed = localStorage.getItem('lokal-recap-last-viewed') || ''
+      setShowRecapBadge(Boolean(latest && latest !== viewed))
+    }
+    syncRecapBadge()
+    window.addEventListener('storage', syncRecapBadge)
+    window.addEventListener('lokal:recap-viewed', syncRecapBadge)
+    window.addEventListener('lokal:recap-periods-changed', syncRecapBadge)
+    return () => {
+      window.removeEventListener('storage', syncRecapBadge)
+      window.removeEventListener('lokal:recap-viewed', syncRecapBadge)
+      window.removeEventListener('lokal:recap-periods-changed', syncRecapBadge)
+      alive = false
+    }
   }, [user?.id])
 
   const createPlaylist = async () => {
@@ -200,7 +255,11 @@ export default function Sidebar() {
             data-tour={path === '/search' ? 'search' : path === '/library' ? 'library' : path === '/downloader' ? 'downloader' : path === '/settings' ? 'settings' : null}
             onClick={() => nav(path)}
             className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-all ${loc.pathname === path ? 'bg-accent/15 text-accent' : 'text-muted hover:text-white hover:bg-elevated'}`}>
-            <Icon size={15} />{label}
+            <Icon size={15} />
+            <span className="flex-1 text-left">{label}</span>
+            {path === '/recap' && showRecapBadge && (
+              <span className="flex h-4 w-4 items-center justify-center rounded-full bg-accent text-[10px] font-bold text-base">!</span>
+            )}
           </button>
         ))}
         
