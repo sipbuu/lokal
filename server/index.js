@@ -33,6 +33,7 @@ app.use('/api/albums', require('./routes/albums'))
 app.use('/api/lastfm', require('./routes/lastfm'))
 app.use('/api/remote', require('./routes/remote'))
 app.use('/api/plugins', require('./routes/plugins'))
+app.use('/api/recaps', require('./routes/recaps'))
 
 app.get('/api/stream/:trackId', (req, res) => {
   const track = getDB().prepare('SELECT file_path FROM tracks WHERE id = ?').get(req.params.trackId)

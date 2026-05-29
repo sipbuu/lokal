@@ -107,8 +107,23 @@ function initDB() {
       user_id TEXT NOT NULL,
       track_id TEXT NOT NULL,
       seconds_played INTEGER DEFAULT 0,
+      session_id TEXT,
       played_at INTEGER DEFAULT (unixepoch()),
       FOREIGN KEY (track_id) REFERENCES tracks(id)
+    );
+    CREATE TABLE IF NOT EXISTS listening_events (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id TEXT NOT NULL,
+      track_id TEXT NOT NULL,
+      event_type TEXT NOT NULL,
+      source_type TEXT,
+      source_id TEXT,
+      session_id TEXT,
+      seconds_played INTEGER DEFAULT 0,
+      track_duration REAL,
+      started_at INTEGER,
+      ended_at INTEGER,
+      created_at INTEGER DEFAULT (unixepoch())
     );
     CREATE TABLE IF NOT EXISTS lyrics_cache (
       track_id TEXT PRIMARY KEY,
@@ -180,6 +195,8 @@ function initDB() {
     CREATE INDEX IF NOT EXISTS idx_tracks_album ON tracks(album);
     CREATE INDEX IF NOT EXISTS idx_ph_user ON play_history(user_id);
     CREATE INDEX IF NOT EXISTS idx_ph_time ON play_history(played_at);
+    CREATE INDEX IF NOT EXISTS idx_le_user_time ON listening_events(user_id, created_at);
+    CREATE INDEX IF NOT EXISTS idx_le_session ON listening_events(session_id);
   `)
 
   
@@ -193,6 +210,7 @@ function initDB() {
     `ALTER TABLE artists ADD COLUMN image_source TEXT`,
     `ALTER TABLE artists ADD COLUMN image_fetched_at INTEGER`,
     `ALTER TABLE play_history ADD COLUMN seconds_played INTEGER DEFAULT 0`,
+    `ALTER TABLE play_history ADD COLUMN session_id TEXT`,
     `ALTER TABLE tracks ADD COLUMN genres TEXT`,
     `ALTER TABLE tracks ADD COLUMN record_label TEXT`,
     `ALTER TABLE tracks ADD COLUMN explicit INTEGER DEFAULT 0`,
@@ -211,11 +229,13 @@ function initDB() {
     `ALTER TABLE tracks ADD COLUMN time_signature INTEGER`,
     `CREATE TABLE IF NOT EXISTS artist_track_links (artist_id TEXT NOT NULL, track_id TEXT NOT NULL, PRIMARY KEY (artist_id, track_id))`,
     `CREATE TABLE IF NOT EXISTS play_history (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id TEXT NOT NULL, track_id TEXT NOT NULL, seconds_played INTEGER DEFAULT 0, played_at INTEGER DEFAULT (unixepoch()))`,
+    `CREATE TABLE IF NOT EXISTS listening_events (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id TEXT NOT NULL, track_id TEXT NOT NULL, event_type TEXT NOT NULL, source_type TEXT, source_id TEXT, session_id TEXT, seconds_played INTEGER DEFAULT 0, track_duration REAL, started_at INTEGER, ended_at INTEGER, created_at INTEGER DEFAULT (unixepoch()))`,
     `CREATE TABLE IF NOT EXISTS pending_import_metadata (id TEXT PRIMARY KEY, title TEXT NOT NULL, normalized_title TEXT NOT NULL, artist TEXT, normalized_artist TEXT, album TEXT, normalized_album TEXT, year INTEGER, genre TEXT, genres TEXT, record_label TEXT, explicit INTEGER, danceability REAL, energy REAL, track_key INTEGER, loudness REAL, mode INTEGER, speechiness REAL, acousticness REAL, instrumentalness REAL, liveness REAL, valence REAL, tempo REAL, time_signature INTEGER, duration REAL, source_url TEXT, source_platform TEXT, created_at INTEGER DEFAULT (unixepoch()))`,
   ]
   
   const quickMigrations = [
     `ALTER TABLE play_history ADD COLUMN seconds_played INTEGER DEFAULT 0`,
+    `ALTER TABLE play_history ADD COLUMN session_id TEXT`,
     `ALTER TABLE playlists ADD COLUMN user_id TEXT DEFAULT 'guest'`,
     `ALTER TABLE playlists ADD COLUMN description TEXT`,
     `ALTER TABLE playlists ADD COLUMN cover_path TEXT`,
@@ -257,6 +277,7 @@ function initDB() {
       last_downloaded_at INTEGER
     )`,
     `CREATE TABLE IF NOT EXISTS pending_import_metadata (id TEXT PRIMARY KEY, title TEXT NOT NULL, normalized_title TEXT NOT NULL, artist TEXT, normalized_artist TEXT, album TEXT, normalized_album TEXT, year INTEGER, genre TEXT, genres TEXT, record_label TEXT, explicit INTEGER, danceability REAL, energy REAL, track_key INTEGER, loudness REAL, mode INTEGER, speechiness REAL, acousticness REAL, instrumentalness REAL, liveness REAL, valence REAL, tempo REAL, time_signature INTEGER, duration REAL, source_url TEXT, source_platform TEXT, created_at INTEGER DEFAULT (unixepoch()))`,
+    `CREATE TABLE IF NOT EXISTS listening_events (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id TEXT NOT NULL, track_id TEXT NOT NULL, event_type TEXT NOT NULL, source_type TEXT, source_id TEXT, session_id TEXT, seconds_played INTEGER DEFAULT 0, track_duration REAL, started_at INTEGER, ended_at INTEGER, created_at INTEGER DEFAULT (unixepoch()))`,
   ]
   for (const m of quickMigrations) { try { db.exec(m) } catch {} }
   
@@ -320,6 +341,7 @@ function clearDatabaseTables() {
   db.prepare('DELETE FROM playlist_tracks').run()
   db.prepare('DELETE FROM user_likes').run()
   db.prepare('DELETE FROM play_history').run()
+  try { db.prepare('DELETE FROM listening_events').run() } catch {}
   db.prepare('DELETE FROM artist_track_links').run()
   db.prepare('DELETE FROM lyrics_translations').run()
   db.prepare('DELETE FROM lyrics_cache').run()
@@ -365,6 +387,7 @@ function importAppData(payload = {}) {
   const playlistTracks = Array.isArray(payload.playlist_tracks) ? payload.playlist_tracks : []
   const userLikes = Array.isArray(payload.user_likes) ? payload.user_likes : []
   const playHistory = Array.isArray(payload.play_history) ? payload.play_history : []
+  const listeningEvents = Array.isArray(payload.listening_events) ? payload.listening_events : []
 
   fs.ensureDirSync(path.join(_dataDir, 'avatars'))
 
@@ -496,14 +519,33 @@ function importAppData(payload = {}) {
       insertUserLike.run(like.user_id, like.track_id, like.liked_at || Math.floor(Date.now() / 1000))
     }
 
-    const insertPlayHistory = db.prepare('INSERT INTO play_history (id, user_id, track_id, seconds_played, played_at) VALUES (?, ?, ?, ?, ?)')
+    const insertPlayHistory = db.prepare('INSERT INTO play_history (id, user_id, track_id, seconds_played, session_id, played_at) VALUES (?, ?, ?, ?, ?, ?)')
     for (const row of playHistory) {
       insertPlayHistory.run(
         row.id || null,
         row.user_id,
         row.track_id,
         row.seconds_played || 0,
+        row.session_id || null,
         row.played_at || Math.floor(Date.now() / 1000)
+      )
+    }
+
+    const insertListeningEvent = db.prepare('INSERT INTO listening_events (id, user_id, track_id, event_type, source_type, source_id, session_id, seconds_played, track_duration, started_at, ended_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+    for (const row of listeningEvents) {
+      insertListeningEvent.run(
+        row.id || null,
+        row.user_id,
+        row.track_id,
+        row.event_type || 'qualified_play',
+        row.source_type || null,
+        row.source_id || null,
+        row.session_id || null,
+        row.seconds_played || 0,
+        row.track_duration || null,
+        row.started_at || null,
+        row.ended_at || null,
+        row.created_at || Math.floor(Date.now() / 1000)
       )
     }
   })

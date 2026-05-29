@@ -15,6 +15,20 @@ function buildLastfmAuthUrl(apiKey) {
   return `https://www.last.fm/api/auth/?${new URLSearchParams({ api_key: apiKey || '', cb: callback })}`
 }
 
+function electronFileURL(filePath = '') {
+  if (!filePath) return ''
+  const normalized = filePath.replace(/\\/g, '/')
+  const encoded = normalized
+    .split('/')
+    .map((segment) => encodeURIComponent(segment))
+    .join('/')
+    .replace(/%3A/g, ':')
+
+  if (encoded.startsWith('//')) return `file:${encoded}`
+  if (/^[A-Za-z]:/.test(encoded)) return `file:///${encoded}`
+  return `file://${encoded}`
+}
+
 function normalizeProfilePayload(data = {}) {
   return {
     userId: data.userId,
@@ -38,6 +52,7 @@ async function apiFetch(path, opts = {}) {
 
 export const api = {
   get isElectron() { return isE() },
+  fileURL: (path) => electronFileURL(path),
   artworkURL: (id) => `${BASE}/artwork/${encodeURIComponent(id)}`,
   playlistCoverURL: (id) => `${BASE}/playlists/${encodeURIComponent(id)}/cover`,
   streamURL: (t) => `${BASE}/stream/${encodeURIComponent(t.id)}`,
@@ -169,6 +184,10 @@ export const api = {
   },
   getUserStats: (uid) => isE() ? el().getUserStats(uid) : apiFetch(`/users/${uid}/stats`),
   getUserRecap: (uid) => isE() ? el().getUserRecap(uid) : apiFetch(`/users/${uid || 'guest'}/recap`),
+  getListeningRecap: (uid, opts = {}) => isE()
+    ? el().getListeningRecap(uid, opts)
+    : apiFetch(`/recaps/${uid || 'guest'}?${new URLSearchParams(Object.fromEntries(Object.entries(opts || {}).filter(([, value]) => value !== undefined && value !== null)))}`),
+  getListeningPreferences: (uid) => isE() ? el().getListeningPreferences(uid) : apiFetch(`/recaps/${uid || 'guest'}/preferences`),
   discordSetActivity: (t, p) => { if (isE() && el().discordSetActivity) return el().discordSetActivity(t, p); return Promise.resolve() },
   discordConnect: (id) => isE() ? el().discordConnect(id) : Promise.resolve(false),
   discordDisconnect: () => isE() ? el().discordDisconnect() : Promise.resolve(),

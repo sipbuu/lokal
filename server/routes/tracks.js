@@ -1,5 +1,6 @@
 const router = require('express').Router()
 const { getDB } = require('../../electron/ipc/db')
+const { recordListeningEvent } = require('../../electron/ipc/recaps')
 const path = require('path')
 const fs = require('fs')
 
@@ -778,8 +779,11 @@ router.post('/:id/playtime', (req, res) => {
     const db = getDB()
     const secs = Math.round(seconds)
     if (secs >= 30) db.prepare('UPDATE tracks SET play_count = play_count + 1 WHERE id = ?').run(req.params.id)
+    const track = db.prepare('SELECT duration FROM tracks WHERE id = ?').get(req.params.id)
+    const sessionId = recordListeningEvent(db, { userId, trackId: req.params.id, secondsPlayed: secs, trackDuration: track?.duration || null })
     const hasSecs = db.prepare('PRAGMA table_info(play_history)').all().some(c => c.name === 'seconds_played')
-    if (hasSecs) db.prepare('INSERT INTO play_history (user_id, track_id, seconds_played) VALUES (?, ?, ?)').run(userId, req.params.id, secs)
+    try { db.exec('ALTER TABLE play_history ADD COLUMN session_id TEXT') } catch {}
+    if (hasSecs) db.prepare('INSERT INTO play_history (user_id, track_id, seconds_played, session_id) VALUES (?, ?, ?, ?)').run(userId, req.params.id, secs, sessionId)
     else db.prepare('INSERT INTO play_history (user_id, track_id) VALUES (?, ?)').run(userId, req.params.id)
     res.json({ ok: true })
   } catch (e) { res.json({ error: e.message }) }
@@ -866,6 +870,7 @@ router.post('/merge', (req, res) => {
         db.prepare('DELETE FROM playlist_tracks WHERE track_id = ?').run(id)
         db.prepare('DELETE FROM user_likes WHERE track_id = ?').run(id)
         db.prepare('UPDATE play_history SET track_id = ? WHERE track_id = ?').run(keepId, id)
+        try { db.prepare('UPDATE listening_events SET track_id = ? WHERE track_id = ?').run(keepId, id) } catch {}
         db.prepare('UPDATE tracks SET play_count = play_count + (SELECT play_count FROM tracks WHERE id = ?) WHERE id = ?').run(id, keepId)
         db.prepare('DELETE FROM artist_track_links WHERE track_id = ?').run(id)
         db.prepare('DELETE FROM lyrics_cache WHERE track_id = ?').run(id)
@@ -926,6 +931,7 @@ router.post('/merge-all', (req, res) => {
           db.prepare('DELETE FROM playlist_tracks WHERE track_id = ?').run(loser.id)
           db.prepare('DELETE FROM user_likes WHERE track_id = ?').run(loser.id)
           db.prepare('UPDATE play_history SET track_id = ? WHERE track_id = ?').run(winner.id, loser.id)
+          try { db.prepare('UPDATE listening_events SET track_id = ? WHERE track_id = ?').run(winner.id, loser.id) } catch {}
           db.prepare('UPDATE tracks SET play_count = play_count + (SELECT play_count FROM tracks WHERE id = ?) WHERE id = ?').run(loser.id, winner.id)
           db.prepare('DELETE FROM artist_track_links WHERE track_id = ?').run(loser.id)
           db.prepare('DELETE FROM lyrics_cache WHERE track_id = ?').run(loser.id)
@@ -951,6 +957,7 @@ router.post('/batch-delete', (req, res) => {
     db.prepare('DELETE FROM playlist_tracks WHERE track_id = ?').run(id)
     db.prepare('DELETE FROM user_likes WHERE track_id = ?').run(id)
     db.prepare('DELETE FROM play_history WHERE track_id = ?').run(id)
+    try { db.prepare('DELETE FROM listening_events WHERE track_id = ?').run(id) } catch {}
     db.prepare('DELETE FROM lyrics_cache WHERE track_id = ?').run(id)
     db.prepare('DELETE FROM tracks WHERE id = ?').run(id)
   }

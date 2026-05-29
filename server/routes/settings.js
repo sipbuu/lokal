@@ -38,6 +38,7 @@ function exportAppData() {
     playlist_tracks: db.prepare('SELECT * FROM playlist_tracks ORDER BY playlist_id, position, id').all(),
     user_likes: db.prepare('SELECT * FROM user_likes ORDER BY user_id, liked_at DESC').all(),
     play_history: db.prepare('SELECT * FROM play_history ORDER BY played_at DESC').all(),
+    listening_events: db.prepare('SELECT * FROM listening_events ORDER BY created_at DESC').all(),
     artists: db.prepare('SELECT * FROM artists ORDER BY name').all(),
     artist_track_links: db.prepare('SELECT * FROM artist_track_links ORDER BY artist_id, track_id').all(),
     tracks: db.prepare('SELECT * FROM tracks ORDER BY added_at DESC').all(),
@@ -128,6 +129,7 @@ router.post('/clear-tracks', (req, res) => {
   db.prepare('DELETE FROM playlist_tracks').run()
   db.prepare('DELETE FROM user_likes').run()
   db.prepare('DELETE FROM play_history').run()
+  try { db.prepare('DELETE FROM listening_events').run() } catch {}
   db.prepare('DELETE FROM lyrics_cache').run()
   db.prepare('DELETE FROM tracks').run()
   db.prepare('DELETE FROM artists').run()

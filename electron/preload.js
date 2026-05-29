@@ -149,6 +149,8 @@ contextBridge.exposeInMainWorld('electron', {
   updateProfile: (d) => invoke('user:updateProfile', d),
   getUserStats: (uid) => invoke('user:getStats', uid),
   getUserRecap: (uid) => invoke('user:getRecap', uid),
+  getListeningRecap: (uid, opts) => invoke('recaps:get', uid, opts),
+  getListeningPreferences: (uid) => invoke('recaps:getPreferences', uid),
 
   
   discordSetActivity: (t, p) => invoke('discord:setActivity', t, p),

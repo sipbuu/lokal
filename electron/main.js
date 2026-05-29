@@ -22,6 +22,7 @@ const { registerLastFmHandlers } = require('./ipc/lastfm')
 const { registerToolsHandlers } = require('./ipc/tools')
 const { registerPlaylistHandlers } = require('./ipc/playlists')
 const { initPlugins, registerPluginHandlers } = require('./ipc/plugins')
+const { registerRecapHandlers } = require('./ipc/recaps')
 const { setRemoteState, setRemoteCommandHandler } = require('./ipc/remote')
 let isUpdating = false;
 const APP_PROTOCOL = 'lokal'
@@ -268,7 +269,7 @@ app.whenReady().then(() => {
     registerScannerHandlers, registerPlayerHandlers, registerDownloaderHandlers,
     registerExtraDownloaderHandlers, registerPlaylistArchiveHandlers, registerLyricsHandlers, registerUserHandlers,
     registerDiscordHandlers, registerExtraHandlers, registerV4Handlers, registerLastFmHandlers,
-    registerToolsHandlers, registerPlaylistHandlers, registerMixesHandlers, registerPluginHandlers
+    registerToolsHandlers, registerPlaylistHandlers, registerMixesHandlers, registerPluginHandlers, registerRecapHandlers
   ]) {
     try { fn(ipcMain) } catch (e) { console.error(fn.name + ':', e.message) }
   }
