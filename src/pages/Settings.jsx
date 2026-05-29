@@ -1454,6 +1454,16 @@ export default function Settings() {
             <RefreshCw size={13} /> Clear
           </button>
         </Row>
+        <Row label="Clear Song Cache (Songs only)" desc="Clears cached song-related data (lyrics/artwork caches, song index cache). Preserves profiles, playlists, and customization.">
+          <button
+            onClick={async () => {
+              await api.clearSongCache()
+              window.dispatchEvent(new Event('lokal:refresh'))
+            }}
+            className="px-4 py-2 bg-card border border-border rounded-lg text-sm text-muted hover:text-white transition-colors flex items-center gap-2">
+            <Trash2 size={13} /> Clear Song Cache
+          </button>
+        </Row>
       </Section>
       )}
 

@@ -192,7 +192,7 @@ export default function Albums() {
       loadAlbums()
       if (selectedAlbum?.title) {
         setLoadingTracks(true)
-        api.getAlbumTracks(selectedAlbum.title).then((tracks) => {
+        api.getAlbumTracks(selectedAlbum).then((tracks) => {
           setAlbumTracks(Array.isArray(tracks) ? tracks : [])
           setLoadingTracks(false)
         })
@@ -200,13 +200,13 @@ export default function Albums() {
     }
     window.addEventListener('lokal:refresh', handleRefresh)
     return () => window.removeEventListener('lokal:refresh', handleRefresh)
-  }, [selectedAlbum?.title])
+  }, [selectedAlbum?.title, selectedAlbum?.album_artist])
 
   useEffect(() => {
     if (!albums.length) return
     const incomingAlbum = location.state?.album
     if (!incomingAlbum) return
-    const match = albums.find((album) => album.title === incomingAlbum.title)
+    const match = albums.find((album) => album.title === incomingAlbum.title && (!incomingAlbum.album_artist || album.album_artist === incomingAlbum.album_artist))
     setSelectedAlbum(match || incomingAlbum)
     navigate(location.pathname, { replace: true, state: {} })
   }, [albums, location.pathname, location.state, navigate])
@@ -216,14 +216,37 @@ export default function Albums() {
 
   const filteredAlbums = useMemo(() => {
     const lower = query.trim().toLowerCase()
-    return albums.filter((album) => {
+    const base = albums.filter((album) => {
       if (!showSingles && album.release_type === 'single') return false
       if (!lower) return true
       const title = String(album.title || '').toLowerCase()
       const artists = String(album.artists || album.album_artist || '').toLowerCase()
       return title.includes(lower) || artists.includes(lower)
     })
-  }, [albums, query, showSingles])
+
+    const sortMode = settings.album_sort_mode || 'default'
+    const safeAddedAt = (a) => {
+      const v = a?.added_at
+      if (v === undefined || v === null || v === '') return null
+      const n = Number(v)
+      return Number.isFinite(n) ? n : null
+    }
+
+    // default = existing behavior from current server order (don’t reorder)
+    if (sortMode === 'newest') {
+      return [...base].sort((l, r) => {
+        const la = safeAddedAt(l) ?? -Infinity
+        const ra = safeAddedAt(r) ?? -Infinity
+        if (ra !== la) return ra - la
+        const ly = Number(l?.year || 0)
+        const ry = Number(r?.year || 0)
+        if (ry !== ly) return ry - ly
+        return String(l?.title || '').localeCompare(String(r?.title || ''), undefined, { sensitivity: 'base' })
+      })
+    }
+
+    return base
+  }, [albums, query, showSingles, settings.album_sort_mode])
 
   useEffect(() => {
     setVisibleByType({ all: PAGE_SIZE, album: PAGE_SIZE, ep: PAGE_SIZE, single: PAGE_SIZE })
@@ -281,7 +304,7 @@ export default function Albums() {
     }
     let active = true
     setLoadingTracks(true)
-    api.getAlbumTracks(selectedAlbum.title).then((tracks) => {
+    api.getAlbumTracks(selectedAlbum).then((tracks) => {
       if (!active) return
       setAlbumTracks(Array.isArray(tracks) ? tracks : [])
       setLoadingTracks(false)
@@ -289,7 +312,7 @@ export default function Albums() {
     return () => {
       active = false
     }
-  }, [selectedAlbum?.title])
+  }, [selectedAlbum?.title, selectedAlbum?.album_artist])
 
   const handleTrackPlay = (track, index, event) => {
     event?.stopPropagation?.()
@@ -301,7 +324,7 @@ export default function Albums() {
   }
 
   const playAlbumRelease = async (album) => {
-    const tracks = await api.getAlbumTracks(album.title)
+    const tracks = await api.getAlbumTracks(album)
     if (Array.isArray(tracks) && tracks.length) {
       playQueue(tracks, 0)
     }
@@ -318,14 +341,32 @@ export default function Albums() {
               {loadingAlbums ? 'Loading releases...' : `${filteredAlbums.length} visible releases`}
             </p>
           </div>
-          <div className="relative w-full max-w-xl">
-            <Search size={15} className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-muted" />
-            <input
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              placeholder="Search albums, singles, EPs, or artists..."
-              className="w-full rounded-2xl border border-border bg-elevated/90 pl-11 pr-4 py-3 text-sm text-white outline-none transition-colors focus:border-accent/50 placeholder:text-muted"
-            />
+          <div className="flex w-full max-w-xl flex-col gap-3 sm:flex-row sm:items-center sm:justify-end">
+            <div className="relative w-full">
+              <Search size={15} className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-muted" />
+              <input
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                placeholder="Search albums, singles, EPs, or artists..."
+                className="w-full rounded-2xl border border-border bg-elevated/90 pl-11 pr-4 py-3 text-sm text-white outline-none transition-colors focus:border-accent/50 placeholder:text-muted"
+              />
+            </div>
+
+            <div className="flex items-center gap-2 justify-start sm:justify-end">
+              <label className="text-[11px] text-muted uppercase tracking-[0.16em]">Sort</label>
+              <select
+                value={settings.album_sort_mode || 'default'}
+                onChange={(e) => {
+                  const v = e.target.value
+                  setSettings((s) => ({ ...s, album_sort_mode: v }))
+                  api.saveSettings({ ...settings, album_sort_mode: v })
+                }}
+                className="bg-elevated/90 border border-border rounded-xl px-3 py-2 text-sm text-white outline-none focus:border-accent/50"
+              >
+                <option value="default">Default</option>
+                <option value="newest">Newest</option>
+              </select>
+            </div>
           </div>
         </div>
 
