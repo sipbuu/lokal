@@ -199,6 +199,52 @@ function bindValues(values) {
   return values.map(value => value === undefined ? null : value)
 }
 
+function dbValue(value) {
+  if (value === undefined || Number.isNaN(value)) return null
+  if (Array.isArray(value)) return value.filter(item => item !== undefined && item !== null).join(', ')
+  if (typeof value === 'object' && value !== null) return String(value)
+  return value
+}
+
+function trackParams(item, trackId = item?.id) {
+  return {
+    id: dbValue(trackId),
+    file_path: dbValue(item?.file_path),
+    file_hash: dbValue(item?.file_hash),
+    title: dbValue(item?.title),
+    artist: dbValue(item?.artist),
+    album: dbValue(item?.album),
+    album_artist: dbValue(item?.album_artist),
+    track_num: dbValue(item?.track_num),
+    year: dbValue(item?.year),
+    genre: dbValue(item?.genre),
+    duration: dbValue(item?.duration),
+    artwork_path: dbValue(item?.artwork_path),
+    bitrate: dbValue(item?.bitrate),
+    last_modified: dbValue(item?.last_modified),
+    replaygain: dbValue(item?.replaygain),
+  }
+}
+
+function clearSongCache(db = getDB()) {
+  const clear = db.transaction(() => {
+    db.prepare('DELETE FROM artist_track_links').run()
+    db.prepare('DELETE FROM playlist_tracks').run()
+    db.prepare('DELETE FROM user_likes').run()
+    db.prepare('DELETE FROM play_history').run()
+    try { db.prepare('DELETE FROM listening_events').run() } catch {}
+    db.prepare('DELETE FROM lyrics_cache').run()
+    try { db.prepare('DELETE FROM lyrics_translations').run() } catch {}
+    db.prepare('DELETE FROM tracks').run()
+    db.prepare('DELETE FROM artists').run()
+  })
+  clear()
+  for (const dir of ['artwork', 'lyrics']) {
+    try { fs.emptyDirSync(path.join(getStorageDir(), dir)) } catch {}
+  }
+  return { ok: true }
+}
+
 async function scanFolder(folderPath) {
   const db = getDB()
   try { db.exec("ALTER TABLE tracks ADD COLUMN replaygain TEXT") } catch {}
@@ -212,12 +258,12 @@ async function scanFolder(folderPath) {
   const insertTrack = db.prepare(`
     INSERT INTO tracks
     (id, file_path, file_hash, title, artist, album, album_artist, track_num, year, genre, duration, artwork_path, bitrate, last_modified, replaygain)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    VALUES (@id, @file_path, @file_hash, @title, @artist, @album, @album_artist, @track_num, @year, @genre, @duration, @artwork_path, @bitrate, @last_modified, @replaygain)
   `)
   const updateTrackByPath = db.prepare(`
     UPDATE tracks
-    SET file_hash = ?, title = ?, artist = ?, album = ?, album_artist = ?, track_num = ?, year = ?, genre = ?, duration = ?, artwork_path = ?, bitrate = ?, last_modified = ?, replaygain = ?
-    WHERE file_path = ?
+    SET file_hash = @file_hash, title = @title, artist = @artist, album = @album, album_artist = @album_artist, track_num = @track_num, year = @year, genre = @genre, duration = @duration, artwork_path = @artwork_path, bitrate = @bitrate, last_modified = @last_modified, replaygain = @replaygain
+    WHERE file_path = @file_path
   `)
 
   const insertBatchTransaction = db.transaction((items) => {
@@ -225,10 +271,11 @@ async function scanFolder(folderPath) {
       const existing = findExistingTrackByPath.get(item.file_path)
       const trackId = existing?.id || item.id
       item.id = trackId
+      const params = trackParams(item, trackId)
       if (existing) {
-        updateTrackByPath.run(...bindValues([item.file_hash, item.title, item.artist, item.album, item.album_artist, item.track_num, item.year, item.genre, item.duration, item.artwork_path, item.bitrate, item.last_modified, item.replaygain, item.file_path]))
+        updateTrackByPath.run(params)
       } else {
-        insertTrack.run(...bindValues([trackId, item.file_path, item.file_hash, item.title, item.artist, item.album, item.album_artist, item.track_num, item.year, item.genre, item.duration, item.artwork_path, item.bitrate, item.last_modified, item.replaygain]))
+        insertTrack.run(params)
       }
       db.prepare('DELETE FROM artist_track_links WHERE track_id = ?').run(trackId)
       const artistNames = splitArtists(item.artist)
@@ -538,6 +585,34 @@ function enrichAlbumRows(rows = []) {
     ...row,
     release_type: classifyAlbumRow(row),
   }))
+}
+
+function normalizeAlbumIdentity(input) {
+  if (input && typeof input === 'object') {
+    return {
+      title: String(input.title || input.album || '').trim(),
+      albumArtist: String(input.album_artist || input.albumArtist || '').trim(),
+    }
+  }
+  return { title: String(input || '').trim(), albumArtist: '' }
+}
+
+function albumRowsQuery(where = '', groupPrefix = '') {
+  return `
+    SELECT
+      album as title,
+      COALESCE(NULLIF(album_artist, ''), artist) as album_artist,
+      year,
+      MAX(added_at) as added_at,
+      artwork_path,
+      COUNT(*) as track_count,
+      GROUP_CONCAT(DISTINCT artist) as artists
+    FROM tracks ${groupPrefix}
+    WHERE file_path NOT LIKE 'ghost://%'
+      AND album IS NOT NULL
+      ${where}
+    GROUP BY LOWER(album), LOWER(COALESCE(NULLIF(album_artist, ''), artist))
+  `
 }
 
 function normalizeDuplicateText(value, type = 'title') {
@@ -937,9 +1012,22 @@ function registerScannerHandlers(ipcMain) {
     if (!artist) return null
     const tracks = db.prepare(`SELECT t.* FROM tracks t JOIN artist_track_links atl ON atl.track_id = t.id WHERE atl.artist_id = ? AND t.file_path NOT LIKE 'ghost://%' ORDER BY t.album, t.track_num, t.title`).all(artist.id)
     const topTracks = db.prepare(`SELECT t.* FROM tracks t JOIN artist_track_links atl ON atl.track_id = t.id WHERE atl.artist_id = ? AND t.file_path NOT LIKE 'ghost://%' ORDER BY t.play_count DESC LIMIT 5`).all(artist.id)
-    const albums = enrichAlbumRows(
-      db.prepare(`SELECT album as title, year, artwork_path, album_artist, COUNT(*) as track_count, GROUP_CONCAT(DISTINCT artist) as artists FROM tracks t JOIN artist_track_links atl ON atl.track_id = t.id WHERE atl.artist_id = ? AND t.file_path NOT LIKE 'ghost://%' AND album IS NOT NULL GROUP BY LOWER(album) ORDER BY year DESC, album ASC`).all(artist.id)
-    )
+    const albums = enrichAlbumRows(db.prepare(`
+      SELECT
+        t.album as title,
+        COALESCE(NULLIF(t.album_artist, ''), t.artist) as album_artist,
+        t.year,
+        t.artwork_path,
+        COUNT(*) as track_count,
+        GROUP_CONCAT(DISTINCT t.artist) as artists
+      FROM tracks t
+      JOIN artist_track_links atl ON atl.track_id = t.id
+      WHERE atl.artist_id = ?
+        AND t.file_path NOT LIKE 'ghost://%'
+        AND t.album IS NOT NULL
+      GROUP BY LOWER(t.album), LOWER(COALESCE(NULLIF(t.album_artist, ''), t.artist))
+      ORDER BY t.year DESC, t.album ASC
+    `).all(artist.id))
     const artistWithFallback = addArtistFallback(db, artist)
     return { ...artistWithFallback, tracks, topTracks, albums }
   })
@@ -966,8 +1054,16 @@ function registerScannerHandlers(ipcMain) {
     const updated = clearArtistImageOverride(db, artistId)
     return updated ? addArtistFallback(db, updated) : null
   })
-  ipcMain.handle('scanner:getAlbumTracks', (_, albumTitle) => {
-    const tracks = getDB().prepare("SELECT * FROM tracks WHERE album = ? AND file_path NOT LIKE 'ghost://%'").all(albumTitle)
+  ipcMain.handle('scanner:getAlbumTracks', (_, albumInput) => {
+    const album = normalizeAlbumIdentity(albumInput)
+    if (!album.title) return []
+    const params = [album.title]
+    let sql = "SELECT * FROM tracks WHERE album = ? AND file_path NOT LIKE 'ghost://%'"
+    if (album.albumArtist) {
+      sql += " AND LOWER(COALESCE(NULLIF(album_artist, ''), artist)) = LOWER(?)"
+      params.push(album.albumArtist)
+    }
+    const tracks = getDB().prepare(sql).all(...params)
     return normalizeAlbumTracks(tracks)
   })
   ipcMain.handle('scanner:search', (_, q) => {
@@ -1179,6 +1275,7 @@ function registerScannerHandlers(ipcMain) {
   ipcMain.handle('scanner:getAllGenres', () => collectAllGenres(getDB()))
   ipcMain.handle('scanner:getRandomTrack', () => getDB().prepare("SELECT * FROM tracks WHERE file_path NOT LIKE 'ghost://%' ORDER BY RANDOM() LIMIT 1").get())
   ipcMain.handle('db:clearTracks', () => { const db = getDB(); db.prepare('DELETE FROM artist_track_links').run(); db.prepare('DELETE FROM playlist_tracks').run(); db.prepare('DELETE FROM user_likes').run(); db.prepare('DELETE FROM play_history').run(); try { db.prepare('DELETE FROM listening_events').run() } catch {}; db.prepare('DELETE FROM lyrics_cache').run(); db.prepare('DELETE FROM lyrics_translations').run(); db.prepare('DELETE FROM tracks').run(); db.prepare('DELETE FROM artists').run() })
+  ipcMain.handle('db:clearSongCache', () => clearSongCache(getDB()))
   ipcMain.handle('db:clearLyrics', () => { const db = getDB(); db.prepare('DELETE FROM lyrics_cache').run(); db.prepare('DELETE FROM lyrics_translations').run() })
   ipcMain.handle('settings:get', () => { const rows = getDB().prepare('SELECT key, value FROM settings').all(); return Object.fromEntries(rows.map(r => [r.key, r.value])) })
   ipcMain.handle('settings:save', (_, s) => { const stmt = getDB().prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)'); for (const [k, v] of Object.entries(s)) stmt.run(k, String(v)) })
@@ -1460,12 +1557,29 @@ async function indexSingleFile(filePath, opts = {}) {
     
 
     const existingByPath = db.prepare('SELECT id FROM tracks WHERE file_path = ?').get(filePath)
+    const params = trackParams({
+      id: trackId,
+      file_path: filePath,
+      file_hash: trackId,
+      title,
+      artist,
+      album: c.album?.trim() || null,
+      album_artist: c.albumartist?.trim() || null,
+      track_num: c.track?.no || null,
+      year: c.year || null,
+      genre,
+      duration,
+      artwork_path: artwork,
+      bitrate: meta.format.bitrate ? Math.round(meta.format.bitrate / 1000) : null,
+      last_modified: stat.mtimeMs,
+      replaygain,
+    }, trackId)
     if (existingByPath) {
-      db.prepare(`UPDATE tracks SET file_hash = ?, title = ?, artist = ?, album = ?, album_artist = ?, track_num = ?, year = ?, genre = ?, duration = ?, artwork_path = ?, bitrate = ?, last_modified = ?, replaygain = ? WHERE file_path = ?`)
-        .run(...bindValues([trackId, title, artist, c.album?.trim() || null, c.albumartist?.trim() || null, c.track?.no || null, c.year || null, genre, duration, artwork, meta.format.bitrate ? Math.round(meta.format.bitrate / 1000) : null, stat.mtimeMs, replaygain, filePath]))
+      db.prepare(`UPDATE tracks SET file_hash = @file_hash, title = @title, artist = @artist, album = @album, album_artist = @album_artist, track_num = @track_num, year = @year, genre = @genre, duration = @duration, artwork_path = @artwork_path, bitrate = @bitrate, last_modified = @last_modified, replaygain = @replaygain WHERE file_path = @file_path`)
+        .run(params)
     } else {
-      db.prepare(`INSERT INTO tracks (id, file_path, file_hash, title, artist, album, album_artist, track_num, year, genre, duration, artwork_path, bitrate, last_modified, replaygain) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-        .run(...bindValues([trackId, filePath, trackId, title, artist, c.album?.trim() || null, c.albumartist?.trim() || null, c.track?.no || null, c.year || null, genre, duration, artwork, meta.format.bitrate ? Math.round(meta.format.bitrate / 1000) : null, stat.mtimeMs, replaygain]))
+      db.prepare(`INSERT INTO tracks (id, file_path, file_hash, title, artist, album, album_artist, track_num, year, genre, duration, artwork_path, bitrate, last_modified, replaygain) VALUES (@id, @file_path, @file_hash, @title, @artist, @album, @album_artist, @track_num, @year, @genre, @duration, @artwork_path, @bitrate, @last_modified, @replaygain)`)
+        .run(params)
     }
     db.prepare('DELETE FROM artist_track_links WHERE track_id = ?').run(trackId)
     const artistNames = splitArtists(artist)
@@ -1652,12 +1766,12 @@ function registerV4Handlers(ipcMain) {
     return { updated: result.changes }
   })
   ipcMain.handle('scanner:getAllAlbums', () => {
-    const rows = getDB().prepare(`SELECT album as title, album_artist, year, artwork_path, COUNT(*) as track_count, GROUP_CONCAT(DISTINCT artist) as artists FROM tracks WHERE file_path NOT LIKE 'ghost://%' AND album IS NOT NULL GROUP BY LOWER(album) ORDER BY year DESC, album ASC`).all()
+    const rows = getDB().prepare(`${albumRowsQuery()} ORDER BY year DESC, album ASC`).all()
     return enrichAlbumRows(rows)
   })
   ipcMain.handle('scanner:searchAlbums', (_, q) => {
     const term = `%${q}%`
-    const rows = getDB().prepare(`SELECT album as title, album_artist, year, artwork_path, COUNT(*) as track_count, GROUP_CONCAT(DISTINCT artist) as artists FROM tracks WHERE file_path NOT LIKE 'ghost://%' AND (album LIKE ? OR album_artist LIKE ?) GROUP BY LOWER(album) ORDER BY album`).all(term, term)
+    const rows = getDB().prepare(`${albumRowsQuery("AND (album LIKE ? OR album_artist LIKE ? OR artist LIKE ?)")} ORDER BY album ASC`).all(term, term, term)
     return enrichAlbumRows(rows)
   })
   ipcMain.handle('scanner:deleteTracks', (_, ids) => { const db = getDB(); const del = db.transaction((ids) => { for (const id of ids) { db.prepare('DELETE FROM artist_track_links WHERE track_id = ?').run(id); db.prepare('DELETE FROM playlist_tracks WHERE track_id = ?').run(id); db.prepare('DELETE FROM user_likes WHERE track_id = ?').run(id); db.prepare('DELETE FROM play_history WHERE track_id = ?').run(id); try { db.prepare('DELETE FROM listening_events WHERE track_id = ?').run(id) } catch {}; db.prepare('DELETE FROM lyrics_cache WHERE track_id = ?').run(id); db.prepare('DELETE FROM tracks WHERE id = ?').run(id) } }); del(ids) })

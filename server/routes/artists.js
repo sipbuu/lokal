@@ -120,9 +120,21 @@ router.get('/:id', (req, res) => {
   if (!artist) return res.status(404).json({ error: 'Not found' })
   const tracks = db.prepare("SELECT * FROM tracks WHERE artist = ? AND file_path NOT LIKE 'ghost://%' ORDER BY album, track_num, title").all(artist.name)
   const topTracks = db.prepare("SELECT * FROM tracks WHERE artist = ? AND file_path NOT LIKE 'ghost://%' ORDER BY play_count DESC LIMIT 5").all(artist.name)
-  const albums = enrichAlbumRows(
-    db.prepare(`SELECT album as title, year, artwork_path, album_artist, COUNT(*) as track_count, GROUP_CONCAT(DISTINCT artist) as artists FROM tracks WHERE artist = ? AND file_path NOT LIKE 'ghost://%' AND album IS NOT NULL GROUP BY LOWER(album) ORDER BY year DESC, album ASC`).all(artist.name)
-  )
+  const albums = enrichAlbumRows(db.prepare(`
+    SELECT
+      album as title,
+      COALESCE(NULLIF(album_artist, ''), artist) as album_artist,
+      year,
+      artwork_path,
+      COUNT(*) as track_count,
+      GROUP_CONCAT(DISTINCT artist) as artists
+    FROM tracks
+    WHERE artist = ?
+      AND file_path NOT LIKE 'ghost://%'
+      AND album IS NOT NULL
+    GROUP BY LOWER(album), LOWER(COALESCE(NULLIF(album_artist, ''), artist))
+    ORDER BY year DESC, album ASC
+  `).all(artist.name))
   const artistWithFallback = addArtistFallback(db, artist)
   res.json({ ...artistWithFallback, tracks, topTracks, albums })
 })

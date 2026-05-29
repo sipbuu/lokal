@@ -134,7 +134,9 @@ contextBridge.exposeInMainWorld('electron', {
   importAllData: (payload) => invoke('settings:importAll', payload),
   factoryReset: () => invoke('settings:factoryReset'),
   clearTracks: () => invoke('db:clearTracks'),
+  clearSongCache: () => invoke('db:clearSongCache'),
   getKeepCommaArtists: () => invoke('settings:getKeepCommaArtists'),
+
   setKeepCommaArtists: (artists) => invoke('settings:setKeepCommaArtists', artists),
   getTheme: () => invoke('settings:getTheme'),
   saveTheme: (theme, overrides) => invoke('settings:saveTheme', { theme, overrides }),

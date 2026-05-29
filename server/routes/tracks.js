@@ -525,9 +525,15 @@ async function applyBatchTrackUpdates(db, trackIds = [], operations = {}) {
 
 router.get('/', (req, res) => {
   const db = getDB()
-  const { sort = 'added_at DESC', limit = 500, offset = 0, artistName, album } = req.query
+  const { sort = 'added_at DESC', limit = 500, offset = 0, artistName, album, albumArtist } = req.query
   if (album) {
-    const tracks = db.prepare("SELECT * FROM tracks WHERE album = ? AND file_path NOT LIKE 'ghost://%'").all(album)
+    const params = [album]
+    let sql = "SELECT * FROM tracks WHERE album = ? AND file_path NOT LIKE 'ghost://%'"
+    if (albumArtist) {
+      sql += " AND LOWER(COALESCE(NULLIF(album_artist, ''), artist)) = LOWER(?)"
+      params.push(albumArtist)
+    }
+    const tracks = db.prepare(sql).all(...params)
     res.json(normalizeAlbumTracks(tracks))
     return
   }

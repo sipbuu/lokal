@@ -38,6 +38,13 @@ function normalizeProfilePayload(data = {}) {
   }
 }
 
+function albumTrackParams(album) {
+  const data = album && typeof album === 'object'
+    ? { album: album.title || album.album || '', albumArtist: album.album_artist || album.albumArtist || '' }
+    : { album: album || '' }
+  return new URLSearchParams(Object.fromEntries(Object.entries(data).filter(([, value]) => value !== undefined && value !== null && value !== '')))
+}
+
 async function apiFetch(path, opts = {}) {
   try {
     const res = await fetch(BASE + path, {
@@ -81,7 +88,7 @@ export const api = {
         offset: String(opts.offset || 0),
       })}`),
   getArtist: (id) => isE() ? el().getArtist(id) : apiFetch(`/artists/${id}`),
-  getAlbumTracks: (a) => isE() ? el().getAlbumTracks(a) : apiFetch(`/tracks?album=${encodeURIComponent(a)}`),
+  getAlbumTracks: (a) => isE() ? el().getAlbumTracks(a) : apiFetch(`/tracks?${albumTrackParams(a)}`),
   getAllAlbums: () => isE() ? el().getAllAlbums() : apiFetch('/albums'),
   searchAlbums: (q) => isE() ? el().searchAlbums(q) : apiFetch(`/albums/search?q=${encodeURIComponent(q)}`),
   artistUpdateBio: (id, b) => isE() ? el().artistUpdateBio(id, b) : apiFetch(`/artists/${id}/bio`, { method:'PUT', body:{bio:b} }),
@@ -132,6 +139,7 @@ export const api = {
   importLyrics: (tid, c, t) => isE() ? el().importLyrics(tid, c, t) : apiFetch(`/lyrics/${tid}/import`, { method:'POST', body:{content:c,type:t} }),
   clearLyricsCache: (tid) => isE() ? el().clearLyricsCache(tid) : apiFetch(`/lyrics/${tid}`, { method:'DELETE' }),
   clearLyricsDb: () => isE() ? el().clearLyricsDb() : apiFetch('/lyrics/clear-all', { method:'POST' }),
+  clearSongCache: () => isE() ? el().clearSongCache() : Promise.resolve({ ok: false, error: 'Electron only' }),
   getSettings: () => isE() ? el().getSettings() : apiFetch('/settings'),
   saveSettings: (s) => isE() ? el().saveSettings(s) : apiFetch('/settings', { method:'PUT', body:s }),
   exportAllData: () => isE() ? el().exportAllData() : apiFetch('/settings/export-all'),
