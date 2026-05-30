@@ -5,7 +5,7 @@
 
 Local-first music player built w/ Electron and React. Designed for people with large local music libraries who'd like a modern listening experience w/o the burdens of streaming subscriptions.
 
-![Lokal Music](https://img.shields.io/badge/version-1.9.0-blue) ![Electron](https://img.shields.io/badge/Electron-latest-47848F) ![React](https://img.shields.io/badge/React-18-61DAFB) ![License](https://img.shields.io/badge/license-MIT-green) [![Discord](https://img.shields.io/badge/Discord-7289DA?logo=discord&logoColor=white)](https://discord.gg/Wv3zfpG6UT)
+![Lokal Music](https://img.shields.io/badge/version-2.0.1-blue) ![Electron](https://img.shields.io/badge/Electron-latest-47848F) ![React](https://img.shields.io/badge/React-18-61DAFB) ![License](https://img.shields.io/badge/license-MIT-green) [![Discord](https://img.shields.io/badge/Discord-7289DA?logo=discord&logoColor=white)](https://discord.gg/Wv3zfpG6UT)
 
 ---
 ## Before reading further, check the Common links:
