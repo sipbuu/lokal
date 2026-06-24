@@ -200,20 +200,39 @@ function getVersionDaysBehind(installedVersion, latestVersion) {
   return diffMs > 0 ? Math.floor(diffMs / 86400000) : 0
 }
 
-function getExecutableVersion(executable, args = ['--version']) {
+function getExecutableVersion(executable, args = ['--version'], retries = 3) {
   return new Promise(resolve => {
     if (!executable) {
       resolve(null)
       return
     }
-    execFile(executable, args, { windowsHide: true, timeout: 10000 }, (error, stdout) => {
-      if (error && !stdout) {
-        resolve(null)
-        return
-      }
-      const version = String(stdout || '').trim().split(/\r?\n/).find(Boolean) || null
-      resolve(version)
-    })
+
+    function trySpawn(attemptsLeft) {
+      const child = execFile(executable, args, { windowsHide: true, timeout: 10000 }, (error, stdout) => {
+        if (error && !stdout) {
+          if (isBusyError(error) && attemptsLeft > 0) {
+            console.warn(`[Version Check] Executable busy, retrying... (${attemptsLeft} attempts left)`);
+            setTimeout(() => trySpawn(attemptsLeft - 1), 500);
+            return;
+          }
+          resolve(null)
+          return
+        }
+        const version = String(stdout || '').trim().split(/\r?\n/).find(Boolean) || null
+        resolve(version)
+      })
+
+      child.on('error', (err) => {
+        if (isBusyError(err) && attemptsLeft > 0) {
+          console.warn(`[Version Check] Spawn busy error caught, retrying...`);
+          setTimeout(() => trySpawn(attemptsLeft - 1), 500);
+        } else {
+          resolve(null);
+        }
+      });
+    }
+
+    trySpawn(retries);
   })
 }
 
@@ -254,8 +273,12 @@ function fetchJson(url) {
 }
 
 async function getYtDlpVersionStatus() {
+  const installLock = getYtDlpInstallLock()
+  if (installLock) await installLock
+
   const ytdlpPath = findYtDlp()
   const installedVersion = await getExecutableVersion(ytdlpPath)
+
   const result = {
     found: !!ytdlpPath,
     path: ytdlpPath,
@@ -366,6 +389,20 @@ function wait(ms) {
   return new Promise(resolve => setTimeout(resolve, ms))
 }
 
+let ytDlpInstallPromise = null
+
+function getYtDlpInstallLock() {
+  return ytDlpInstallPromise
+}
+
+function getYtDlpDestPaths() {
+  const ext = process.platform === 'win32' ? '.exe' : ''
+  const filename = `yt-dlp${ext}`
+  const dest = path.join(getUserDataBin(), filename)
+  return { filename, dest }
+}
+
+
 async function replaceFileWithRetry(source, dest, progressCallback) {
   try {
     await fs.move(source, dest, { overwrite: true })
@@ -394,35 +431,52 @@ async function replaceFileWithRetry(source, dest, progressCallback) {
 async function downloadYtDlp(progressCallback) {
   const ext = process.platform === 'win32' ? '.exe' : ''
   const filename = `yt-dlp${ext}`
-  const url = process.platform === 'win32'
-    ? 'https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe'
-    : 'https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp'
-  
-  const dest = path.join(getUserDataBin(), filename)
-  const tempDest = path.join(getUserDataBin(), `${filename}.download-${process.pid}-${Date.now()}`)
-  fs.ensureDirSync(getUserDataBin())
-  console.log(`[Tools] Starting download: ${url}`); 
-  
-  if (progressCallback) progressCallback({ status: 'downloading', message: 'Downloading yt-dlp...' });
-  
-  try {
-    await downloadFile(url, tempDest);
-    if (progressCallback) progressCallback({ status: 'installing', message: 'Installing yt-dlp...' });
-    await replaceFileWithRetry(tempDest, dest, progressCallback)
-    console.log(`[Tools] yt-dlp downloaded successfully to: ${dest}`); 
-    
-    if (process.platform !== 'win32') {
-      fs.chmodSync(dest, '755');
-      console.log(`[Tools] Set executable permissions for yt-dlp`); 
-    }
-  } catch (err) {
-    console.error(`[Tools] Failed to download yt-dlp: ${err.message}`); 
-    throw err;
-  } finally {
-    try { fs.removeSync(tempDest) } catch {}
+
+  if (getYtDlpInstallLock()) {
+    return getYtDlpInstallLock()
   }
-  
-  return dest; 
+
+  ytDlpInstallPromise = (async () => {
+    const url = process.platform === 'win32'
+      ? 'https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe'
+      : 'https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp'
+
+    const dest = path.join(getUserDataBin(), filename)
+    const tempDest = path.join(getUserDataBin(), `${filename}.download-${process.pid}-${Date.now()}`)
+
+    try {
+      fs.ensureDirSync(getUserDataBin())
+      console.log(`[Tools] Starting download: ${url}`)
+
+      if (progressCallback) progressCallback({ status: 'downloading', message: 'Downloading yt-dlp...' })
+
+      await downloadFile(url, tempDest)
+
+      if (progressCallback) progressCallback({ status: 'installing', message: 'Installing yt-dlp...' })
+      await replaceFileWithRetry(tempDest, dest, progressCallback)
+      //small cushion, teehee (i hate you windows defender.)
+      if (process.platform === 'win32') {
+        await wait(300); 
+      }
+
+      console.log(`[Tools] yt-dlp downloaded successfully to: ${dest}`)
+
+      if (process.platform !== 'win32') {
+        fs.chmodSync(dest, '755')
+        console.log(`[Tools] Set executable permissions for yt-dlp`)
+      }
+
+      return dest
+    } catch (err) {
+      console.error(`[Tools] Failed to download yt-dlp: ${err.message}`)
+      throw err
+    } finally {
+      try { fs.removeSync(tempDest) } catch {}
+      ytDlpInstallPromise = null
+    }
+  })()
+
+  return ytDlpInstallPromise
 }
 
 
