@@ -66,6 +66,15 @@ function parseTime(t) {
   return parseFloat(p[0])
 }
 
+function decodeXmlEntities(text) {
+  return text
+    .replace(/&apos;/g, "'")
+    .replace(/"/g, '"')
+    .replace(/&amp;/g, '&')
+    .replace(/</g, '<')
+    .replace(/>/g, '>')
+}
+
 function parseTTML(xml) {
   if (!xml) return []
   const lines = []
@@ -115,6 +124,8 @@ function parseTTML(xml) {
   for (const pm of normalized.matchAll(pReg)) {
     const lineStart = parseTime(pm[1])
     const lineEnd = pm[2] ? parseTime(pm[2]) : null
+    const agentMatch = pm[0].match(/(?:ttm:agent|agent)\s*=\s*(['"])([^'"]+)\1/i)
+    const agent = agentMatch ? agentMatch[2] : undefined
     let inner = (pm[3] || '').trim()
 
     const bgSpanMatches = extractBgSpans(inner)
@@ -128,7 +139,7 @@ function parseTTML(xml) {
       for (const itm of innerTimed) {
         const bwStart = parseTime(itm[1])
         const bwEnd = itm[2] ? parseTime(itm[2]) : null
-        const raw = (itm[3] || '').replace(/<[^>]+>/g, '').trim()
+        const raw = decodeXmlEntities((itm[3] || '').replace(/<[^>]+>/g, '').trim())
         if (!raw) continue
 
         const pieces = raw.split(/\s+/).filter(Boolean)
@@ -157,10 +168,11 @@ function parseTTML(xml) {
     const wordReg = /<span\b[^>]*\bbegin="([^"]+)"(?:\s+end="([^"]+)")?[^>]*>([\s\S]*?)<\/span>/ig
     const wordMatches = [...inner.matchAll(wordReg)]
 
-    for (const wm of wordMatches) {
+    for (let mi = 0; mi < wordMatches.length; mi++) {
+      const wm = wordMatches[mi]
       const startTime = parseTime(wm[1])
       const endTime = wm[2] ? parseTime(wm[2]) : null
-      const rawText = (wm[3] || '').replace(/<[^>]+>/g, '').trim()
+      const rawText = decodeXmlEntities((wm[3] || '').replace(/<[^>]+>/g, '').trim())
       if (!rawText) continue
 
       if (lineEnd != null) {
@@ -169,15 +181,35 @@ function parseTTML(xml) {
         }
       }
 
+      let isAdjacent = false
+      if (mi > 0 && words.length > 0) {
+        const prevMatch = wordMatches[mi - 1]
+        const prevEnd = prevMatch.index + prevMatch[0].length
+        const gap = inner.slice(prevEnd, wm.index)
+        isAdjacent = gap.length === 0
+      }
+
       const subWords = rawText.split(/\s+/).filter(Boolean)
       if (subWords.length === 1) {
-        words.push({ word: subWords[0], time: startTime, end: endTime })
+        if (isAdjacent) {
+          const prev = words[words.length - 1]
+          prev.word += subWords[0]
+          prev.end = endTime || prev.end
+        } else {
+          words.push({ word: subWords[0], time: startTime, end: endTime })
+        }
       } else {
         const spanDur = Math.max(0.001, (endTime ? endTime - startTime : subWords.length * 0.3))
         subWords.forEach((sw, si) => {
-          const swStart = startTime + si * (spanDur / subWords.length)
-          const swEnd = startTime + (si + 1) * (spanDur / subWords.length)
-          words.push({ word: sw, time: swStart, end: swEnd })
+          if (si === 0 && isAdjacent && words.length > 0) {
+            const prev = words[words.length - 1]
+            prev.word += sw
+            prev.end = startTime + (si + 1) * (spanDur / subWords.length)
+          } else {
+            const swStart = startTime + si * (spanDur / subWords.length)
+            const swEnd = startTime + (si + 1) * (spanDur / subWords.length)
+            words.push({ word: sw, time: swStart, end: swEnd })
+          }
         })
       }
     }
@@ -230,14 +262,16 @@ function parseTTML(xml) {
     const displayText = displayParts.join('')
 
     if (mergedWords.length || bgText) {
-      lines.push({
+      const lineObj = {
         time: lineStart,
         end: lineEnd,
         text: displayText.trim(),
         words: mergedWords,
         bgText: bgText ? `(${bgText})` : undefined,
         bgWords: finalBgWords.length ? finalBgWords : undefined
-      })
+      }
+      if (agent) lineObj.agent = agent
+      lines.push(lineObj)
     }
   }
 
