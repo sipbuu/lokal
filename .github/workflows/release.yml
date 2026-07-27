@@ -44,6 +44,7 @@ jobs:
               mv "$f" "${f// /-}"
             fi
           done
+
       - name: Upload release artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -61,6 +62,41 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install Playwright
+        run: |
+          npm install playwright
+          npx playwright install --with-deps chromium
+
+      - name: Generate Release Banner
+        run: |
+          node - <<'EOF'
+          const { chromium } = require("playwright");
+
+          (async () => {
+            const browser = await chromium.launch();
+            const page = await browser.newPage({
+              viewport: { width: 1200, height: 600 }
+            });
+
+            await page.goto(
+              "https://sipbuu.me/lokalver/?v=${{ github.ref_name }}&type=release&app=lokal",
+              { waitUntil: "networkidle" }
+            );
+
+            await page.locator(".title-card").screenshot({
+              path: "release-banner.png"
+            });
+
+            await browser.close();
+          })();
+          EOF
+
       - name: Download all artifacts
         uses: actions/download-artifact@v4
         with:
@@ -70,14 +106,12 @@ jobs:
         shell: bash
         run: |
           mkdir -p release_all
-          # Copy all files from all artifacts (artifact dirs inside artifacts/*)
           shopt -s nullglob
           for d in artifacts/*; do
             if [ -d "$d" ]; then
               cp -R "$d"/* release_all/ || true
             fi
           done
-          # If release_all is empty, create a placeholder so release creation doesn't fail
           if [ -z "$(ls -A release_all 2>/dev/null)" ]; then
             mkdir -p release_all
             touch release_all/.no_files
@@ -128,6 +162,7 @@ jobs:
             core.setOutput('body', response.data.body);
 
       - name: Create GitHub Release
+        id: create_release
         uses: softprops/action-gh-release@v2
         with:
           name: Release ${{ github.ref_name }}
@@ -138,9 +173,10 @@ jobs:
             release_all/**/*.deb
             release_all/**/*.zip
             release_all/**/latest*.yml
+            release-banner.png
           draft: true
           body: |
-            ![ghost](https://i.imgur.com/ZC3mEUC.png) ![ghost](https://i.imgur.com/ZC3mEUC.png) ![ghost](https://i.imgur.com/ZC3mEUC.png)
+            ![Release Banner](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/release-banner.png)
 
             # Lokal ${{ github.ref_name }}
 
