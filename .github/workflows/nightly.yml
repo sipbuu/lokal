@@ -176,8 +176,6 @@ jobs:
           body: |
             ![Release Banner](https://github.com/${{ github.repository }}/releases/download/nightly-${{ inputs.ref || 'main' }}/release-banner.png)
 
-            # Lokal Nightly (${{ inputs.ref || 'main' }})
-
             *This is a nightly build, code may/may not be fully functional.*
             Last commit note/date: ${{ steps.commit_info.outputs.MSG }} at ${{ steps.commit_info.outputs.DATE }}
 
