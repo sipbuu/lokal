@@ -215,6 +215,20 @@ function getExecutableVersion(executable, args = ['--version'], retries = 3) {
             setTimeout(() => trySpawn(attemptsLeft - 1), 500);
             return;
           }
+          if (isCorruptBinaryError(error)) {
+            console.error(`[Version Check] Executable appears corrupt (code=${error.code}), file=${executable}`);
+            if (attemptsLeft > 0) {
+              console.warn(`[Version Check] Trying to remove corrupt binary before retry... (${attemptsLeft} attempts left)`);
+              try {
+                require('fs').unlinkSync(executable);
+                console.log(`[Version Check] Removed corrupt binary: ${executable}`);
+              } catch (removeErr) {
+                console.error(`[Version Check] Could not remove corrupt binary: ${removeErr.message}`);
+              }
+              setTimeout(() => trySpawn(attemptsLeft - 1), 800);
+              return;
+            }
+          }
           resolve(null)
           return
         }
@@ -226,6 +240,15 @@ function getExecutableVersion(executable, args = ['--version'], retries = 3) {
         if (isBusyError(err) && attemptsLeft > 0) {
           console.warn(`[Version Check] Spawn busy error caught, retrying...`);
           setTimeout(() => trySpawn(attemptsLeft - 1), 500);
+        } else if (isCorruptBinaryError(err) && attemptsLeft > 0) {
+          console.error(`[Version Check] Spawn error suggests corrupt binary (code=${err.code}), file=${executable}`);
+          try {
+            require('fs').unlinkSync(executable);
+            console.log(`[Version Check] Removed corrupt binary: ${executable}`);
+          } catch (removeErr) {
+            console.error(`[Version Check] Could not remove corrupt binary: ${removeErr.message}`);
+          }
+          setTimeout(() => trySpawn(attemptsLeft - 1), 800);
         } else {
           resolve(null);
         }
@@ -385,6 +408,10 @@ function isBusyError(err) {
   return ['EBUSY', 'EPERM', 'EACCES'].includes(err?.code)
 }
 
+function isCorruptBinaryError(err) {
+  return ['UNKNOWN', 'EINVAL', 'ENOEXEC'].includes(err?.code)
+}
+
 function wait(ms) {
   return new Promise(resolve => setTimeout(resolve, ms))
 }
@@ -404,27 +431,59 @@ function getYtDlpDestPaths() {
 
 
 async function replaceFileWithRetry(source, dest, progressCallback) {
-  try {
-    await fs.move(source, dest, { overwrite: true })
-    return dest
-  } catch (err) {
-    if (!isBusyError(err)) throw err
+  const maxRetries = 5
+  const baseDelayMs = 1000
 
-    if (progressCallback) {
-      progressCallback({ status: 'stopping', message: 'Stopping active yt-dlp processes...' })
-    }
-
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
     try {
-      const { stopActiveDownloadsForToolUpdate } = require('./downloader')
-      if (typeof stopActiveDownloadsForToolUpdate === 'function') {
-        await stopActiveDownloadsForToolUpdate()
-      }
-    } catch {}
+      await fs.move(source, dest, { overwrite: true })
+      console.log(`[Tools] Successfully replaced ${dest} on attempt ${attempt + 1}`)
+      return dest
+    } catch (err) {
+      if (!isBusyError(err)) throw err
 
-    await wait(900)
-    await fs.move(source, dest, { overwrite: true })
-    return dest
+      console.warn(`[Tools] replaceFileWithRetry attempt ${attempt + 1}/${maxRetries} failed: ${err.code} ${err.message}`)
+
+      if (attempt === maxRetries - 1) {
+        console.error(`[Tools] All ${maxRetries} attempts failed. Trying force-delete of destination...`)
+        if (progressCallback) {
+          progressCallback({ status: 'stopping', message: 'Force-deleting old yt-dlp...' })
+        }
+        try {
+          await fs.remove(dest)
+          await wait(500)
+          await fs.move(source, dest, { overwrite: true })
+          console.log(`[Tools] Replaced ${dest} after force-delete`)
+          return dest
+        } catch (finalErr) {
+          console.error(`[Tools] Force-delete replace also failed: ${finalErr.message}`)
+          throw finalErr
+        }
+      }
+
+      if (progressCallback) {
+        progressCallback({ status: 'stopping', message: `Stopping yt-dlp processes (attempt ${attempt + 2}/${maxRetries})...` })
+      }
+
+      try {
+        const { stopActiveDownloadsForToolUpdate } = require('./downloader')
+        if (typeof stopActiveDownloadsForToolUpdate === 'function') {
+          await stopActiveDownloadsForToolUpdate()
+        }
+      } catch {}
+
+      if (process.platform === 'win32') {
+        try {
+          require('child_process').execSync('taskkill /f /im yt-dlp.exe 2>nul', { stdio: 'ignore' })
+          console.log('[Tools] taskkill /f /im yt-dlp.exe issued')
+        } catch {}
+      }
+
+      const delay = baseDelayMs * Math.pow(2, attempt)
+      await wait(delay)
+    }
   }
+  throw new Error(`Failed to replace file after ${maxRetries} attempts`)
 }
 
 
