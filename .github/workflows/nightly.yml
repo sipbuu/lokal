@@ -1,1 +1,225 @@
+name: Build Lokal Nightly
 
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: 'Git Ref/Tag/Commit to build'
+        required: false
+        default: 'main'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build (${{ matrix.os }})
+    strategy:
+      matrix:
+        os: [windows-latest, macos-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || 'main' }}
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install Dependencies
+        run: npm install
+
+      - name: Build Application
+        run: npm run build -- --publish never
+
+      - name: Rename release files for this runner
+        shell: bash
+        run: |
+          cd release 2>/dev/null || exit 0
+          
+          shopt -s nullglob
+          
+          for f in *\ *; do
+            if [ -f "$f" ]; then
+              mv "$f" "${f// /-}"
+            fi
+          done
+
+      - name: Upload release artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ matrix.os }}
+          path: release
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || 'main' }}
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install Playwright
+        run: |
+          npm install playwright
+          npx playwright install --with-deps chromium
+
+      - name: Get Last Commit Info
+        id: commit_info
+        shell: bash
+        run: |
+          COMMIT_MSG=$(git log -1 --pretty=format:"%s")
+          COMMIT_DATE=$(git log -1 --format="%cd" --date=format:'%Y-%m-%d %H:%M:%S UTC')
+          
+          echo "MSG=$COMMIT_MSG" >> $GITHUB_OUTPUT
+          echo "DATE=$COMMIT_DATE" >> $GITHUB_OUTPUT
+
+      - name: Generate Nightly Banner
+        run: |
+          node - <<'EOF'
+          const { chromium } = require("playwright");
+
+          (async () => {
+            const browser = await chromium.launch();
+            const page = await browser.newPage({
+              viewport: { width: 1200, height: 600 }
+            });
+
+            await page.goto(
+              "https://sipbuu.me/lokalver/?v=${{ inputs.ref || 'main' }}&type=nightly&app=lokal",
+              { waitUntil: "networkidle" }
+            );
+
+            await page.locator(".title-card").screenshot({
+              path: "release-banner.png"
+            });
+
+            await browser.close();
+          })();
+          EOF
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Aggregate artifacts into release_all
+        shell: bash
+        run: |
+          mkdir -p release_all
+          shopt -s nullglob
+          for d in artifacts/*; do
+            if [ -d "$d" ]; then
+              cp -R "$d"/* release_all/ || true
+            fi
+          done
+          if [ -z "$(ls -A release_all 2>/dev/null)" ]; then
+            mkdir -p release_all
+            touch release_all/.no_files
+          fi
+
+      - name: Generate checksums for all artifacts
+        id: checksums
+        shell: bash
+        run: |
+          if command -v sha256sum >/dev/null 2>&1; then
+            SHACMD='sha256sum'
+          else
+            SHACMD='shasum -a 256'
+          fi
+
+          echo "HASHES<<EOF" >> $GITHUB_OUTPUT
+          for f in release_all/*; do
+            if [ -f "$f" ] && [ "$(basename "$f")" != ".no_files" ]; then
+              HASH=$($SHACMD "$f" | awk '{print toupper($1)}')
+              NAME=$(basename "$f")
+              echo "> **$NAME**: \`[$HASH]\`" >> $GITHUB_OUTPUT
+            fi
+          done
+          if [ -z "$(ls -A release_all 2>/dev/null | grep -v .no_files)" ]; then
+            echo "No release files found" >> $GITHUB_OUTPUT
+          fi
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: Create Nightly Release
+        id: create_release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: "nightly-${{ inputs.ref || 'main' }}"
+          name: "Lokal Nightly (${{ inputs.ref || 'main' }})"
+          prerelease: true
+          files: |
+            release_all/**/*.exe
+            release_all/**/*.dmg
+            release_all/**/*.AppImage
+            release_all/**/*.deb
+            release_all/**/*.zip
+            release_all/**/latest*.yml
+            release-banner.png
+          body: |
+            ![Release Banner](https://github.com/${{ github.repository }}/releases/download/nightly-${{ inputs.ref || 'main' }}/release-banner.png)
+
+            # Lokal Nightly (${{ inputs.ref || 'main' }})
+
+            *This is a nightly build, code may/may not be fully functional.*
+            Last commit note/date: ${{ steps.commit_info.outputs.MSG }} at ${{ steps.commit_info.outputs.DATE }}
+
+            ---
+
+            FYI:
+            **Lokal is 100% local; the library, history, anything in database, or any info that is used for API's such as yt-dlp, LRCLIB, is *NOT* seen by us.**
+
+            ---
+
+            ## Setup
+
+            See [README.md](./README.md) for full setup instructions.
+
+            ---
+
+            ### Binary Checksums (SHA-256)
+
+            ${{ steps.checksums.outputs.HASHES }}
+
+      - name: Discord Notification (Build Complete)
+        shell: bash
+        env:
+          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
+        run: |
+          PAYLOAD=$(jq -n \
+            --arg version "Nightly (${{ inputs.ref || 'main' }})" \
+            --arg url "${{ steps.create_release.outputs.html_url }}" \
+            --arg msg "${{ steps.commit_info.outputs.MSG }}" \
+            --arg image "https://i.imgur.com/KgjwTvk.png" \
+            --arg footer_icon "https://i.imgur.com/ZC3mEUC.png" \
+            --argjson color 15105570 \
+            '{
+              embeds: [{
+                title: "Build Complete: Nightly Lokal \($version)",
+                description: "All platform binaries for **\($version)** have been successfully built and uploaded to the nightly pre-release.\n\n**Status:** Nightly Ready\n**Last Commit:** \($msg)",
+                url: $url,
+                color: $color,
+                image: { url: $image },
+                footer: { text: "Lokal Build System", icon_url: $footer_icon }
+              }]
+            }'
+          )
+
+          curl -H "Content-Type: application/json" -d "$PAYLOAD" "$DISCORD_WEBHOOK"
