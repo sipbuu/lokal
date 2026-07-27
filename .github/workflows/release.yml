@@ -178,8 +178,6 @@ jobs:
           body: |
             ![Release Banner](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/release-banner.png)
 
-            # Lokal ${{ github.ref_name }}
-
             ${{ steps.latest_commit.outputs.LATEST }}
 
             ---
