@@ -207,12 +207,13 @@ jobs:
           DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
         run: |
           LATEST_MSG="${{ steps.latest_commit.outputs.LATEST }}"
+          BANNER_URL="https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/release-banner.png"
           
           PAYLOAD=$(jq -n \
             --arg version "${{ github.ref_name }}" \
             --arg url "${{ steps.create_release.outputs.html_url }}" \
             --arg msg "$LATEST_MSG" \
-            --arg image "https://i.imgur.com/KgjwTvk.png" \
+            --arg image "$BANNER_URL" \
             --arg footer_icon "https://i.imgur.com/ZC3mEUC.png" \
             --argjson color 3447003 \
             '{
