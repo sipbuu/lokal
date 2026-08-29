@@ -18,6 +18,7 @@ import Onboarding, { useOnboarding } from './components/Onboarding'
 import PostOnboardingTour from './components/PostOnboardingTour'
 import Home from './pages/Home'
 import Albums from './pages/Albums'
+import Artists from './pages/Artists'
 import Library from './pages/Library'
 import Search from './pages/Search'
 import Artist from './pages/Artist'
@@ -92,6 +93,7 @@ function AnimatedRoutes() {
       <Routes location={location} key={location.pathname}>
         <Route path="/" element={<motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.2 }}><Home /></motion.div>} />
         <Route path="/albums" element={<motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.2 }}><Albums /></motion.div>} />
+        <Route path="/artists" element={<motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.2 }}><Artists /></motion.div>} />
         <Route path="/library" element={<motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.2 }}><Library /></motion.div>} />
         <Route path="/search" element={<motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.2 }}><Search /></motion.div>} />
         <Route path="/artist/:id" element={<motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.2 }}><Artist /></motion.div>} />

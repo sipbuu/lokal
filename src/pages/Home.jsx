@@ -1,5 +1,4 @@
 import React, { useEffect, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { Music, RefreshCw, ScanLine, Play, Clock, Sparkles, Radio, History } from 'lucide-react'
 import { usePlayerStore, useAppStore } from '../store/player'
@@ -106,12 +105,10 @@ function MixCard({ mix, onClick }) {
 
 export default function Home() {
   const [recentTracks, setRecentTracks] = useState([])
-  const [artists, setArtists] = useState([])
   const [suggestions, setSuggestions] = useState([])
   const [history, setHistory] = useState([])
   const [mixes, setMixes] = useState([])
   const [tab, setTab] = useState('home')
-  const nav = useNavigate()
   const { playQueue } = usePlayerStore()
   const { user } = useAppStore()
   const nonGhost = (items) => (Array.isArray(items) ? items.filter(item => !String(item?.file_path || '').startsWith('ghost://')) : [])
@@ -119,7 +116,6 @@ export default function Home() {
   const load = () => {
     const uid = user?.id
     api.getTracks({ sort: 'added_at DESC', limit: 10 }).then(t => setRecentTracks(nonGhost(t)))
-    api.getArtists().then(a => setArtists((Array.isArray(a) ? a : []).slice(0, 12)))
     api.getSuggestions(uid).then(s => setSuggestions(nonGhost(s)))
     api.getHistory(uid, 30).then(h => setHistory(Array.isArray(h) ? h : []))
     api.getMixes(uid).then(m => setMixes((Array.isArray(m) ? m : []).map(mix => ({ ...mix, tracks: nonGhost(mix.tracks) })).filter(mix => mix.tracks.length > 0)))
@@ -132,7 +128,6 @@ export default function Home() {
     return () => window.removeEventListener('lokal:refresh', load)
   }, [user?.id])
 
-  const artSrc = (a) => a.image_path ? (api.isElectron ? `file://${a.image_path}` : null) : null
   const trackArt = (t) => t.artwork_path ? (api.isElectron ? `file://${t.artwork_path}` : api.artworkURL(t.id)) : null
 
   const greeting = () => {
@@ -172,22 +167,6 @@ export default function Home() {
         </section>
       ) : (
         <>
-          {artists.length > 0 && (
-            <section>
-              <h2 className="text-xs font-display text-muted uppercase tracking-widest mb-4">Artists</h2>
-              <div className="grid grid-cols-4 md:grid-cols-6 gap-3">
-                {artists.map((a, i) => (
-                  <motion.button key={a.id} initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} transition={{ delay: Math.min(i * 0.04, 0.4) }} onClick={() => nav(`/artist/${a.id}`)} className="flex flex-col items-center gap-2 group">
-                    <div className="w-full aspect-square rounded-full bg-elevated border border-border overflow-hidden flex items-center justify-center text-muted group-hover:border-accent/40 transition-colors">
-                      {artSrc(a) ? <img src={artSrc(a)} className="w-full h-full object-cover" /> : <Music size={22} />}
-                    </div>
-                    <p className="text-xs text-center truncate w-full text-muted group-hover:text-white transition-colors">{a.name}</p>
-                  </motion.button>
-                ))}
-              </div>
-            </section>
-          )}
-
           {mixes.length > 0 && (
             <section>
               <div className="flex items-center gap-2 mb-4">
@@ -243,7 +222,7 @@ export default function Home() {
             </section>
           )}
 
-          {!recentTracks.length && !artists.length && (
+          {!recentTracks.length && !mixes.length && !suggestions.length && (
             <div className="text-center py-24 text-muted">
               <Music size={48} className="mx-auto mb-4 opacity-20" />
               <p className="font-medium">No tracks yet</p>
