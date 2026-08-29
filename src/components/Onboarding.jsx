@@ -59,6 +59,7 @@ export default function Onboarding({ isOpen, onComplete }) {
   const [toolsStatus, setToolsStatus] = useState(null)
   const [toolsLoading, setToolsLoading] = useState(false)
   const [toolsError, setToolsError] = useState('')
+  const [toolsErrorTool, setToolsErrorTool] = useState(null)
   const [isScanning, setIsScanning] = useState(false)
   const [showUserForm, setShowUserForm] = useState(false)
   const [userForm, setUserForm] = useState({ username: '', password: '', email: '' })
@@ -202,13 +203,18 @@ export default function Onboarding({ isOpen, onComplete }) {
     if (toolsLoading) return
     setToolsLoading(true)
     setToolsError('')
+    setToolsErrorTool(null)
     try {
       const result = await api.downloadYtDlp()
-      if (result?.error) setToolsError(`yt-dlp: ${result.error}`)
+      if (result?.error) {
+        setToolsError(`yt-dlp: ${result.error}`)
+        setToolsErrorTool('yt-dlp')
+      }
       await api.getToolsStatus().then(setToolsStatus)
     } catch (e) {
       console.error('Download yt-dlp error:', e)
       setToolsError(`yt-dlp: ${e.message}`)
+      setToolsErrorTool('yt-dlp')
     }
     setToolsLoading(false)
   }
@@ -217,15 +223,25 @@ export default function Onboarding({ isOpen, onComplete }) {
     if (toolsLoading) return
     setToolsLoading(true)
     setToolsError('')
+    setToolsErrorTool(null)
     try {
       const result = await api.downloadFfmpeg()
-      if (result?.error) setToolsError(`ffmpeg: ${result.error}`)
+      if (result?.error) {
+        setToolsError(`ffmpeg: ${result.error}`)
+        setToolsErrorTool('ffmpeg')
+      }
       await api.getToolsStatus().then(setToolsStatus)
     } catch (e) {
       console.error('Download ffmpeg error:', e)
       setToolsError(`ffmpeg: ${e.message}`)
+      setToolsErrorTool('ffmpeg')
     }
     setToolsLoading(false)
+  }
+
+  const retryToolDownload = () => {
+    if (toolsErrorTool === 'yt-dlp') downloadYtDlp()
+    else if (toolsErrorTool === 'ffmpeg') downloadFfmpeg()
   }
 
   const handleCreateUser = async () => {
@@ -429,7 +445,14 @@ export default function Onboarding({ isOpen, onComplete }) {
                 {step.id === 'tools' && api.isElectron && (
                   <div className="space-y-4">
                     {toolsError && (
-                      <p className="text-xs text-red-400 bg-red-500/10 border border-red-500/30 rounded-lg px-3 py-2">{toolsError}</p>
+                      <div className="flex items-center justify-between gap-3 text-xs text-red-400 bg-red-500/10 border border-red-500/30 rounded-lg px-3 py-2">
+                        <span>{toolsError}</span>
+                        {toolsErrorTool && (
+                          <button onClick={retryToolDownload} disabled={toolsLoading} className="shrink-0 px-2.5 py-1 bg-red-500/20 border border-red-500/30 rounded-md text-red-300 hover:bg-red-500/30 disabled:opacity-40">
+                            Retry
+                          </button>
+                        )}
+                      </div>
                     )}
                     <div className="space-y-3">
                       {/* yt-dlp */}

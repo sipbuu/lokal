@@ -172,6 +172,7 @@ export default function Settings() {
   const [toolsStatus, setToolsStatus] = useState(null)
   const [toolsLoading, setToolsLoading] = useState(false)
   const [toolsError, setToolsError] = useState('')
+  const [toolsErrorTool, setToolsErrorTool] = useState(null)
   const [showPlaylistImportModal, setShowPlaylistImportModal] = useState(false)
   const [showPlatformImportGuide, setShowPlatformImportGuide] = useState(false)
   const [platformImportMode, setPlatformImportMode] = useState('playlist')
@@ -724,8 +725,12 @@ export default function Settings() {
     if (toolsLoading) return
     setToolsLoading(true)
     setToolsError('')
+    setToolsErrorTool(null)
     const result = await api.downloadYtDlp()
-    if (result?.error) setToolsError(`yt-dlp: ${result.error}`)
+    if (result?.error) {
+      setToolsError(`yt-dlp: ${result.error}`)
+      setToolsErrorTool('yt-dlp')
+    }
     setToolsLoading(false)
     api.getToolsStatus().then(setToolsStatus)
   }
@@ -734,10 +739,19 @@ export default function Settings() {
     if (toolsLoading) return
     setToolsLoading(true)
     setToolsError('')
+    setToolsErrorTool(null)
     const result = await api.downloadFfmpeg()
-    if (result?.error) setToolsError(`ffmpeg: ${result.error}`)
+    if (result?.error) {
+      setToolsError(`ffmpeg: ${result.error}`)
+      setToolsErrorTool('ffmpeg')
+    }
     setToolsLoading(false)
     api.getToolsStatus().then(setToolsStatus)
+  }
+
+  const retryToolDownload = () => {
+    if (toolsErrorTool === 'yt-dlp') downloadYtDlpTool()
+    else if (toolsErrorTool === 'ffmpeg') downloadFfmpegTool()
   }
 
   const setCustomToolPath = async (tool) => {
@@ -1388,7 +1402,14 @@ export default function Settings() {
         <Section title="External Tools">
           <p className="text-xs text-muted mb-4">Manage yt-dlp and ffmpeg for downloading YouTube videos.</p>
           {toolsError && (
-            <p className="text-xs text-red-400 bg-red-500/10 border border-red-500/30 rounded-lg px-3 py-2 mb-4">{toolsError}</p>
+            <div className="flex items-center justify-between gap-3 text-xs text-red-400 bg-red-500/10 border border-red-500/30 rounded-lg px-3 py-2 mb-4">
+              <span>{toolsError}</span>
+              {toolsErrorTool && (
+                <button onClick={retryToolDownload} disabled={toolsLoading} className="shrink-0 px-2.5 py-1 bg-red-500/20 border border-red-500/30 rounded-md text-red-300 hover:bg-red-500/30 disabled:opacity-40">
+                  Retry
+                </button>
+              )}
+            </div>
           )}
           <div className="space-y-3 mb-4">
             <div className="flex items-center justify-between">
