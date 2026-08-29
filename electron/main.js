@@ -11,7 +11,7 @@ Object.assign(console, log.functions)
 
 const { autoUpdater } = require('electron-updater')
 const { initDB, getDB } = require('./ipc/db')
-const { registerScannerHandlers, registerExtraHandlers, registerV4Handlers } = require('./ipc/scanner')
+const { registerScannerHandlers, registerExtraHandlers, registerV4Handlers, AUDIO_EXTS } = require('./ipc/scanner')
 const { registerMixesHandlers } = require('./ipc/mixes')
 const { registerPlayerHandlers } = require('./ipc/player')
 const { registerDownloaderHandlers, registerExtraDownloaderHandlers, registerPlaylistArchiveHandlers, markInterruptedPlaylistsIncomplete, shutdownActiveDownloads } = require('./ipc/downloader')
@@ -27,6 +27,16 @@ const { setRemoteState, setRemoteCommandHandler } = require('./ipc/remote')
 let isUpdating = false;
 const APP_PROTOCOL = 'lokal'
 let pendingLastfmAuthToken = ''
+let pendingOpenFilePath = ''
+
+function findAudioFileArg(argv = []) {
+  for (const arg of argv) {
+    if (typeof arg !== 'string' || arg.startsWith('--') || arg.startsWith(`${APP_PROTOCOL}://`)) continue
+    const ext = path.extname(arg).toLowerCase()
+    if (AUDIO_EXTS.has(ext) && fs.existsSync(arg)) return path.resolve(arg)
+  }
+  return ''
+}
 
 function extractLastfmAuthToken(raw) {
   try {
@@ -70,6 +80,31 @@ function emitLastfmAuthToken(token) {
   return true
 }
 
+function emitOpenFilePath(filePath) {
+  if (!filePath) return false
+
+  pendingOpenFilePath = filePath
+
+  if (!mainWindow || mainWindow.isDestroyed()) return false
+
+  if (mainWindow.isMinimized()) mainWindow.restore()
+  mainWindow.show()
+  mainWindow.focus()
+
+  const sendPath = () => {
+    if (!mainWindow || mainWindow.isDestroyed()) return
+    mainWindow.webContents.send('player:openFile', pendingOpenFilePath)
+    pendingOpenFilePath = ''
+  }
+
+  if (mainWindow.webContents.isLoading()) {
+    mainWindow.webContents.once('did-finish-load', sendPath)
+  } else {
+    sendPath()
+  }
+  return true
+}
+
 const gotTheLock = app.requestSingleInstanceLock()
 
 if (!gotTheLock) {
@@ -80,6 +115,10 @@ if (!gotTheLock) {
     const token = extractLastfmAuthToken(protocolUrl || '')
     if (token) {
       emitLastfmAuthToken(token)
+    }
+    const filePath = findAudioFileArg(commandLine)
+    if (filePath) {
+      emitOpenFilePath(filePath)
     }
     if (mainWindow) {
       if (mainWindow.isMinimized()) mainWindow.restore()
@@ -136,6 +175,8 @@ if (!perfSettings.hardwareAcceleration) {
   app.commandLine.appendSwitch('disable-software-rasterizer')
   app.commandLine.appendSwitch('disable-gpu-compositing')
 }
+
+app.commandLine.appendSwitch('enable-features', 'HardwareMediaKeyHandling,MediaSessionService')
 
 let mainWindow
 const NORMAL_MIN_WIDTH = 960
@@ -222,6 +263,10 @@ function createWindow() {
     if (pendingLastfmAuthToken) {
       mainWindow.webContents.send('lastfm:auth-token', pendingLastfmAuthToken)
       pendingLastfmAuthToken = ''
+    }
+    if (pendingOpenFilePath) {
+      mainWindow.webContents.send('player:openFile', pendingOpenFilePath)
+      pendingOpenFilePath = ''
     }
   })
 
@@ -425,6 +470,10 @@ const bootProtocolUrl = process.argv.find(arg => typeof arg === 'string' && arg.
 const bootToken = extractLastfmAuthToken(bootProtocolUrl || '')
 if (bootToken) {
   emitLastfmAuthToken(bootToken)
+}
+const bootFilePath = findAudioFileArg(process.argv)
+if (bootFilePath) {
+  emitOpenFilePath(bootFilePath)
 }
 
 ipcMain.handle('shell:openExternal', (_, url) => shell.openExternal(url))
