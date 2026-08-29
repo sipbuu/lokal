@@ -108,6 +108,7 @@ function AnimatedRoutes() {
 export default function App() {
   const audioRef = useRef(null)
   const cfAudioRef = useRef(null)
+  const smtcKeepAliveRef = useRef(null)
   const gainNodeRef = useRef(null)
   const cfGainNodeRef = useRef(null)
   const audioCtxRef = useRef(null)
@@ -603,11 +604,22 @@ export default function App() {
   }, [isPlaying, currentTrack, likedIds])
 
   useEffect(() => {
+    //safety net for pesky SMTC.
+    const el = smtcKeepAliveRef.current
+    if (!el) return
+    if (isPlaying) {
+      el.play().catch((e) => api.log('warn', `[smtc-keepalive] play() failed: ${e.message}`))
+    } else {
+      el.pause()
+    }
+  }, [isPlaying])
+
+  useEffect(() => {
     if (!('mediaSession' in navigator)) return
     if (!currentTrack) return
 
     const updateMetadata = async () => {
-      let artworkSrc = '/fallback_nopfp.png'
+      let artworkSrc = 'fallback_nopfp.png'
       if (currentTrack.artwork_path) {
         const dataUrl = await getArtworkDataURL(currentTrack.artwork_path)
         if (dataUrl) {
@@ -1541,7 +1553,7 @@ export default function App() {
           onPlay={(e) => { if (!isEventFromActive(e)) return; setIsPlaying(true); startTimer() }}
           onPause={(e) => { if (pauseSuppressRef.current) return; if (!isEventFromActive(e)) return; setIsPlaying(false); stopTimer() }}
         />
-        <audio 
+        <audio
           ref={cfAudioRef}
           onTimeUpdate={handleTimeUpdate}
           onDurationChange={handleCfDurationChange}
@@ -1549,6 +1561,10 @@ export default function App() {
           onPlay={(e) => { if (!isEventFromActive(e)) return; setIsPlaying(true); startTimer() }}
           onPause={(e) => { if (pauseSuppressRef.current) return; if (!isEventFromActive(e)) return; setIsPlaying(false); stopTimer() }}
         />
+        {/* Never connect this to the Web Audio graph (no createMediaElementSource) -
+            it exists purely to keep a native, audible HTMLMediaElement "playing"
+            so Windows SMTC / OS media-session surfaces recognize Lokal. */}
+        <audio ref={smtcKeepAliveRef} src="silence.wav" loop preload="auto" />
       </div>
     </Router>
   )
