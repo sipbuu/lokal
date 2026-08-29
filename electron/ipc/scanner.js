@@ -27,7 +27,7 @@ function getMinDuration() {
       }
     }
   } catch {}
-  return 60
+  return 0
 }
 
 let scanStatus = { scanning: false, total: 0, done: 0, errors: 0, skipped: 0 }
@@ -108,9 +108,9 @@ function getSkipDrumKit() {
   try {
     const db = getDB()
     const setting = db.prepare("SELECT value FROM settings WHERE key = 'skip_drumkit_pattern'").get()
-    return setting?.value !== '0'
+    return setting?.value === '1'
   } catch {}
-  return true
+  return false
 }
 
 function preferCleanDownloadMetadata() {
@@ -193,6 +193,13 @@ function extractTitleFromFilename(filePath) {
     .trim()
   if (cleaned.length > 2) return cleaned
   return null
+}
+
+function extractArtistFromFolder(filePath) {
+  const folderName = path.basename(path.dirname(filePath))
+  if (!folderName || folderName === '.' || folderName === path.sep) return null
+  const cleaned = folderName.trim()
+  return cleaned.length > 0 ? cleaned : null
 }
 
 function bindValues(values) {
@@ -320,18 +327,20 @@ async function scanFolder(folderPath) {
       }
       const meta = await mm.parseFile(filePath, { duration: true, skipCovers: false })
       const c = meta.common
-      const title = c.title?.trim()
-      const artist = pickPreferredArtist(c)
+      const rawTitle = c.title?.trim()
+      const rawArtist = pickPreferredArtist(c)
+      const title = rawTitle || extractTitleFromFilename(filePath)
+      const artist = rawArtist || extractArtistFromFolder(filePath)
       const duration = meta.format.duration || 0
-      if (!title && !artist) { console.log(`[scanFolder] Skipped: ${filePath} - Missing title and artist (no metadata found)`); scanStatus.skipped++; scanStatus.done++; emit('scanner:progress', { ...scanStatus }); continue }
-      if (!title) { console.log(`[scanFolder] Skipped: ${filePath} - Missing title (found artist: "${artist || 'none'}")`); scanStatus.skipped++; scanStatus.done++; emit('scanner:progress', { ...scanStatus }); continue }
-      if (!artist) { console.log(`[scanFolder] Skipped: ${filePath} - Missing artist (found title: "${title}")`); scanStatus.skipped++; scanStatus.done++; emit('scanner:progress', { ...scanStatus }); continue }
+      if (!title && !artist) { console.log(`[scanFolder] Skipped: ${filePath} - Could not derive title or artist`); scanStatus.skipped++; scanStatus.done++; emit('scanner:progress', { ...scanStatus }); continue }
+      if (!rawTitle && title) console.log(`[scanFolder] Fallback title from filename: ${filePath} -> "${title}"`)
+      if (!rawArtist && artist) console.log(`[scanFolder] Fallback artist from folder: ${filePath} -> "${artist}"`)
       const minDuration = getMinDuration()
       if (duration < minDuration) { console.log(`[scanFolder] Skipped: ${filePath} - Too short (${duration}s)`); scanStatus.skipped++; scanStatus.done++; emit('scanner:progress', { ...scanStatus }); continue }
       if (getSkipDrumKit() && isDrumKit(title, c.album, c.genre?.[0])) { console.log(`[scanFolder] Skipped: ${filePath} - Drumkit pattern detected`); scanStatus.skipped++; scanStatus.done++; emit('scanner:progress', { ...scanStatus }); continue }
       const artwork = await extractArtwork(meta, trackId)
       const replaygain = c.replaygain_track_gain || null
-      batch.push({ id: trackId, file_path: filePath, file_hash: trackId, title, artist, album: c.album?.trim() || null, album_artist: c.albumartist?.trim() || null, track_num: c.track?.no || null, year: c.year || null, genre: c.genre?.[0] || null, duration, artwork_path: artwork, bitrate: meta.format.bitrate ? Math.round(meta.format.bitrate / 1000) : null, last_modified: stat.mtimeMs, replaygain })
+      batch.push({ id: trackId, file_path: filePath, file_hash: trackId, title, artist, album: c.album?.trim() || 'Unknown Album', album_artist: c.albumartist?.trim() || null, track_num: c.track?.no || null, year: c.year || null, genre: c.genre?.[0] || null, duration, artwork_path: artwork, bitrate: meta.format.bitrate ? Math.round(meta.format.bitrate / 1000) : null, last_modified: stat.mtimeMs, replaygain })
       if (batch.length >= BATCH) { await insertBatch(batch); batch = [] }
     } catch { scanStatus.errors++ }
     scanStatus.done++; emit('scanner:progress', { ...scanStatus })
@@ -984,6 +993,17 @@ function registerScannerHandlers(ipcMain) {
   const { BrowserWindow } = require('electron')
   ipcMain.handle('scanner:scan', async (e, folder) => { mainWindow = BrowserWindow.fromWebContents(e.sender); return scanFolder(folder || DEFAULT_MUSIC_PATH) })
   ipcMain.handle('scanner:status', () => scanStatus)
+  ipcMain.handle('scanner:resolveFileToPlay', async (_, filePath) => {
+    const db = getDB()
+    const existing = db.prepare("SELECT * FROM tracks WHERE file_path = ?").get(filePath)
+    if (existing) return { success: true, track: existing }
+    const result = await indexSingleFile(filePath)
+    if (result?.id) {
+      const track = db.prepare('SELECT * FROM tracks WHERE id = ?').get(result.id)
+      if (track) return { success: true, track }
+    }
+    return { success: false, error: result?.error || 'Could not index file' }
+  })
   ipcMain.handle('scanner:getTracks', (_, opts = {}) => {
     const db = getDB()
     let sql = 'SELECT * FROM tracks'
@@ -1514,10 +1534,14 @@ async function indexSingleFile(filePath, opts = {}) {
     meta = await Promise.race([parsePromise, timeoutPromise])
   } catch { return { error: 'Failed to parse metadata' } }
   const c = meta.common
-  const title = c.title?.trim()
-  const artist = pickPreferredArtist(c)
+  const rawTitle = c.title?.trim()
+  const rawArtist = pickPreferredArtist(c)
+  const title = rawTitle || extractTitleFromFilename(filePath)
+  const artist = rawArtist || extractArtistFromFolder(filePath)
   const duration = meta.format.duration || 0
   if (!title || !artist) return { error: 'Missing title/artist' }
+  if (!rawTitle) console.log(`[indexSingleFile] Fallback title from filename: ${filePath} -> "${title}"`)
+  if (!rawArtist) console.log(`[indexSingleFile] Fallback artist from folder: ${filePath} -> "${artist}"`)
   if (duration < getMinDuration()) return { error: 'Too short' }
   if (getSkipDrumKit() && isDrumKit(title, c.album, c.genre?.[0])) return { error: 'Filtered drumkit' }
   
@@ -1547,7 +1571,8 @@ async function indexSingleFile(filePath, opts = {}) {
   }
 
   const replaygain = c.replaygain_track_gain || null
-  const dupe = db.prepare('SELECT * FROM tracks WHERE LOWER(title) = ? AND LOWER(artist) = ? AND (album IS NULL OR album = ? OR ? IS NULL OR album IS NULL) AND ABS(duration - ?) < 2').get(title.toLowerCase(), artist.toLowerCase(), c.album?.trim() || null, c.album?.trim() || null, duration)
+  const album = c.album?.trim() || 'Unknown Album'
+  const dupe = db.prepare('SELECT * FROM tracks WHERE LOWER(title) = ? AND LOWER(artist) = ? AND (album IS NULL OR album = ? OR ? IS NULL OR album IS NULL) AND ABS(duration - ?) < 2').get(title.toLowerCase(), artist.toLowerCase(), album, album, duration)
   if (dupe) return { duplicate: true, id: dupe.id }
   
   const insertTransaction = db.transaction(() => {
@@ -1563,7 +1588,7 @@ async function indexSingleFile(filePath, opts = {}) {
       file_hash: trackId,
       title,
       artist,
-      album: c.album?.trim() || null,
+      album,
       album_artist: c.albumartist?.trim() || null,
       track_num: c.track?.no || null,
       year: c.year || null,
@@ -1602,7 +1627,7 @@ async function indexSingleFile(filePath, opts = {}) {
     id: trackId,
     title,
     artist,
-    album: c.album?.trim() || null,
+    album,
     genre,
     duration,
     filePath,
@@ -1610,7 +1635,7 @@ async function indexSingleFile(filePath, opts = {}) {
   return { success: true, id: trackId }
 }
 
-module.exports = { registerScannerHandlers, scanFolder, DEFAULT_MUSIC_PATH, indexSingleFile }
+module.exports = { registerScannerHandlers, scanFolder, DEFAULT_MUSIC_PATH, indexSingleFile, AUDIO_EXTS }
 
 
 function registerExtraHandlers(ipcMain) {

@@ -22,6 +22,8 @@ contextBridge.exposeInMainWorld('electron', {
   openLogs: () => ipcRenderer.send('open-logs'),
   updaterDownload: () => invoke('updater:download'),
   scanFolder: (f) => invoke('scanner:scan', f),
+  resolveFileToPlay: (f) => invoke('scanner:resolveFileToPlay', f),
+  onOpenFileRequest: (fn) => on('player:openFile', (_, filePath) => fn(filePath)),
   getTracks: (o) => invoke('scanner:getTracks', o),
   searchTracks: (q) => invoke('scanner:search', q),
   searchLyrics: (q) => invoke('scanner:searchLyrics', q),
