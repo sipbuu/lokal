@@ -100,6 +100,276 @@ function WaveDots({ duration = 3, isActive = false, id = 0, phase = 0, hasNextLi
 const isLetter = ch => /[A-Za-z0-9]/.test(ch)
 const charWeight = ch => isLetter(ch) ? 1.0 : 0.35
 
+// --- Spicy-style (Apple Music-esque) word/letter sync engine ---
+// Ported from the Lokal TTML editor's "apple" preview mode: word-level gradient
+// sweep + spring-driven scale/lift, falling back to per-letter splitting only
+// for long-held words (>=1s across >1 char).
+const SPICY_HELD_THRESHOLD = 1.0
+const SPICY_LETTER_END_TRIM = 0.25
+
+class AmSpring {
+  constructor(value, frequencyHz, dampingRatio) {
+    this.p = value; this.v = 0; this.g = value
+    this.f = frequencyHz; this.d = Math.min(dampingRatio, 0.999)
+  }
+  setGoal(goal) { this.g = goal }
+  step(dt) {
+    const f = this.f * 2 * Math.PI, d = this.d, g = this.g, o = this.p - g
+    const c = Math.sqrt(1 - d * d)
+    const q = Math.exp(-d * f * dt)
+    const i = Math.cos(dt * f * c), j = Math.sin(dt * f * c)
+    const z = c > 1e-6 ? j / c : dt * f
+    const y = f * c > 1e-6 ? j / (f * c) : dt
+    this.p = (o * (i + z * d) + this.v * y) * q + g
+    this.v = (this.v * (i - z * d) - o * (z * f)) * q
+    return this.p
+  }
+}
+
+class AmSpline {
+  constructor(points) {
+    this.xs = points.map(p => p[0]); this.ys = points.map(p => p[1])
+    const n = this.xs.length
+    this.k = new Array(n).fill(0)
+    if (n < 2) return
+    const a = new Array(n).fill(0), b = new Array(n).fill(0), c = new Array(n).fill(0), d = new Array(n).fill(0)
+    for (let i = 1; i < n - 1; i++) {
+      const dxPrev = this.xs[i] - this.xs[i - 1], dxNext = this.xs[i + 1] - this.xs[i]
+      a[i] = 1 / dxPrev; c[i] = 1 / dxNext; b[i] = 2 * (a[i] + c[i])
+      d[i] = 3 * ((this.ys[i] - this.ys[i - 1]) / (dxPrev * dxPrev) + (this.ys[i + 1] - this.ys[i]) / (dxNext * dxNext))
+    }
+    const dx0 = this.xs[1] - this.xs[0]
+    b[0] = 2 / dx0; c[0] = 1 / dx0; d[0] = 3 * (this.ys[1] - this.ys[0]) / (dx0 * dx0)
+    const dxN = this.xs[n - 1] - this.xs[n - 2]
+    a[n - 1] = 1 / dxN; b[n - 1] = 2 / dxN; d[n - 1] = 3 * (this.ys[n - 1] - this.ys[n - 2]) / (dxN * dxN)
+    const cp = new Array(n).fill(0), dp = new Array(n).fill(0)
+    cp[0] = c[0] / b[0]; dp[0] = d[0] / b[0]
+    for (let i = 1; i < n; i++) {
+      const m = b[i] - a[i] * cp[i - 1]
+      cp[i] = c[i] / m; dp[i] = (d[i] - a[i] * dp[i - 1]) / m
+    }
+    this.k[n - 1] = dp[n - 1]
+    for (let i = n - 2; i >= 0; i--) this.k[i] = dp[i] - cp[i] * this.k[i + 1]
+  }
+  at(t) {
+    const xs = this.xs, ys = this.ys, k = this.k, n = xs.length
+    if (n === 1) return ys[0]
+    const clamped = Math.max(xs[0], Math.min(t, xs[n - 1]))
+    let i = 0
+    while (i < n - 2 && clamped > xs[i + 1]) i++
+    const x0 = xs[i], x1 = xs[i + 1], y0 = ys[i], y1 = ys[i + 1], dx = x1 - x0
+    const s = dx === 0 ? 0 : (clamped - x0) / dx
+    const a = k[i] * dx - (y1 - y0), b = -k[i + 1] * dx + (y1 - y0)
+    return (1 - s) * y0 + s * y1 + s * (1 - s) * ((1 - s) * a + s * b)
+  }
+}
+
+const SPICY_WORD_SCALE = new AmSpline([[0, 0.95], [0.7, 1.0505], [1, 1]])
+const SPICY_WORD_Y = new AmSpline([[0, 0.01], [0.9, -1 / 60], [1, 0]])
+const SPICY_LETTER_SCALE = new AmSpline([[0, 0.95], [0.7, 1.175], [1, 1]])
+const SPICY_LETTER_Y = new AmSpline([[0, 0.01], [0.9, -1 / 56], [1, 0]])
+const SPICY_GLOW = new AmSpline([[0, 0], [0.15, 1], [0.6, 1], [1, 0]])
+
+function spicyState(t, start, end) {
+  if (t < start) return 'NotSung'
+  if (t >= end) return 'Sung'
+  return 'Active'
+}
+function spicyProgress(t, start, end) {
+  if (t <= start) return 0
+  if (t >= end) return 1
+  return (t - start) / Math.max(0.0001, end - start)
+}
+function spicyEaseSinOut(t) { return Math.sin((t * Math.PI) / 2) }
+
+// Splits a word like "yeah-ah" into tight-joined pieces ["yeah", "-ah"], mirroring
+// the ttml editor's "\" split convention (where "yeah\-ah" -> yeah / -ah) so
+// hyphenated syllable breaks animate as independently-timed chunks instead of
+// one solid gradient sweep across the whole compound word.
+function splitDashPieces(wordText) {
+  if (!wordText || !wordText.includes('-')) return [wordText || '']
+  const raw = wordText.split('-')
+  const pieces = []
+  raw.forEach((p, i) => {
+    if (i === 0) { pieces.push(p); return }
+    if (!p) return
+    pieces.push(`-${p}`)
+  })
+  const cleaned = pieces.filter(Boolean)
+  return cleaned.length > 1 ? cleaned : [wordText]
+}
+
+function buildSpicyWordUnit(text, start, end, tight) {
+  const dur = start != null && end != null ? Math.max(0, end - start) : 0
+  const chars = Array.from(text || '')
+  const held = dur >= SPICY_HELD_THRESHOLD && chars.length > 1
+  let letters = null
+  if (held) {
+    const trimEnd = Math.max(start + 0.05, end - SPICY_LETTER_END_TRIM)
+    const letterDur = Math.max(0.04, (trimEnd - start) / chars.length)
+    letters = chars.map((ch, ci) => ({
+      ch,
+      start: start + ci * letterDur,
+      end: start + (ci + 1) * letterDur,
+    }))
+  }
+  return { word: text, time: start, end, held, letters, tight: !!tight }
+}
+
+function buildSpicyWordUnits(word) {
+  const start = word?.time
+  const end = word?.end
+  const total = start != null && end != null && end > start ? end - start : 0
+  const pieces = splitDashPieces(word?.word || '')
+  if (pieces.length <= 1) return [buildSpicyWordUnit(word?.word || '', start, end, false)]
+
+  const totalChars = pieces.reduce((sum, p) => sum + p.length, 0) || 1
+  let cursor = start
+  return pieces.map((p, i) => {
+    const isLast = i === pieces.length - 1
+    const share = total * (p.length / totalChars)
+    const pStart = cursor
+    const pEnd = isLast ? end : cursor + share
+    cursor = pEnd
+    return buildSpicyWordUnit(p, pStart, pEnd, i > 0)
+  })
+}
+
+function spicyWordSpanStyle(extra) {
+  return {
+    display: 'inline-block',
+    whiteSpace: 'pre',
+    willChange: 'transform',
+    backgroundImage: 'linear-gradient(90deg, #fff 0%, #fff var(--gradient-position, -20%), rgba(255,255,255,0.36) calc(var(--gradient-position, -20%) + 18%), rgba(255,255,255,0.36) 100%)',
+    WebkitBackgroundClip: 'text',
+    backgroundClip: 'text',
+    WebkitTextFillColor: 'transparent',
+    color: 'transparent',
+    ...extra,
+  }
+}
+
+function newSpicySprings() {
+  return {
+    scale: new AmSpring(0.95, 0.88, 0.64),
+    y: new AmSpring(0.01, 1.45, 0.4),
+    glow: new AmSpring(0, 1.18, 0.56),
+  }
+}
+
+function SpicyWordLine({ words, bgWords, liveProgressRef }) {
+  const containerRef = useRef(null)
+  const rafRef = useRef(null)
+  const wordDataRef = useRef([])
+
+  const builtWords = useMemo(() => (words || []).flatMap(buildSpicyWordUnits), [words])
+  const builtBgWords = useMemo(() => (bgWords || []).flatMap(buildSpicyWordUnits), [bgWords])
+
+  useEffect(() => {
+    const container = containerRef.current
+    if (!container) return
+    const wordSpans = Array.from(container.querySelectorAll('[data-spicy-word]'))
+    wordDataRef.current = wordSpans.map(el => {
+      const wi = parseInt(el.dataset.wi, 10)
+      const isBg = el.dataset.spicyWord === 'bg'
+      const data = isBg ? builtBgWords[wi] : builtWords[wi]
+      const letterSpans = data?.held ? Array.from(el.querySelectorAll('[data-spicy-letter]')) : null
+      return {
+        el,
+        data,
+        springs: newSpicySprings(),
+        letterSpans,
+        letterSprings: letterSpans ? letterSpans.map(() => newSpicySprings()) : null,
+      }
+    })
+
+    let lastTs = performance.now()
+    function tick() {
+      rafRef.current = requestAnimationFrame(tick)
+      const now = performance.now()
+      const dt = Math.min(Math.max((now - lastTs) / 1000, 0.001), 0.05)
+      lastTs = now
+      const t = liveProgressRef.current
+
+      for (const item of wordDataRef.current) {
+        const { el, data } = item
+        if (!data || data.time == null) continue
+        const start = data.time
+        const end = data.end != null && data.end > start ? data.end : start + 0.12
+
+        if (data.held && item.letterSpans) {
+          item.letterSpans.forEach((lEl, li) => {
+            const letter = data.letters[li]
+            if (!letter) return
+            const springs = item.letterSprings[li]
+            const state = spicyState(t, letter.start, letter.end)
+            const pct = spicyProgress(t, letter.start, letter.end)
+            const shaped = state === 'NotSung' ? 0 : state === 'Sung' ? 1 : pct
+            springs.scale.setGoal(SPICY_LETTER_SCALE.at(shaped))
+            springs.y.setGoal(SPICY_LETTER_Y.at(shaped))
+            springs.glow.setGoal(SPICY_GLOW.at(shaped))
+            const scale = springs.scale.step(dt)
+            const y = springs.y.step(dt)
+            const glow = springs.glow.step(dt)
+            const gradient = state === 'NotSung' ? -20 : state === 'Sung' ? 100 : -20 + 120 * spicyEaseSinOut(pct)
+            lEl.style.setProperty('--gradient-position', `${gradient}%`)
+            lEl.style.transform = `translate3d(0, ${(y * 2 * 100).toFixed(2)}%, 0) scale(${scale.toFixed(4)})`
+            lEl.style.textShadow = `0 0 ${(4 + 12 * glow).toFixed(1)}px rgba(255,255,255,${Math.min(glow * 0.55, 0.9).toFixed(2)})`
+          })
+        } else {
+          const springs = item.springs
+          const state = spicyState(t, start, end)
+          const pct = spicyProgress(t, start, end)
+          const shaped = state === 'NotSung' ? 0 : state === 'Sung' ? 1 : pct
+          springs.scale.setGoal(SPICY_WORD_SCALE.at(shaped))
+          springs.y.setGoal(SPICY_WORD_Y.at(shaped))
+          springs.glow.setGoal(SPICY_GLOW.at(shaped))
+          const scale = springs.scale.step(dt)
+          const y = springs.y.step(dt)
+          const glow = springs.glow.step(dt)
+          const gradient = state === 'NotSung' ? -20 : state === 'Sung' ? 100 : -20 + 120 * spicyEaseSinOut(pct)
+          el.style.setProperty('--gradient-position', `${gradient}%`)
+          el.style.transform = `translate3d(0, ${(y * 100).toFixed(2)}%, 0) scale(${scale.toFixed(4)})`
+          el.style.textShadow = `0 0 ${(4 + 2 * glow).toFixed(1)}px rgba(255,255,255,${Math.min(glow * 0.4, 0.7).toFixed(2)})`
+        }
+      }
+    }
+    rafRef.current = requestAnimationFrame(tick)
+    return () => cancelAnimationFrame(rafRef.current)
+  }, [builtWords, builtBgWords, liveProgressRef])
+
+  return (
+    <span ref={containerRef} style={{ display: 'inline' }}>
+      {builtWords.map((w, wi) => {
+        const nextTight = !!builtWords[wi + 1]?.tight
+        return (
+          <span key={wi} data-spicy-word="main" data-wi={wi}
+            style={spicyWordSpanStyle({ marginRight: nextTight ? 0 : '0.28em' })}>
+            {w.held
+              ? w.letters.map((l, li) => (
+                <span key={li} data-spicy-letter="1" style={spicyWordSpanStyle({})}>{l.ch}</span>
+              ))
+              : (w.word || '')}
+          </span>
+        )
+      })}
+      {builtBgWords.length > 0 && (
+        <div className="text-sm mt-1 italic opacity-80">
+          {builtBgWords.map((w, wi) => {
+            const nextTight = !!builtBgWords[wi + 1]?.tight
+            return (
+              <span key={wi} data-spicy-word="bg" data-wi={wi}
+                style={spicyWordSpanStyle({ marginRight: nextTight ? 0 : '0.22em', fontSize: '0.9em' })}>
+                {w.word || ''}
+              </span>
+            )
+          })}
+        </div>
+      )}
+    </span>
+  )
+}
+
 function buildCharTimeline(wordText, start, end) {
   const chars = Array.from(wordText)
   const n = chars.length
@@ -210,9 +480,10 @@ function RAFWordLine({ words, bgWords, liveProgressRef }) {
 }
 
 const Line = React.memo(function Line({
-  line, isActive, isPast, fullscreen, darkMode, wordSync, lyricsType, liveProgressRef, onRef, distanceFromActive, textScale = 1, index, progress = 0, hasNextLine = false, onSeek = null,
+  line, isActive, isPast, fullscreen, darkMode, wordSync, lyricsType, liveProgressRef, onRef, distanceFromActive, textScale = 1, index, progress = 0, hasNextLine = false, onSeek = null, lyricsStyle = 'classic',
 }) {
   const useRAF = wordSync && lyricsType === 'synced' && isActive && line.words?.length > 0
+  const useSpicy = useRAF && lyricsStyle !== 'classic'
   const seekTime = typeof line.time === 'number' ? line.time : null
   const seekable = seekTime !== null && Number.isFinite(seekTime)
 
@@ -279,7 +550,9 @@ const Line = React.memo(function Line({
         transition: 'transform 0.5s cubic-bezier(0.16, 1, 0.3, 1), filter 0.5s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.5s cubic-bezier(0.16, 1, 0.3, 1), color 0.4s ease, text-shadow 0.5s ease',
       }}
     >
-      {useRAF ? (
+      {useSpicy ? (
+        <SpicyWordLine words={line.words} bgWords={line.bgWords} liveProgressRef={liveProgressRef} />
+      ) : useRAF ? (
         <RAFWordLine words={line.words} bgWords={line.bgWords} liveProgressRef={liveProgressRef} />
       ) : line.text ? (
         line.text
@@ -308,7 +581,8 @@ const Line = React.memo(function Line({
   prev.lyricsType === next.lyricsType &&
   prev.distanceFromActive === next.distanceFromActive &&
   prev.hasNextLine === next.hasNextLine &&
-  prev.onSeek === next.onSeek
+  prev.onSeek === next.onSeek &&
+  prev.lyricsStyle === next.lyricsStyle
 )
 
 export default function LyricsPanel({
@@ -330,6 +604,7 @@ export default function LyricsPanel({
   const [translating, setTranslating] = useState(false)
   const [selectionText, setSelectionText] = useState('')
   const [selectionPos, setSelectionPos] = useState(null)
+  const [lyricsStyle, setLyricsStyle] = useState(() => localStorage.getItem('lokal-lyrics-style') || 'classic')
   const containerRef = useRef(null)
   const lineRefs = useRef([])
 
@@ -563,6 +838,14 @@ export default function LyricsPanel({
     }
   }
 
+  const toggleLyricsStyle = () => {
+    setLyricsStyle(prev => {
+      const next = prev === 'classic' ? 'spicy' : 'classic'
+      localStorage.setItem('lokal-lyrics-style', next)
+      return next
+    })
+  }
+
   const toggleAutoTranslate = () => {
     setAutoTranslate(prev => {
       const next = !prev
@@ -614,6 +897,15 @@ export default function LyricsPanel({
       {displayedLines.length > 0 && (
         <>
           <div className="mb-3 flex items-center gap-2">
+            {wordSync && lyricsType === 'synced' && (
+              <button
+                onClick={toggleLyricsStyle}
+                title="Switch the word-sync animation style"
+                className="text-[10px] uppercase tracking-wider px-2.5 py-1 rounded-full border border-accent/50 text-accent bg-accent/10 transition-colors hover:bg-accent/20"
+              >
+                {lyricsStyle === 'classic' ? 'Classic Sync' : 'Spicy Sync'}
+              </button>
+            )}
             <button
               onClick={toggleAutoTranslate}
               className={`text-[10px] uppercase tracking-wider px-2.5 py-1 rounded-full border transition-colors ${autoTranslate ? 'border-accent/50 text-accent bg-accent/10' : 'border-border text-muted hover:text-white'}`}
@@ -678,6 +970,7 @@ export default function LyricsPanel({
           progress={progress}
           hasNextLine={i < displayedLines.length - 1}
           onSeek={handleSeekToLine}
+          lyricsStyle={lyricsStyle}
         />
       ))}
 
