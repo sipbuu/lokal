@@ -151,6 +151,8 @@ export const api = {
   getTheme: () => isE() ? el().getTheme() : apiFetch('/settings/theme'),
   saveTheme: (theme, overrides) => isE() ? el().saveTheme(theme, overrides) : apiFetch('/settings/theme', { method:'PUT', body:{theme, overrides} }),
   scanFolder: (f) => isE() ? el().scanFolder(f) : apiFetch('/settings/scan', { method:'POST', body:{folder:f} }),
+  resolveFileToPlay: (f) => isE() ? el().resolveFileToPlay(f) : Promise.resolve({ success: false, error: 'Electron only' }),
+  onOpenFileRequest: (fn) => { if (isE() && typeof el().onOpenFileRequest === 'function') return el().onOpenFileRequest(fn); return () => {} },
   openFolder: () => isE() ? el().openFolder() : Promise.resolve(null),
   openFile: (f) => isE() ? el().openFile(f) : Promise.resolve(null),
   readFileBinary: (fp) => isE() ? el().readFileBinary(fp) : Promise.resolve(null),
