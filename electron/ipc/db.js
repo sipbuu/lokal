@@ -329,10 +329,7 @@ function initDB() {
     db.prepare("INSERT OR IGNORE INTO settings (key, value) VALUES ('lyrics_translate_target', 'en')").run()
     db.prepare("INSERT OR IGNORE INTO settings (key, value) VALUES ('prefer_media_keys', '0')").run()
     db.prepare("INSERT OR IGNORE INTO settings (key, value) VALUES ('auto_fetch_artist_metadata', '0')").run()
-    // prefer_media_keys used to default to '1' with no UI to disable it. Registering
-    // globalShortcut for MediaPlayPause/Next/Prev grabs the OS hardware media keys
-    // globally, which stops Chromium's native SMTC (Windows Now Playing) integration
-    // from working at all. Correct any installs still carrying that old default.
+    // key that would cause SMTC to not work.
     db.prepare("UPDATE settings SET value = '0' WHERE key = 'prefer_media_keys' AND value = '1'").run()
   } catch {}
 
