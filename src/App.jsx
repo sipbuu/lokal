@@ -560,6 +560,24 @@ export default function App() {
   }, [])
 
   useEffect(() => {
+    if (!api.isElectron) return
+    const off = api.onOpenFileRequest(async (filePath) => {
+      if (!filePath) return
+      try {
+        const result = await api.resolveFileToPlay(filePath)
+        if (result?.success && result.track) {
+          usePlayerStore.getState().playTrack(result.track, [result.track])
+        } else {
+          api.log('warn', `Failed to open file from Explorer: ${filePath} (${result?.error || 'unknown error'})`)
+        }
+      } catch (e) {
+        api.log('error', `Error opening file from Explorer: ${e.message}`)
+      }
+    })
+    return off
+  }, [])
+
+  useEffect(() => {
     if (!('mediaSession' in navigator)) return
     if (!currentTrack) return
 

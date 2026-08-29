@@ -1144,11 +1144,11 @@ export default function Settings() {
             {settings.clean_download_metadata !== '0' ? 'Yes' : 'No'}
           </button>
         </Row>
-        <Row label="Skip Drum-kit Pattern" desc="Skip tracks with drum-kit/loop/sample keywords in title">
+        <Row label="Skip Drum-kit Pattern" desc="Skip tracks with drum-kit/loop/sample keywords in title (for producers with sample packs in their music folder)">
           <button
-            onClick={() => set('skip_drumkit_pattern', settings.skip_drumkit_pattern === '0' ? '1' : '0')}
-            className={`px-4 py-1.5 rounded-lg text-xs font-display uppercase tracking-wider border transition-colors ${settings.skip_drumkit_pattern !== '0' ? 'bg-accent/20 border-accent/50 text-accent' : 'border-border text-muted hover:text-white'}`}>
-            {settings.skip_drumkit_pattern !== '0' ? 'Yes' : 'No'}
+            onClick={() => set('skip_drumkit_pattern', settings.skip_drumkit_pattern === '1' ? '0' : '1')}
+            className={`px-4 py-1.5 rounded-lg text-xs font-display uppercase tracking-wider border transition-colors ${settings.skip_drumkit_pattern === '1' ? 'bg-accent/20 border-accent/50 text-accent' : 'border-border text-muted hover:text-white'}`}>
+            {settings.skip_drumkit_pattern === '1' ? 'Yes' : 'No'}
           </button>
         </Row>
         <Row label="Auto-fetch Genres" desc="Fill in missing genres from iTunes for tracks without one">
@@ -1166,9 +1166,9 @@ export default function Settings() {
           </button>
         </Row>
         {statusMessage && <p className="text-xs text-accent ml-2">{statusMessage}</p>}
-        <Row label="Min. Duration" desc="Skip tracks shorter than this (filters sample packs)">
+        <Row label="Min. Duration" desc="Skip tracks shorter than this (0 = disabled, filters sample packs)">
           <div className="flex items-center gap-2">
-            <input type="number" min={0} max={300} value={settings.min_duration || 60} onChange={e => set('min_duration', e.target.value)}
+            <input type="number" min={0} max={300} value={settings.min_duration ?? 0} onChange={e => set('min_duration', e.target.value)}
               className="w-16 bg-card border border-border rounded-lg px-2 py-1.5 text-xs text-white text-center outline-none focus:border-accent/50" />
             <span className="text-xs text-muted">sec</span>
           </div>

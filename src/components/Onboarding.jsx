@@ -83,9 +83,9 @@ export default function Onboarding({ isOpen, onComplete }) {
             fetch_online_artwork: s.fetch_online_artwork || '1',
             index_while_downloading: s.index_while_downloading || '1',
             auto_fetch_genres: s.auto_fetch_genres || '1',
-            skip_drumkit_pattern: s.skip_drumkit_pattern !== '0' ? '1' : '0',
+            skip_drumkit_pattern: s.skip_drumkit_pattern === '1' ? '1' : '0',
             theme: s.theme || 'dark',
-            min_duration: s.min_duration || '60'
+            min_duration: s.min_duration ?? '0'
           })
         }
       })
@@ -381,10 +381,10 @@ export default function Onboarding({ isOpen, onComplete }) {
                       <div className="flex items-center justify-between">
                         <span className="text-sm text-white">Skip Drum-kit Pattern</span>
                         <button
-                          onClick={(e) => { e.stopPropagation(); updateSetting('skip_drumkit_pattern', settings.skip_drumkit_pattern === '0' ? '1' : '0') }}
-                          className={`px-3 py-1 rounded-lg text-xs font-display uppercase tracking-wider border transition-colors ${settings.skip_drumkit_pattern !== '0' ? 'bg-accent/20 border-accent/50 text-accent' : 'border-border text-muted hover:text-white'}`}
+                          onClick={(e) => { e.stopPropagation(); updateSetting('skip_drumkit_pattern', settings.skip_drumkit_pattern === '1' ? '0' : '1') }}
+                          className={`px-3 py-1 rounded-lg text-xs font-display uppercase tracking-wider border transition-colors ${settings.skip_drumkit_pattern === '1' ? 'bg-accent/20 border-accent/50 text-accent' : 'border-border text-muted hover:text-white'}`}
                         >
-                          {settings.skip_drumkit_pattern !== '0' ? 'On' : 'Off'}
+                          {settings.skip_drumkit_pattern === '1' ? 'On' : 'Off'}
                         </button>
                       </div>
                     </div>
