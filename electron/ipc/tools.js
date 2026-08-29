@@ -405,11 +405,19 @@ function downloadFile(url, dest) {
 
     file.on('error', fail)
 
+    const onFinish = () => file.close(succeed)
+    file.on('finish', onFinish)
+
     request = https.get(url, (response) => {
       if (response.statusCode === 301 || response.statusCode === 302) {
         const redirectUrl = response.headers.location
         console.log(`[Redirect] Following to: ${redirectUrl}`)
         response.resume()
+        // file.close() below still runs the (empty) stream's own end/finish
+        // machinery, which would otherwise fire our 'finish' listener and
+        // prematurely reject/resolve this promise with "0 bytes" before the
+        // recursive redirect download even starts. Detach it first.
+        file.off('finish', onFinish)
         file.close(() => {
           try { fs.unlinkSync(dest) } catch {}
           downloadFile(redirectUrl, dest).then(resolve).catch(reject)
@@ -419,6 +427,7 @@ function downloadFile(url, dest) {
 
       if (response.statusCode !== 200) {
         response.resume()
+        file.off('finish', onFinish)
         file.close(() => fail(new Error(`Download failed: ${response.statusCode}`)))
         return
       }
@@ -427,10 +436,6 @@ function downloadFile(url, dest) {
       response.on('data', (chunk) => { receivedLength += chunk.length })
       response.on('error', fail)
       response.pipe(file)
-    })
-
-    file.on('finish', () => {
-      file.close(succeed)
     })
 
     request.on('error', fail)
