@@ -203,11 +203,13 @@ jobs:
         env:
           DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
         run: |
+          BANNER_URL="https://github.com/${{ github.repository }}/releases/download/nightly-${{ inputs.ref || 'main' }}/release-banner.png"
+
           PAYLOAD=$(jq -n \
             --arg version "Nightly (${{ inputs.ref || 'main' }})" \
             --arg url "${{ steps.create_release.outputs.html_url }}" \
             --arg msg "${{ steps.commit_info.outputs.MSG }}" \
-            --arg image "https://i.imgur.com/KgjwTvk.png" \
+            --arg image "$BANNER_URL" \
             --arg footer_icon "https://i.imgur.com/ZC3mEUC.png" \
             --argjson color 15105570 \
             '{
