@@ -1403,7 +1403,11 @@ export default function Settings() {
                 <button onClick={() => setCustomToolPath('yt-dlp')} className="px-3 py-1.5 bg-card border border-border rounded-lg text-xs text-muted hover:text-white">Custom Path</button>
               </div>
             </div>
-            {toolsStatus?.ytdlp?.path && <p className="text-xs text-muted/50 truncate">{toolsStatus.ytdlp.path}</p>}
+            {toolsStatus?.ytdlp?.path && (
+              <p className="text-xs text-muted/50 truncate">
+                {toolsStatus.ytdlp.path}{toolsStatus.ytdlp.version ? ` · v${toolsStatus.ytdlp.version}` : ''}
+              </p>
+            )}
           </div>
           <div className="space-y-3">
             <div className="flex items-center justify-between">
@@ -1418,7 +1422,11 @@ export default function Settings() {
                 <button onClick={() => setCustomToolPath('ffmpeg')} className="px-3 py-1.5 bg-card border border-border rounded-lg text-xs text-muted hover:text-white">Custom Path</button>
               </div>
             </div>
-            {toolsStatus?.ffmpeg?.path && <p className="text-xs text-muted/50 truncate">{toolsStatus.ffmpeg.path}</p>}
+            {toolsStatus?.ffmpeg?.path && (
+              <p className="text-xs text-muted/50 truncate">
+                {toolsStatus.ffmpeg.path}{toolsStatus.ffmpeg.version ? ` · ${toolsStatus.ffmpeg.version}` : ''}
+              </p>
+            )}
           </div>
         </Section>
       )}

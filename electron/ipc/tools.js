@@ -437,6 +437,24 @@ function downloadFile(url, dest) {
   })
 }
 
+async function downloadFileWithRetry(url, dest, progressCallback, retries = 2) {
+  let lastErr = null
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      await downloadFile(url, dest)
+      return
+    } catch (err) {
+      lastErr = err
+      if (attempt < retries) {
+        console.warn(`[Download] Attempt ${attempt + 1} failed (${err.message}), retrying...`)
+        if (progressCallback) progressCallback({ status: 'downloading', message: `Download interrupted, retrying (${attempt + 2}/${retries + 1})...` })
+        await wait(1000 * (attempt + 1))
+      }
+    }
+  }
+  throw lastErr
+}
+
 function validateDownloadedExecutable(filePath) {
   const stat = fs.statSync(filePath)
   if (!stat || stat.size === 0) {
@@ -458,6 +476,23 @@ function validateDownloadedExecutable(filePath) {
     }
   }
   return stat.size
+}
+
+// Confirms a discovered tool path isn't just "a file that exists" but actually
+// runs. Reuses getExecutableVersion's corrupt-binary detection/auto-removal, then
+// re-resolves via findFn (bundled/custom/system) if the unhealthy copy got deleted.
+async function verifyToolHealth(findFn, candidatePath, versionArgs) {
+  if (!candidatePath) return { path: null, healthy: false, version: null }
+
+  const version = await getExecutableVersion(candidatePath, versionArgs)
+  if (version) return { path: candidatePath, healthy: true, version }
+
+  const fallbackPath = findFn()
+  if (!fallbackPath) return { path: null, healthy: false, version: null }
+  if (fallbackPath === candidatePath) return { path: fallbackPath, healthy: false, version: null }
+
+  const fallbackVersion = await getExecutableVersion(fallbackPath, versionArgs)
+  return { path: fallbackPath, healthy: !!fallbackVersion, version: fallbackVersion }
 }
 
 function isBusyError(err) {
@@ -565,7 +600,7 @@ async function downloadYtDlp(progressCallback) {
 
       if (progressCallback) progressCallback({ status: 'downloading', message: 'Downloading yt-dlp...' })
 
-      await downloadFile(url, tempDest)
+      await downloadFileWithRetry(url, tempDest, progressCallback)
       const downloadedSize = validateDownloadedExecutable(tempDest)
       console.log(`[Tools] yt-dlp download validated: ${downloadedSize} bytes`)
 
@@ -641,7 +676,7 @@ async function downloadFfmpeg(progressCallback) {
 
     try {
       console.log(`[Tools] Downloading ffmpeg from: ${url}`)
-      await downloadFile(url, archivePath)
+      await downloadFileWithRetry(url, archivePath, progressCallback)
 
       const stat = fs.statSync(archivePath)
       if (!stat || stat.size === 0) {
@@ -721,14 +756,21 @@ function registerToolsHandlers(ipcMain) {
 
   
   ipcMain.handle('tools:status', async () => {
-    const ytdlp = findYtDlp()
-    const ffmpeg = findFfmpeg()
-    const ffprobe = findFfprobe()
-    
-    
+    // findXXX() already prefers a copy in the userData "bin" (roaming) folder
+    // over bundled/custom/system ones, so an already-downloaded roaming tool is
+    // auto-detected and used with no extra action needed. What's new here is
+    // actually running each tool to confirm it's healthy, not just present on
+    // disk - a "found" file that fails to spawn gets auto-cleaned and the
+    // status falls back to the next available copy (bundled/custom/system).
+    const [ytdlpHealth, ffmpegHealth, ffprobeHealth] = await Promise.all([
+      verifyToolHealth(findYtDlp, findYtDlp(), ['--version']),
+      verifyToolHealth(findFfmpeg, findFfmpeg(), ['-version']),
+      verifyToolHealth(findFfprobe, findFfprobe(), ['-version']),
+    ])
+
     let customYtDlp = null
     let customFfmpeg = null
-    
+
     try {
       const db = getDB()
       const settings = Object.fromEntries(db.prepare('SELECT key, value FROM settings').all().map(r => [r.key, r.value]))
@@ -738,20 +780,23 @@ function registerToolsHandlers(ipcMain) {
 
     return {
       ytdlp: {
-        found: !!ytdlp,
-        path: ytdlp,
+        found: ytdlpHealth.healthy,
+        path: ytdlpHealth.path,
+        version: ytdlpHealth.version,
         isCustom: customYtDlp ? fileExists(customYtDlp) : false,
         customPath: customYtDlp || null
       },
       ffmpeg: {
-        found: !!ffmpeg,
-        path: ffmpeg,
+        found: ffmpegHealth.healthy,
+        path: ffmpegHealth.path,
+        version: ffmpegHealth.version,
         isCustom: customFfmpeg ? fileExists(customFfmpeg) : false,
         customPath: customFfmpeg || null
       },
       ffprobe: {
-        found: !!ffprobe,
-        path: ffprobe
+        found: ffprobeHealth.healthy,
+        path: ffprobeHealth.path,
+        version: ffprobeHealth.version
       },
       bundledPath: getBundledBin(),
       userDataPath: getUserDataBin()
