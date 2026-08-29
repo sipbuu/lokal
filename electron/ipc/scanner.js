@@ -457,10 +457,12 @@ function getArtistsPage(db, opts = {}) {
   const limit = Math.max(1, Math.min(200, parseInt(opts.limit, 10) || 60))
   const offset = Math.max(0, parseInt(opts.offset, 10) || 0)
   const rawSearch = typeof opts.search === 'string' ? opts.search.trim() : ''
+  const sort = opts.sort === 'tracks' ? 'tracks' : 'name'
   const params = []
   const where = rawSearch ? 'WHERE a.name LIKE ?' : ''
   const groupBy = 'GROUP BY a.id'
   const having = 'HAVING COUNT(DISTINCT atl.track_id) > 0'
+  const orderBy = sort === 'tracks' ? 'ORDER BY track_count DESC, a.name ASC' : 'ORDER BY a.name ASC'
 
   if (rawSearch) {
     params.push(`%${rawSearch}%`)
@@ -476,7 +478,7 @@ function getArtistsPage(db, opts = {}) {
     ${where}
     ${groupBy}
     ${having}
-    ORDER BY a.name
+    ${orderBy}
     LIMIT ? OFFSET ?
   `).all(...params, limit, offset)
   const totalRow = db.prepare(`

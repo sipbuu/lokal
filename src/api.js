@@ -86,6 +86,7 @@ export const api = {
         search: opts.search || '',
         limit: String(opts.limit || 60),
         offset: String(opts.offset || 0),
+        sort: opts.sort || 'name',
       })}`),
   getArtist: (id) => isE() ? el().getArtist(id) : apiFetch(`/artists/${id}`),
   getAlbumTracks: (a) => isE() ? el().getAlbumTracks(a) : apiFetch(`/tracks?${albumTrackParams(a)}`),

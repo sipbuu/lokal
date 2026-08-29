@@ -54,6 +54,8 @@ router.get('/', (req, res) => {
   const hasPaging = !!search || req.query.limit !== undefined || req.query.offset !== undefined
   const limit = hasPaging ? Math.max(1, Math.min(200, parseInt(req.query.limit, 10) || 60)) : null
   const offset = hasPaging ? Math.max(0, parseInt(req.query.offset, 10) || 0) : 0
+  const sort = req.query.sort === 'tracks' ? 'tracks' : 'name'
+  const orderBy = sort === 'tracks' ? 'ORDER BY track_count DESC, a.name ASC' : 'ORDER BY a.name ASC'
   const params = []
   const where = search ? 'WHERE a.name LIKE ?' : ''
   const groupBy = 'GROUP BY a.id'
@@ -85,7 +87,7 @@ router.get('/', (req, res) => {
     ${where}
     ${groupBy}
     ${having}
-    ORDER BY a.name
+    ${orderBy}
     LIMIT ? OFFSET ?
   `).all(...params, limit, offset)
   const totalRow = db.prepare(`

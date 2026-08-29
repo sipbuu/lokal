@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react'
+import { useLocation } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { Music, RefreshCw, ScanLine, Play, Clock, Sparkles, Radio, History } from 'lucide-react'
 import { usePlayerStore, useAppStore } from '../store/player'
@@ -108,7 +109,8 @@ export default function Home() {
   const [suggestions, setSuggestions] = useState([])
   const [history, setHistory] = useState([])
   const [mixes, setMixes] = useState([])
-  const [tab, setTab] = useState('home')
+  const location = useLocation()
+  const [tab, setTab] = useState(() => (location.state?.tab === 'history' ? 'history' : 'home'))
   const { playQueue } = usePlayerStore()
   const { user } = useAppStore()
   const nonGhost = (items) => (Array.isArray(items) ? items.filter(item => !String(item?.file_path || '').startsWith('ghost://')) : [])
