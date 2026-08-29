@@ -25,15 +25,6 @@
       "server/**/*"
     ],
     "asar": true,
-    "fileAssociations": [
-      {
-        "ext": ["mp3", "flac", "m4a", "ogg", "wav", "aac", "opus", "wma", "alac", "ape"],
-        "name": "Audio File",
-        "description": "Audio File",
-        "role": "Viewer",
-        "icon": "public/lokal-icon.ico"
-      }
-    ],
     "publish": {
       "provider": "github",
       "owner": "sipbuu",
@@ -56,6 +47,15 @@
           "arch": [
             "x64"
           ]
+        }
+      ],
+      "fileAssociations": [
+        {
+          "ext": ["mp3", "flac", "m4a", "ogg", "wav", "aac", "opus", "wma", "alac", "ape"],
+          "name": "Audio File",
+          "description": "Audio File",
+          "role": "Viewer",
+          "icon": "public/lokal-icon.ico"
         }
       ]
     },
