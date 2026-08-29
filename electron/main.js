@@ -24,6 +24,7 @@ const { registerPlaylistHandlers } = require('./ipc/playlists')
 const { initPlugins, registerPluginHandlers } = require('./ipc/plugins')
 const { registerRecapHandlers } = require('./ipc/recaps')
 const { setRemoteState, setRemoteCommandHandler } = require('./ipc/remote')
+const { updateThumbarButtons, registerThumbarHandlers } = require('./ipc/thumbar')
 let isUpdating = false;
 const APP_PROTOCOL = 'lokal'
 let pendingLastfmAuthToken = ''
@@ -274,6 +275,8 @@ function createWindow() {
   mainWindow.on('blur', enforceMiniTop)
   mainWindow.on('show', enforceMiniTop)
   mainWindow.on('restore', enforceMiniTop)
+
+  updateThumbarButtons(mainWindow, {})
   
   
   if (!app.isPackaged) {
@@ -318,6 +321,7 @@ app.whenReady().then(() => {
   ]) {
     try { fn(ipcMain) } catch (e) { console.error(fn.name + ':', e.message) }
   }
+  try { registerThumbarHandlers(ipcMain, () => mainWindow) } catch (e) { console.error('registerThumbarHandlers:', e.message) }
 
 
   ipcMain.on('relaunch-app', () => {

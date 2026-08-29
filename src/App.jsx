@@ -189,7 +189,7 @@ export default function App() {
     setAudioRef, setCfAudioRef, initLiked, setCrossfade, crossfadeSeconds,
     setActiveAudioElement,
     shuffle, playNext, addToQueue, skipAhead,
-    showMiniPlayer,
+    showMiniPlayer, likedIds,
   } = usePlayerStore()
   const volumeRef = useRef(volume)
   const { user } = useAppStore()
@@ -576,6 +576,31 @@ export default function App() {
     })
     return off
   }, [])
+
+  useEffect(() => {
+    if (!api.isElectron) return
+    const off = api.onThumbarCommand((action) => {
+      const state = usePlayerStore.getState()
+      if (action === 'previous') state.prev()
+      else if (action === 'next') state.next()
+      else if (action === 'toggle-play') state.togglePlay()
+      else if (action === 'toggle-like') {
+        const track = state.currentTrack
+        if (!track) return
+        const userId = useAppStore.getState().user?.id
+        api.toggleLike(track.id, userId).then((r) => {
+          const liked = typeof r === 'boolean' ? r : r?.liked ?? false
+          usePlayerStore.getState().setLiked(track.id, liked)
+        })
+      }
+    })
+    return off
+  }, [])
+
+  useEffect(() => {
+    if (!api.isElectron) return
+    api.updateThumbarState({ isPlaying, isLiked: !!(currentTrack && likedIds.has(currentTrack.id)) })
+  }, [isPlaying, currentTrack, likedIds])
 
   useEffect(() => {
     if (!('mediaSession' in navigator)) return

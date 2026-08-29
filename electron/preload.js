@@ -24,6 +24,19 @@ contextBridge.exposeInMainWorld('electron', {
   scanFolder: (f) => invoke('scanner:scan', f),
   resolveFileToPlay: (f) => invoke('scanner:resolveFileToPlay', f),
   onOpenFileRequest: (fn) => on('player:openFile', (_, filePath) => fn(filePath)),
+  updateThumbarState: (state) => invoke('thumbar:updateState', state),
+  onThumbarCommand: (fn) => {
+    const channels = {
+      'thumbar:previous': 'previous',
+      'thumbar:toggle-play': 'toggle-play',
+      'thumbar:next': 'next',
+      'thumbar:toggle-like': 'toggle-like',
+    }
+    const handler = (action) => () => fn(action)
+    const bound = Object.fromEntries(Object.entries(channels).map(([channel, action]) => [channel, handler(action)]))
+    for (const [channel, cb] of Object.entries(bound)) ipcRenderer.on(channel, cb)
+    return () => { for (const [channel, cb] of Object.entries(bound)) ipcRenderer.removeListener(channel, cb) }
+  },
   getTracks: (o) => invoke('scanner:getTracks', o),
   searchTracks: (q) => invoke('scanner:search', q),
   searchLyrics: (q) => invoke('scanner:searchLyrics', q),

@@ -153,6 +153,8 @@ export const api = {
   scanFolder: (f) => isE() ? el().scanFolder(f) : apiFetch('/settings/scan', { method:'POST', body:{folder:f} }),
   resolveFileToPlay: (f) => isE() ? el().resolveFileToPlay(f) : Promise.resolve({ success: false, error: 'Electron only' }),
   onOpenFileRequest: (fn) => { if (isE() && typeof el().onOpenFileRequest === 'function') return el().onOpenFileRequest(fn); return () => {} },
+  updateThumbarState: (state) => (isE() && typeof el().updateThumbarState === 'function') ? el().updateThumbarState(state) : Promise.resolve(),
+  onThumbarCommand: (fn) => { if (isE() && typeof el().onThumbarCommand === 'function') return el().onThumbarCommand(fn); return () => {} },
   openFolder: () => isE() ? el().openFolder() : Promise.resolve(null),
   openFile: (f) => isE() ? el().openFile(f) : Promise.resolve(null),
   readFileBinary: (fp) => isE() ? el().readFileBinary(fp) : Promise.resolve(null),
