@@ -171,6 +171,7 @@ export default function Settings() {
   const [factoryResetting, setFactoryResetting] = useState(false)
   const [toolsStatus, setToolsStatus] = useState(null)
   const [toolsLoading, setToolsLoading] = useState(false)
+  const [toolsError, setToolsError] = useState('')
   const [showPlaylistImportModal, setShowPlaylistImportModal] = useState(false)
   const [showPlatformImportGuide, setShowPlatformImportGuide] = useState(false)
   const [platformImportMode, setPlatformImportMode] = useState('playlist')
@@ -720,15 +721,21 @@ export default function Settings() {
   }
 
   const downloadYtDlpTool = async () => {
+    if (toolsLoading) return
     setToolsLoading(true)
-    await api.downloadYtDlp()
+    setToolsError('')
+    const result = await api.downloadYtDlp()
+    if (result?.error) setToolsError(`yt-dlp: ${result.error}`)
     setToolsLoading(false)
     api.getToolsStatus().then(setToolsStatus)
   }
 
   const downloadFfmpegTool = async () => {
+    if (toolsLoading) return
     setToolsLoading(true)
-    await api.downloadFfmpeg()
+    setToolsError('')
+    const result = await api.downloadFfmpeg()
+    if (result?.error) setToolsError(`ffmpeg: ${result.error}`)
     setToolsLoading(false)
     api.getToolsStatus().then(setToolsStatus)
   }
@@ -1380,6 +1387,9 @@ export default function Settings() {
       {api.isElectron && inCategory('integrations') && (
         <Section title="External Tools">
           <p className="text-xs text-muted mb-4">Manage yt-dlp and ffmpeg for downloading YouTube videos.</p>
+          {toolsError && (
+            <p className="text-xs text-red-400 bg-red-500/10 border border-red-500/30 rounded-lg px-3 py-2 mb-4">{toolsError}</p>
+          )}
           <div className="space-y-3 mb-4">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">

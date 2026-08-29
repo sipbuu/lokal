@@ -58,6 +58,7 @@ export default function Onboarding({ isOpen, onComplete }) {
   const [scanProgress, setScanProgress] = useState({ current: 0, total: 0, isActive: false })
   const [toolsStatus, setToolsStatus] = useState(null)
   const [toolsLoading, setToolsLoading] = useState(false)
+  const [toolsError, setToolsError] = useState('')
   const [isScanning, setIsScanning] = useState(false)
   const [showUserForm, setShowUserForm] = useState(false)
   const [userForm, setUserForm] = useState({ username: '', password: '', email: '' })
@@ -198,23 +199,31 @@ export default function Onboarding({ isOpen, onComplete }) {
   }
 
   const downloadYtDlp = async () => {
+    if (toolsLoading) return
     setToolsLoading(true)
+    setToolsError('')
     try {
-      await api.downloadYtDlp()
+      const result = await api.downloadYtDlp()
+      if (result?.error) setToolsError(`yt-dlp: ${result.error}`)
       await api.getToolsStatus().then(setToolsStatus)
     } catch (e) {
       console.error('Download yt-dlp error:', e)
+      setToolsError(`yt-dlp: ${e.message}`)
     }
     setToolsLoading(false)
   }
 
   const downloadFfmpeg = async () => {
+    if (toolsLoading) return
     setToolsLoading(true)
+    setToolsError('')
     try {
-      await api.downloadFfmpeg()
+      const result = await api.downloadFfmpeg()
+      if (result?.error) setToolsError(`ffmpeg: ${result.error}`)
       await api.getToolsStatus().then(setToolsStatus)
     } catch (e) {
       console.error('Download ffmpeg error:', e)
+      setToolsError(`ffmpeg: ${e.message}`)
     }
     setToolsLoading(false)
   }
@@ -419,6 +428,9 @@ export default function Onboarding({ isOpen, onComplete }) {
 
                 {step.id === 'tools' && api.isElectron && (
                   <div className="space-y-4">
+                    {toolsError && (
+                      <p className="text-xs text-red-400 bg-red-500/10 border border-red-500/30 rounded-lg px-3 py-2">{toolsError}</p>
+                    )}
                     <div className="space-y-3">
                       {/* yt-dlp */}
                       <div className="flex items-center justify-between bg-card/50 rounded-xl p-3">

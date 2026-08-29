@@ -208,33 +208,54 @@ function getExecutableVersion(executable, args = ['--version'], retries = 3) {
     }
 
     function trySpawn(attemptsLeft) {
-      const child = execFile(executable, args, { windowsHide: true, timeout: 10000 }, (error, stdout) => {
-        if (error && !stdout) {
-          if (isBusyError(error) && attemptsLeft > 0) {
-            console.warn(`[Version Check] Executable busy, retrying... (${attemptsLeft} attempts left)`);
-            setTimeout(() => trySpawn(attemptsLeft - 1), 500);
-            return;
-          }
-          if (isCorruptBinaryError(error)) {
-            console.error(`[Version Check] Executable appears corrupt (code=${error.code}), file=${executable}`);
-            if (attemptsLeft > 0) {
-              console.warn(`[Version Check] Trying to remove corrupt binary before retry... (${attemptsLeft} attempts left)`);
-              try {
-                require('fs').unlinkSync(executable);
-                console.log(`[Version Check] Removed corrupt binary: ${executable}`);
-              } catch (removeErr) {
-                console.error(`[Version Check] Could not remove corrupt binary: ${removeErr.message}`);
-              }
-              setTimeout(() => trySpawn(attemptsLeft - 1), 800);
+      // execFile/spawn can throw synchronously on Windows for a corrupt/truncated
+      // exe (e.g. a 0-byte file left behind by a failed download), not just via the
+      // callback or 'error' event. Uncaught, that throw becomes an unhandled
+      // rejection that crashes the whole ipcMain handler.
+      let child
+      try {
+        child = execFile(executable, args, { windowsHide: true, timeout: 10000 }, (error, stdout) => {
+          if (error && !stdout) {
+            if (isBusyError(error) && attemptsLeft > 0) {
+              console.warn(`[Version Check] Executable busy, retrying... (${attemptsLeft} attempts left)`);
+              setTimeout(() => trySpawn(attemptsLeft - 1), 500);
               return;
             }
+            if (isCorruptBinaryError(error)) {
+              console.error(`[Version Check] Executable appears corrupt (code=${error.code}), file=${executable}`);
+              if (attemptsLeft > 0) {
+                console.warn(`[Version Check] Trying to remove corrupt binary before retry... (${attemptsLeft} attempts left)`);
+                try {
+                  require('fs').unlinkSync(executable);
+                  console.log(`[Version Check] Removed corrupt binary: ${executable}`);
+                } catch (removeErr) {
+                  console.error(`[Version Check] Could not remove corrupt binary: ${removeErr.message}`);
+                }
+                setTimeout(() => trySpawn(attemptsLeft - 1), 800);
+                return;
+              }
+            }
+            resolve(null)
+            return
           }
-          resolve(null)
-          return
+          const version = String(stdout || '').trim().split(/\r?\n/).find(Boolean) || null
+          resolve(version)
+        })
+      } catch (err) {
+        console.error(`[Version Check] Synchronous spawn failure (code=${err?.code}), file=${executable}: ${err.message}`);
+        if (isCorruptBinaryError(err) && attemptsLeft > 0) {
+          try {
+            require('fs').unlinkSync(executable);
+            console.log(`[Version Check] Removed corrupt binary: ${executable}`);
+          } catch (removeErr) {
+            console.error(`[Version Check] Could not remove corrupt binary: ${removeErr.message}`);
+          }
+          setTimeout(() => trySpawn(attemptsLeft - 1), 800);
+          return;
         }
-        const version = String(stdout || '').trim().split(/\r?\n/).find(Boolean) || null
-        resolve(version)
-      })
+        resolve(null)
+        return
+      }
 
       child.on('error', (err) => {
         if (isBusyError(err) && attemptsLeft > 0) {
@@ -353,6 +374,8 @@ function downloadFile(url, dest) {
 
     let settled = false
     let request = null
+    let expectedLength = 0
+    let receivedLength = 0
     const file = fs.createWriteStream(dest)
 
     const fail = (err) => {
@@ -367,8 +390,16 @@ function downloadFile(url, dest) {
 
     const succeed = () => {
       if (settled) return
+      if (expectedLength > 0 && receivedLength < expectedLength) {
+        fail(new Error(`Download incomplete: got ${receivedLength} of ${expectedLength} bytes`))
+        return
+      }
+      if (receivedLength === 0) {
+        fail(new Error('Download produced an empty file (0 bytes)'))
+        return
+      }
       settled = true
-      console.log(`[Download] Finished: ${dest}`)
+      console.log(`[Download] Finished: ${dest} (${receivedLength} bytes)`)
       resolve()
     }
 
@@ -381,7 +412,7 @@ function downloadFile(url, dest) {
         response.resume()
         file.close(() => {
           try { fs.unlinkSync(dest) } catch {}
-          downloadFile(redirectUrl, dest).then(succeed).catch(fail)
+          downloadFile(redirectUrl, dest).then(resolve).catch(reject)
         })
         return
       }
@@ -392,6 +423,8 @@ function downloadFile(url, dest) {
         return
       }
 
+      expectedLength = Number(response.headers['content-length']) || 0
+      response.on('data', (chunk) => { receivedLength += chunk.length })
       response.on('error', fail)
       response.pipe(file)
     })
@@ -402,6 +435,29 @@ function downloadFile(url, dest) {
 
     request.on('error', fail)
   })
+}
+
+function validateDownloadedExecutable(filePath) {
+  const stat = fs.statSync(filePath)
+  if (!stat || stat.size === 0) {
+    throw new Error('Downloaded file is empty (0 bytes)')
+  }
+  if (process.platform === 'win32') {
+    // A real Windows PE executable always starts with the "MZ" magic bytes.
+    // A truncated download, or GitHub serving an HTML/JSON error page instead
+    // of the binary, would fail this check instead of silently installing junk.
+    const fd = fs.openSync(filePath, 'r')
+    try {
+      const header = Buffer.alloc(2)
+      fs.readSync(fd, header, 0, 2, 0)
+      if (header.toString('ascii') !== 'MZ') {
+        throw new Error(`Downloaded file is not a valid Windows executable (size=${stat.size} bytes)`)
+      }
+    } finally {
+      fs.closeSync(fd)
+    }
+  }
+  return stat.size
 }
 
 function isBusyError(err) {
@@ -510,6 +566,8 @@ async function downloadYtDlp(progressCallback) {
       if (progressCallback) progressCallback({ status: 'downloading', message: 'Downloading yt-dlp...' })
 
       await downloadFile(url, tempDest)
+      const downloadedSize = validateDownloadedExecutable(tempDest)
+      console.log(`[Tools] yt-dlp download validated: ${downloadedSize} bytes`)
 
       if (progressCallback) progressCallback({ status: 'installing', message: 'Installing yt-dlp...' })
       await replaceFileWithRetry(tempDest, dest, progressCallback)
@@ -539,84 +597,121 @@ async function downloadYtDlp(progressCallback) {
 }
 
 
+let ffmpegInstallPromise = null
+
+function getFfmpegInstallLock() {
+  return ffmpegInstallPromise
+}
+
 async function downloadFfmpeg(progressCallback) {
-  const binDir = getUserDataBin()
-  fs.ensureDirSync(binDir)
-  
-  if (progressCallback) progressCallback({ status: 'downloading', message: 'Downloading ffmpeg...' })
-  
-  let url, archiveName, extractFolderName, exeSubPath
-  
-  if (process.platform === 'win32') {
-    url = 'https://github.com/yt-dlp/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip'
-    archiveName = 'ffmpeg.zip'
-    extractFolderName = 'ffmpeg-master-latest-win64-gpl'
-    exeSubPath = 'bin'
-  } else if (process.platform === 'darwin') {
-    url = 'https://github.com/yt-dlp/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-macos64-gpl.tar.xz'
-    archiveName = 'ffmpeg.tar.xz'
-    extractFolderName = 'ffmpeg-master-latest-macos64-gpl'
-    exeSubPath = 'bin'
-  } else {
-    url = 'https://github.com/yt-dlp/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-linux64-gpl.tar.xz'
-    archiveName = 'ffmpeg.tar.xz'
-    extractFolderName = 'ffmpeg-master-latest-linux64-gpl'
-    exeSubPath = 'bin'
+  if (getFfmpegInstallLock()) {
+    return getFfmpegInstallLock()
   }
-  
-  const archivePath = path.join(binDir, archiveName)
-  const extractFolder = path.join(binDir, 'temp_ffmpeg')
-  
-  try {
-    console.log(`[Tools] Downloading ffmpeg from: ${url}`)
-    await downloadFile(url, archivePath)
-    
-    if (progressCallback) progressCallback({ status: 'extracting', message: 'Extracting ffmpeg...' })
-    
+
+  ffmpegInstallPromise = (async () => {
+    const binDir = getUserDataBin()
+    fs.ensureDirSync(binDir)
+
+    if (progressCallback) progressCallback({ status: 'downloading', message: 'Downloading ffmpeg...' })
+
+    let url, archiveExt, extractFolderName, exeSubPath
+
     if (process.platform === 'win32') {
-      const zip = new AdmZip(archivePath)
-      zip.extractAllTo(extractFolder, true)
-      
-      const srcFfmpeg = path.join(extractFolder, extractFolderName, exeSubPath, 'ffmpeg.exe')
-      const destFfmpeg = path.join(binDir, 'ffmpeg.exe')
-      if (fileExists(srcFfmpeg)) {
-        fs.moveSync(srcFfmpeg, destFfmpeg, { overwrite: true })
-      }
-      
-      const srcFfprobe = path.join(extractFolder, extractFolderName, exeSubPath, 'ffprobe.exe')
-      const destFfprobe = path.join(binDir, 'ffprobe.exe')
-      if (fileExists(srcFfprobe)) {
-        fs.moveSync(srcFfprobe, destFfprobe, { overwrite: true })
-      }
+      url = 'https://github.com/yt-dlp/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip'
+      archiveExt = 'zip'
+      extractFolderName = 'ffmpeg-master-latest-win64-gpl'
+      exeSubPath = 'bin'
+    } else if (process.platform === 'darwin') {
+      url = 'https://github.com/yt-dlp/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-macos64-gpl.tar.xz'
+      archiveExt = 'tar.xz'
+      extractFolderName = 'ffmpeg-master-latest-macos64-gpl'
+      exeSubPath = 'bin'
     } else {
-      const tar = require('tar')
-      await tar.extract({ file: archivePath, cwd: extractFolder })
-      
-      const srcFfmpeg = path.join(extractFolder, extractFolderName, exeSubPath, 'ffmpeg')
-      const destFfmpeg = path.join(binDir, 'ffmpeg')
-      if (fileExists(srcFfmpeg)) {
-        fs.moveSync(srcFfmpeg, destFfmpeg, { overwrite: true })
-        fs.chmodSync(destFfmpeg, '755')
-      }
-      
-      const srcFfprobe = path.join(extractFolder, extractFolderName, exeSubPath, 'ffprobe')
-      const destFfprobe = path.join(binDir, 'ffprobe')
-      if (fileExists(srcFfprobe)) {
-        fs.moveSync(srcFfprobe, destFfprobe, { overwrite: true })
-        fs.chmodSync(destFfprobe, '755')
-      }
+      url = 'https://github.com/yt-dlp/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-linux64-gpl.tar.xz'
+      archiveExt = 'tar.xz'
+      extractFolderName = 'ffmpeg-master-latest-linux64-gpl'
+      exeSubPath = 'bin'
     }
-    
-    try { fs.removeSync(extractFolder) } catch {}
-    try { fs.removeSync(archivePath) } catch {}
-    
-    console.log(`[Tools] ffmpeg extracted successfully`)
-    
-    return path.join(binDir, process.platform === 'win32' ? 'ffmpeg.exe' : 'ffmpeg')
-  } catch (err) {
-    console.error(`[Tools] Failed to download/extract ffmpeg: ${err.message}`)
-    throw err
-  }
+
+    // Unique per-attempt paths so a stale/locked file from a previous failed
+    // (or overlapping) attempt can never collide with this one.
+    const attemptId = `${process.pid}-${Date.now()}`
+    const archivePath = path.join(binDir, `ffmpeg.${attemptId}.${archiveExt}`)
+    const extractFolder = path.join(binDir, `temp_ffmpeg_${attemptId}`)
+
+    try {
+      console.log(`[Tools] Downloading ffmpeg from: ${url}`)
+      await downloadFile(url, archivePath)
+
+      const stat = fs.statSync(archivePath)
+      if (!stat || stat.size === 0) {
+        throw new Error('Downloaded ffmpeg archive is empty (0 bytes)')
+      }
+
+      if (progressCallback) progressCallback({ status: 'extracting', message: 'Extracting ffmpeg...' })
+
+      if (process.platform === 'win32') {
+        let zip
+        try {
+          zip = new AdmZip(archivePath)
+        } catch (zipErr) {
+          throw new Error(`ffmpeg archive is corrupt or incomplete: ${zipErr.message}`)
+        }
+        zip.extractAllTo(extractFolder, true)
+
+        const srcFfmpeg = path.join(extractFolder, extractFolderName, exeSubPath, 'ffmpeg.exe')
+        const destFfmpeg = path.join(binDir, 'ffmpeg.exe')
+        if (fileExists(srcFfmpeg)) {
+          validateDownloadedExecutable(srcFfmpeg)
+          await replaceFileWithRetry(srcFfmpeg, destFfmpeg, progressCallback)
+        } else {
+          throw new Error('ffmpeg.exe not found inside downloaded archive')
+        }
+
+        const srcFfprobe = path.join(extractFolder, extractFolderName, exeSubPath, 'ffprobe.exe')
+        const destFfprobe = path.join(binDir, 'ffprobe.exe')
+        if (fileExists(srcFfprobe)) {
+          validateDownloadedExecutable(srcFfprobe)
+          await replaceFileWithRetry(srcFfprobe, destFfprobe, progressCallback)
+        }
+      } else {
+        const tar = require('tar')
+        fs.ensureDirSync(extractFolder)
+        await tar.extract({ file: archivePath, cwd: extractFolder })
+
+        const srcFfmpeg = path.join(extractFolder, extractFolderName, exeSubPath, 'ffmpeg')
+        const destFfmpeg = path.join(binDir, 'ffmpeg')
+        if (fileExists(srcFfmpeg)) {
+          validateDownloadedExecutable(srcFfmpeg)
+          await replaceFileWithRetry(srcFfmpeg, destFfmpeg, progressCallback)
+          fs.chmodSync(destFfmpeg, '755')
+        } else {
+          throw new Error('ffmpeg not found inside downloaded archive')
+        }
+
+        const srcFfprobe = path.join(extractFolder, extractFolderName, exeSubPath, 'ffprobe')
+        const destFfprobe = path.join(binDir, 'ffprobe')
+        if (fileExists(srcFfprobe)) {
+          validateDownloadedExecutable(srcFfprobe)
+          await replaceFileWithRetry(srcFfprobe, destFfprobe, progressCallback)
+          fs.chmodSync(destFfprobe, '755')
+        }
+      }
+
+      console.log(`[Tools] ffmpeg extracted successfully`)
+
+      return path.join(binDir, process.platform === 'win32' ? 'ffmpeg.exe' : 'ffmpeg')
+    } catch (err) {
+      console.error(`[Tools] Failed to download/extract ffmpeg: ${err.message}`)
+      throw err
+    } finally {
+      try { fs.removeSync(archivePath) } catch {}
+      try { fs.removeSync(extractFolder) } catch {}
+      ffmpegInstallPromise = null
+    }
+  })()
+
+  return ffmpegInstallPromise
 }
 
 
