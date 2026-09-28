@@ -109,7 +109,7 @@ Auto-generated mixes built from your listening history and liked tracks, as well
 - **Web mode** — run as a web server to access your library from another device on your network (currently in hiatus, main focus on app ver.)
 - **Artist name exceptions** — prevents names like "Tyler, the Creator" from being incorrectly split into multiple artists, configurable via **settings**. 
 - **Queue & Shuffling** — move around your queue as needed and shuffle with the ability to fully go back without issue.
-- **Last.FM Scrobbling (in alpha, half-done implementation)** — scrobble your music with *last.fm* to keep your profile up-to-date (requires 50% listened)
+- **Last.FM & Listenbrainz Scrobbling** — scrobble your music with *last.fm* or *Listenbrainz* to keep your profile up-to-date (requires 50% listened)
 
 ---
 
