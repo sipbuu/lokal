@@ -1,13 +1,15 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { motion } from 'framer-motion'
 import { useNavigate } from 'react-router-dom'
-import { Clock, Grid2x2, Grid3x3, List, Loader2, Music, Play, RefreshCw, Search, Sparkles, Users } from 'lucide-react'
-import { usePlayerStore } from '../store/player'
+import { Clock, Grid2x2, Grid3x3, List, Loader2, Music, Play, Radio, RefreshCw, Search, Sparkles, Users } from 'lucide-react'
+import { usePlayerStore, useAppStore } from '../store/player'
 import { api } from '../api'
 import { peekCache, writeCache, usePageReady } from '../pageCache'
 import FadeImg from '../components/FadeImg'
 import { PlayGlyph } from '../components/CoverPlay'
 import ArtistRefreshAllModal from '../components/ArtistRefreshAllModal'
+import ContextMenu, { useContextMenu } from '../components/ContextMenu'
+import { openRadio } from '../radioActions'
 
 const PAGE_SIZE = 60
 const TOP_ARTISTS_LIMIT = 8
@@ -45,7 +47,7 @@ function FallbackAvatar({ name }) {
 // in, and dozens of card animations running with it dropped frames.
 const FIRST_SCREEN_CARDS = 24
 
-function ArtistCard({ artist, onClick, onPlay, rank, animateIn = true }) {
+function ArtistCard({ artist, onClick, onPlay, onContextMenu, rank, animateIn = true }) {
   const imgSrc = getArtistImage(artist)
 
   return (
@@ -54,6 +56,7 @@ function ArtistCard({ artist, onClick, onPlay, rank, animateIn = true }) {
       whileInView={{ opacity: 1, y: 0 }}
       viewport={{ once: true, amount: 0.12, margin: '180px 0px' }}
       onClick={onClick}
+      onContextMenu={event => onContextMenu?.(event, artist)}
       className="group relative flex flex-col items-center gap-3 rounded-2xl border border-white/5 bg-white/[0.03] p-4 text-center transition-all duration-200 hover:-translate-y-1 hover:border-white/20 hover:bg-white/[0.08]"
       style={{ contentVisibility: 'auto', containIntrinsicSize: '190px' }}
     >
@@ -90,13 +93,14 @@ function ArtistCard({ artist, onClick, onPlay, rank, animateIn = true }) {
 }
 
 /** One artist as a list row: small avatar, full name (wraps instead of being cut), track count. */
-function ArtistRow({ artist, onClick, onPlay }) {
+function ArtistRow({ artist, onClick, onPlay, onContextMenu }) {
   const imgSrc = getArtistImage(artist)
   return (
     <div
       role="button"
       tabIndex={0}
       onClick={onClick}
+      onContextMenu={(event) => onContextMenu?.(event, artist)}
       onKeyDown={(event) => { if (event.key === 'Enter') onClick?.() }}
       className="group grid cursor-pointer grid-cols-[2.5rem_1fr_auto] items-center gap-3 rounded-lg px-3 py-1.5 transition-colors hover:bg-elevated"
       style={{ contentVisibility: 'auto', containIntrinsicSize: '52px' }}
@@ -154,6 +158,8 @@ export default function Artists() {
   const artistRequestRef = useRef({ id: 0, append: false })
   const navigate = useNavigate()
   const { playQueue } = usePlayerStore()
+  const { user } = useAppStore()
+  const menu = useContextMenu()
 
   const loadArtists = (search, offset, append, sortMode) => {
     const requestId = artistRequestRef.current.id + 1
@@ -264,6 +270,11 @@ export default function Artists() {
     if (tracks.length) playQueue(tracks, 0)
   }
 
+  const openArtistMenu = (event, artist) => menu.open(event, [
+    { label: 'Start artist radio', icon: Radio, onSelect: () => openRadio(navigate, { artist: artist.name, type: 'artist' }, user?.id) },
+    { label: 'Open artist', icon: Users, onSelect: () => navigate(`/artist/${artist.id}`) },
+  ])
+
   const emptyMessage = useMemo(() => {
     if (query.trim()) return 'No artists matched that search.'
     return 'No artists in your library yet.'
@@ -352,6 +363,7 @@ export default function Artists() {
                   rank={index + 1}
                   onClick={() => navigate(`/artist/${artist.id}`)}
                   onPlay={() => playArtist(artist)}
+                  onContextMenu={openArtistMenu}
                   animateIn={false}
                 />
               ))}
@@ -384,6 +396,7 @@ export default function Artists() {
                         artist={row.artist}
                         onClick={() => navigate(`/artist/${row.artist.id}`)}
                         onPlay={() => playArtist(row.artist)}
+                        onContextMenu={openArtistMenu}
                       />
                     </div>
                   ))}
@@ -396,6 +409,7 @@ export default function Artists() {
                       artist={artist}
                       onClick={() => navigate(`/artist/${artist.id}`)}
                       onPlay={() => playArtist(artist)}
+                      onContextMenu={openArtistMenu}
                       animateIn={index >= FIRST_SCREEN_CARDS}
                     />
                   ))}
@@ -411,6 +425,7 @@ export default function Artists() {
         </section>
       </div>
       <ArtistRefreshAllModal open={refreshOpen} onClose={() => setRefreshOpen(false)} onStatus={setRefreshStatus} />
+      <ContextMenu menu={menu} />
     </div>
   )
 }

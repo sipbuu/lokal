@@ -63,7 +63,7 @@ router.get('/providers', (req, res) => {
   ])
 })
 
-router.get('/account', async (req, res) => res.json(await youtube.fetchAccountData({ cookies: accountCookies() }).catch(e => ({ error: e.message }))))
+router.get('/account', async (req, res) => res.json(await youtube.fetchAccountData({ cookies: accountCookies(), force: req.query?.force === '1' }).catch(e => ({ error: e.message }))))
 router.get('/account-playlist/:id', async (req, res) => res.json(await youtube.fetchAccountPlaylist(req.params.id, accountCookies()).catch(e => ({ error: e.message }))))
 router.get('/radio/:videoId', async (req, res) => res.json(await youtube.fetchRadio(req.params.videoId, { cookies: accountCookies() }).catch(() => [])))
 router.post('/account-liked', async (req, res) => res.json(await youtube.setAccountLiked(req.body?.videoId, !!req.body?.liked, accountCookies()).catch(e => ({ error: e.message }))))

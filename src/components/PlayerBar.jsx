@@ -12,6 +12,8 @@ import { trackArtURL, isStreamed, streamLabel } from '../onlineTracks'
 import SaveToLibraryButton from './SaveToLibraryButton'
 import { TIERS, formatLabel, isSuspect, tierOf } from '../quality'
 import AudioOutputPicker from './AudioOutputPicker'
+import ContextMenu, { useContextMenu } from './ContextMenu'
+import { openRadio } from '../radioActions'
 
 function fmt(s) { return `${Math.floor((s||0)/60)}:${Math.floor((s||0)%60).toString().padStart(2,'0')}` }
 
@@ -33,6 +35,7 @@ export default function PlayerBar() {
   const [localProg, setLocalProg] = useState(null)
   const [showSleepTimer, setShowSleepTimer] = useState(false)
   const [sleepTimerDisplay, setSleepTimerDisplay] = useState(null)
+  const menu = useContextMenu()
   const display = localProg ?? progress
   const isLiked = currentTrack && likedIds.has(currentTrack.id)
   const RepeatIcon = repeat === 'one' ? Repeat1 : Repeat
@@ -117,6 +120,14 @@ export default function PlayerBar() {
     navigateToTrackAlbum(nav, currentTrack)
   }
 
+  const openTrackMenu = (event) => {
+    if (!currentTrack) return
+    menu.open(event, [
+      { label: 'Start radio', icon: Radio, onSelect: () => openRadio(nav, currentTrack, user?.id) },
+      currentTrack.artist && { label: 'Start artist radio', icon: Radio, onSelect: () => openRadio(nav, { artist: currentTrack.artist, type: 'artist' }, user?.id) },
+    ].filter(Boolean))
+  }
+
   // The playing song's audio quality, when it's been read (not for streams).
   const qualityTier = currentTrack && !streamed ? (isSuspect(currentTrack) ? 'suspect' : tierOf(currentTrack)) : 'unknown'
   const quality = qualityTier !== 'unknown' ? { info: TIERS[qualityTier], format: formatLabel(currentTrack) } : null
@@ -145,12 +156,13 @@ export default function PlayerBar() {
                 {hasAlbum ? (
                   <button
                     onClick={handleTitleClick}
+                    onContextMenu={openTrackMenu}
                     title={`Go to album: ${currentTrack.album}`}
                     className="text-sm font-medium truncate text-white hover:text-accent hover:underline transition-colors text-left min-w-0">
                     {currentTrack.title}
                   </button>
                 ) : (
-                  <p className="text-sm font-medium truncate text-white">{currentTrack?.title || '—'}</p>
+                   <p onContextMenu={openTrackMenu} className="text-sm font-medium truncate text-white">{currentTrack?.title || '—'}</p>
                 )}
                 {!!currentTrack?.explicit && (
                   <span className="px-1.5 py-0.5 rounded border border-border bg-card text-[10px] font-display uppercase tracking-wide text-muted flex-shrink-0">
@@ -165,7 +177,7 @@ export default function PlayerBar() {
                       {streamLabel(currentTrack)} ·
                     </span>
                   )}
-                  <button onClick={handleArtistClick}
+                   <button onClick={handleArtistClick} onContextMenu={openTrackMenu}
                     className="text-xs text-muted hover:text-accent transition-colors truncate max-w-full block text-left">
                     {currentTrack.artist}
                   </button>
@@ -319,6 +331,7 @@ export default function PlayerBar() {
           </button>
         </div>
       </Modal>
+      <ContextMenu menu={menu} />
     </>
   )
 }

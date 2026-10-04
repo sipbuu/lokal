@@ -1,4 +1,5 @@
 const { getDB } = require('./db')
+const { loadLastfmDiscovery } = require('../lastfmDiscovery')
 const scrobbler = require('../lastfmScrobbler')
 const crypto = require('crypto')
 
@@ -215,75 +216,12 @@ function normalizeLastfmTrack(track) {
     url: track?.url || '',
     playcount: Number(track?.playcount) || 0,
     rank: Number(track?.['@attr']?.rank) || null,
+    scrobbledAt: Number(track?.date?.uts) || null,
   }
 }
 
-async function fetchDiscovery() {
-  const settings = storedLastfmSettings()
-  const apiKey = settings.lastfm_api_key
-  const username = settings.lastfm_username
-  if (!apiKey || !username) return { error: 'Connect Last.fm before loading Discovery.' }
-
-  const safe = (request) => request.catch(error => ({ error: error.message || 'Last.fm request failed.' }))
-  const [topTracks, recentTracks, topArtists] = await Promise.all([
-    safe(lastfmCall('user.getTopTracks', { user: username, period: '1month', limit: '12' }, apiKey, null)),
-    safe(lastfmCall('user.getRecentTracks', { user: username, limit: '8', extended: '1' }, apiKey, null)),
-    safe(lastfmCall('user.getTopArtists', { user: username, period: '3month', limit: '8' }, apiKey, null)),
-  ])
-
-  if (topTracks?.error && recentTracks?.error && topArtists?.error) {
-    return { error: topTracks.message || topTracks.error || recentTracks.message || recentTracks.error || topArtists.message || topArtists.error || 'Last.fm Discovery failed.' }
-  }
-
-  const trackSeeds = [...asArray(topTracks?.toptracks?.track), ...asArray(recentTracks?.recenttracks?.track)]
-    .filter((seed, index, list) => {
-      const artist = typeof seed?.artist === 'string' ? seed.artist : seed?.artist?.name || ''
-      const key = `${artist}|${seed?.name || ''}`.toLowerCase()
-      return artist && seed?.name && list.findIndex(item => `${typeof item?.artist === 'string' ? item.artist : item?.artist?.name || ''}|${item?.name || ''}`.toLowerCase() === key) === index
-    })
-    .slice(0, 6)
-  const artistSeeds = [...asArray(topArtists?.topartists?.artist), ...trackSeeds.map(seed => ({ name: typeof seed?.artist === 'string' ? seed.artist : seed?.artist?.name || '' }))]
-    .filter((seed, index, list) => seed?.name && list.findIndex(item => String(item?.name || '').toLowerCase() === String(seed.name).toLowerCase()) === index)
-    .slice(0, 6)
-  const [similarTrackResults, similarArtistResults] = await Promise.all([
-    Promise.all(trackSeeds.map(seed => safe(lastfmCall('track.getSimilar', {
-      artist: typeof seed?.artist === 'string' ? seed.artist : seed?.artist?.name || '',
-      track: seed?.name || '',
-      limit: '12',
-    }, apiKey, null)))),
-    Promise.all(artistSeeds.map(seed => safe(lastfmCall('artist.getSimilar', { artist: seed?.name || '', limit: '8' }, apiKey, null)))),
-  ])
-  const seenSimilarTracks = new Set()
-  const similarTracks = similarTrackResults.flatMap(result => asArray(result?.similartracks?.track).map(normalizeLastfmTrack))
-    .filter(track => track.title && track.artist)
-    .filter(track => {
-      const key = `${track.title.toLowerCase()}|${track.artist.toLowerCase()}`
-      if (seenSimilarTracks.has(key)) return false
-      seenSimilarTracks.add(key)
-      return true
-    })
-  const seenSimilarArtists = new Set()
-  const similarArtists = similarArtistResults.flatMap(result => asArray(result?.similarartists?.artist).map(normalizeSimilarArtist))
-    .filter(artist => artist.name)
-    .filter(artist => {
-      const key = artist.name.toLowerCase()
-      if (seenSimilarArtists.has(key)) return false
-      seenSimilarArtists.add(key)
-      return true
-    })
-
-  return {
-    tracks: asArray(topTracks?.toptracks?.track).map(normalizeLastfmTrack).filter(track => track.title && track.artist),
-    recent: asArray(recentTracks?.recenttracks?.track).map(normalizeLastfmTrack).filter(track => track.title && track.artist),
-    artists: asArray(topArtists?.topartists?.artist).map(artist => ({
-      name: artist?.name || '',
-      image: imageUrl(artist?.image),
-      playcount: Number(artist?.playcount) || 0,
-      url: artist?.url || '',
-    })).filter(artist => artist.name),
-    similarTracks,
-    similarArtists,
-  }
+async function fetchDiscovery(page = 0) {
+  return loadLastfmDiscovery(storedLastfmSettings(), lastfmCall, { page })
 }
 
 async function fetchLovedTracks(startPage = 1) {
@@ -465,7 +403,7 @@ function registerLastFmHandlers(ipcMain) {
   ipcMain.handle('lastfm:updateNowPlaying', (_, artist, track, album, duration) =>
     scrobbler.updateNowPlaying(getDB(), { artist, track, album, duration }).catch(e => ({ error: e.message })))
 
-  ipcMain.handle('lastfm:discovery', () => fetchDiscovery().catch(e => ({ error: e.message })))
+  ipcMain.handle('lastfm:discovery', (_, page) => fetchDiscovery(page).catch(e => ({ error: e.message })))
   ipcMain.handle('lastfm:loved', (_, page) => fetchLovedTracks(page).catch(e => ({ error: e.message })))
   ipcMain.handle('lastfm:setLoved', (_, artist, track, loved) => setLovedTrack(artist, track, loved).catch(e => ({ error: e.message })))
   ipcMain.handle('lastfm:syncLikes', (_, userId, page) => syncLovedTracks(userId, page).catch(e => ({ error: e.message })))

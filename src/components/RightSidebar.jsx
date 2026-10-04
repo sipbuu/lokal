@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { ChevronRight, Music, Maximize2, Mic2, Disc3 } from 'lucide-react'
+import { ChevronRight, Music, Maximize2, Mic2, Disc3, Radio } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { usePlayerStore } from '../store/player'
 import LyricsPanel from './LyricsPanel'
@@ -16,6 +16,8 @@ import {
 } from '../playbackContext'
 import { navigateToTrackArtist } from '../artistLink'
 import { trackArtURL } from '../onlineTracks'
+import ContextMenu, { useContextMenu } from './ContextMenu'
+import { openRadio } from '../radioActions'
 
 function InfoRow({ label, value, onClick = null, title = null, fx = true }) {
   if (!value) return null
@@ -43,6 +45,7 @@ export default function RightSidebar() {
     sidePanelView, setSidePanelView, toggleQueueButton, exclusiveSidePanels,
   } = usePlayerStore()
   const nav = useNavigate()
+  const menu = useContextMenu()
   const canOpenContext = isContextNavigable(playbackContext)
   const wordSync = localStorage.getItem('word-sync') !== '0'
   // Backend-persisted setting (Settings' Unsynced Lyrics Auto-Sync toggle
@@ -140,6 +143,14 @@ export default function RightSidebar() {
   const heroHeight = canvasHero ? Math.max(300, Math.round(infoHeight * 0.6)) : 300
 
   const artSrc = trackArtURL(currentTrack)
+
+  const openTrackMenu = (event) => {
+    if (!currentTrack) return
+    menu.open(event, [
+      { label: 'Start radio', icon: Radio, onSelect: () => openRadio(nav, currentTrack) },
+      currentTrack.artist && { label: 'Start artist radio', icon: Radio, onSelect: () => openRadio(nav, { artist: currentTrack.artist, type: 'artist' }) },
+    ].filter(Boolean))
+  }
 
   const btnFx = 'flex-1 py-2 bg-white/10 border border-white/10 rounded-xl text-xs text-white/75 hover:text-white hover:bg-white/15 transition-all font-display uppercase tracking-wider flex items-center justify-center gap-1.5 backdrop-blur-md'
   const btnClassic = 'flex-1 py-2 bg-card border border-border rounded-xl text-xs text-muted hover:text-white hover:border-accent/30 transition-all font-display uppercase tracking-wider flex items-center justify-center gap-1.5'
@@ -258,16 +269,18 @@ export default function RightSidebar() {
                       {currentTrack?.album ? (
                         <button
                           onClick={() => navigateToTrackAlbum(nav, currentTrack)}
+                          onContextMenu={openTrackMenu}
                           title={`Go to album: ${currentTrack.album}`}
                           className={fx ? 'text-lg font-semibold text-white leading-tight text-left hover:underline transition-colors max-w-full block drop-shadow-[0_1px_8px_rgba(0,0,0,0.45)]' : 'font-display text-white text-sm leading-tight text-left hover:text-accent hover:underline transition-colors truncate max-w-full block'}>
                           {currentTrack?.title || 'Nothing playing'}
                         </button>
                       ) : (
-                        <p className={fx ? 'text-lg font-semibold text-white leading-tight drop-shadow-[0_1px_8px_rgba(0,0,0,0.45)]' : 'font-display text-white text-sm leading-tight'}>{currentTrack?.title || 'Nothing playing'}</p>
+                        <p onContextMenu={openTrackMenu} className={fx ? 'text-lg font-semibold text-white leading-tight drop-shadow-[0_1px_8px_rgba(0,0,0,0.45)]' : 'font-display text-white text-sm leading-tight'}>{currentTrack?.title || 'Nothing playing'}</p>
                       )}
                       {currentTrack?.artist ? (
                         <button
                           onClick={() => navigateToTrackArtist(nav, currentTrack, keepCommaArtists)}
+                          onContextMenu={openTrackMenu}
                           title={`Go to artist: ${currentTrack.artist}`}
                           className={fx ? 'text-sm text-white/70 mt-0.5 text-left hover:text-white hover:underline transition-colors truncate max-w-full block' : 'text-xs text-muted mt-0.5 text-left hover:text-accent hover:underline transition-colors truncate max-w-full block'}>
                           {currentTrack.artist}
@@ -366,6 +379,7 @@ export default function RightSidebar() {
           </motion.div>
         </motion.aside>
       )}
+      <ContextMenu menu={menu} />
     </>
   )
 }

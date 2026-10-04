@@ -66,7 +66,7 @@ function registerOnlineHandlers(ipcMain) {
   })
   // The sources the search page can switch between: built-in ones, then addons.
   ipcMain.handle('online:providers', () => providers())
-  ipcMain.handle('online:account', () => youtube.fetchAccountData({ cookies: accountCookies() }))
+  ipcMain.handle('online:account', (_, force = false) => youtube.fetchAccountData({ cookies: accountCookies(), force: !!force }))
   ipcMain.handle('online:accountPlaylist', (_, playlistId) => youtube.fetchAccountPlaylist(playlistId, accountCookies()))
   ipcMain.handle('online:radio', (_, videoId) => youtube.fetchRadio(videoId, { cookies: accountCookies() }).catch(() => []))
   ipcMain.handle('online:setAccountLiked', (_, videoId, liked) => youtube.setAccountLiked(videoId, liked, accountCookies()))

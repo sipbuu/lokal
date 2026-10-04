@@ -3,7 +3,7 @@
 // ghost://soundcloud/online/<trackId>, or any ghost track whose source link is
 // a YouTube video or a SoundCloud track (e.g. an imported playlist entry).
 
-import { api } from './api'
+import { api } from './api.js'
 
 export const PROVIDER_LABELS = { yt: 'YouTube', sc: 'SoundCloud' }
 

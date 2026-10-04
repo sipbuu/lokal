@@ -9,6 +9,7 @@ import { peekCache, writeCache, usePageReady } from '../pageCache'
 import SectionSwap, { ReadyWhen } from '../components/SectionSwap'
 import AddonsSettings from '../components/AddonsSettings'
 import ProviderConnections from '../components/ProviderConnections'
+import PlaybackSourceSettings from '../components/PlaybackSourceSettings'
 import { useAppStore, usePlayerStore } from '../store/player'
 import Modal from '../components/Modal'
 import LyricsSourcesSettings from '../components/LyricsSourcesSettings'
@@ -1984,6 +1985,23 @@ export default function Settings() {
           setActiveCategory(provider === 'youtube' ? 'library' : 'integrations')
           if (provider === 'lastfm') setTimeout(() => document.getElementById('lastfm-api-key')?.focus(), 0)
         }} />
+      </Section>
+      )}
+
+      {inCategory('integrations') && (
+      <Section title="Recommendations">
+        <Row label="Recommendation Source" desc="Choose which provider supplies Quick Picks, Artists For You, Rotation, Fresh Finds, Discovery, and Mix. Last.fm follows your scrobbles and profile by default.">
+          <select
+            value={settings.recommendation_source || 'lastfm'}
+            onChange={event => set('recommendation_source', event.target.value)}
+            className="bg-card border border-border rounded-lg px-3 py-1.5 text-xs text-white outline-none focus:border-accent/50">
+            <option value="lastfm">Last.fm</option>
+            <option value="youtube">YouTube Music</option>
+          </select>
+        </Row>
+        <Row stacked label="Playback Search Priority" desc="When playing a recommendation, search these sources in order until the same song is found. YouTube Music is first by default. Enabled searchable addons appear here automatically. This controls playback lookup for Discovery, Mix, and Radio; your recommendation provider still chooses the music.">
+          <PlaybackSourceSettings value={settings.playback_search_order} onChange={value => set('playback_search_order', value)} />
+        </Row>
       </Section>
       )}
 
