@@ -4,6 +4,7 @@
 //   yt  YouTube Music (youtube.js): its own Songs search, full tracks
 //   sc  SoundCloud (soundcloud.js): yt-dlp search, progressive MP3; Go+
 //       tracks only give a 30-second preview
+//   qobuz  Qobuz (qobuz.js): lossless / hi-res FLAC with the user's own account
 //   a-<key>  addons the user installed from a manifest URL (addons.js)
 //
 // Shared by the desktop app (IPC + lokal-stream://<provider>/<id>) and the web
@@ -16,13 +17,15 @@
 const crypto = require('crypto')
 const yt = require('./youtube')
 const sc = require('./soundcloud')
+const qobuz = require('./qobuz')
 const addons = require('./addons')
 
 const PROVIDERS = {
   yt: { id: 'yt', label: 'YouTube Music', platform: 'youtube', idPattern: /^[\w-]{11}$/, sourceUrl: id => `https://music.youtube.com/watch?v=${id}` },
   sc: { id: 'sc', label: 'SoundCloud', platform: 'soundcloud', idPattern: /^\d{1,20}$/, sourceUrl: id => sc.trackUrl(id) },
+  qobuz: { id: 'qobuz', label: 'Qobuz', platform: 'qobuz', idPattern: qobuz.TRACK_ID, sourceUrl: id => qobuz.trackUrl(id) },
 }
-const PLATFORM_TO_PROVIDER = { youtube: 'yt', soundcloud: 'sc' }
+const PLATFORM_TO_PROVIDER = { youtube: 'yt', soundcloud: 'sc', qobuz: 'qobuz' }
 
 /** A built-in provider, or an addon provider ("a-<key>"), or null. */
 function providerOf(id) {
@@ -52,6 +55,7 @@ function fromYouTube(r) {
 async function search(provider, query, { db, ytdlp, fetchImpl, fallbackSearch, limit = 10 } = {}) {
   const key = addons.keyOfProvider(provider)
   if (key) return { results: await addons.search(db, key, query, { fetchImpl, limit: 20 }) }
+  if (provider === 'qobuz') return { results: await qobuz.searchTracks(query, { db, limit, fetchImpl }) }
   if (provider === 'sc') return { results: await sc.searchTracks(query, { ytdlp, limit }) }
   try {
     return { results: (await yt.searchSongs(query, { limit, fetchImpl })).map(fromYouTube) }
@@ -68,6 +72,7 @@ function resolveStream(provider, id, opts = {}) {
   if (!validId(provider, id)) return Promise.reject(new Error('Unknown online song'))
   const key = addons.keyOfProvider(provider)
   if (key) return addons.resolveStream(opts.db, key, id, { force: opts.force, fetchImpl: opts.addonFetch })
+  if (provider === 'qobuz') return qobuz.resolveStream(id, opts)
   return provider === 'sc' ? sc.resolveStream(id, opts) : yt.resolveStream(id, opts)
 }
 
@@ -165,7 +170,7 @@ function streamRef(track) {
   if (fromAddon) {
     try { return { provider: addons.providerFor(fromAddon[1]), id: decodeURIComponent(fromAddon[2]) } } catch { return null }
   }
-  const own = path.match(/^ghost:\/\/(youtube|soundcloud)\/online\/([\w-]+)$/)
+  const own = path.match(/^ghost:\/\/(youtube|soundcloud|qobuz)\/online\/([\w-]+)$/)
   if (own) {
     const provider = PLATFORM_TO_PROVIDER[own[1]]
     return validId(provider, own[2]) ? { provider, id: own[2] } : null
@@ -442,7 +447,8 @@ function saveOnlineTracks(db, items = []) {
       track_num: positive(item.track_num ?? item.trackNumber),
       genre: typeof item.genre === 'string' && item.genre.trim() ? item.genre.trim().slice(0, 100) : null,
       isrc: (() => { try { return require('../quality').normalizeIsrc(item.isrc) || null } catch { return null } })(),
-      ...streamQuality(item.quality || item.format),
+      // Qobuz's `quality` is a tier name ("hi-res"); its `format` says "FLAC 24/96".
+      ...streamQuality(provider === 'qobuz' ? item.format : item.quality || item.format),
     })
     return get.get(id)
   }))
@@ -458,7 +464,7 @@ function pruneOnlineTracks(db, maxAgeMs = 7 * 24 * 3600 * 1000) {
     const prune = db.transaction((cutoff) => {
       const ids = db.prepare(`
         SELECT id FROM tracks
-        WHERE (file_path LIKE 'ghost://youtube/online/%' OR file_path LIKE 'ghost://soundcloud/online/%' OR file_path LIKE 'ghost://addon/%')
+        WHERE (file_path LIKE 'ghost://youtube/online/%' OR file_path LIKE 'ghost://soundcloud/online/%' OR file_path LIKE 'ghost://qobuz/online/%' OR file_path LIKE 'ghost://addon/%')
           AND COALESCE(last_modified, 0) < ?
           AND id NOT IN (SELECT track_id FROM playlist_tracks)
           AND id NOT IN (SELECT track_id FROM user_likes)

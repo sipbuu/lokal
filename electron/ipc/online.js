@@ -9,6 +9,7 @@ const { runJsonSearch, mapSearchResult } = require('../download/search')
 const sources = require('../online/sources')
 const genres = require('../online/genres')
 const youtube = require('../online/youtube')
+const qobuz = require('../online/qobuz')
 const { createArtworkResolver } = require('../discoveryArtwork')
 const { spelling } = require('../online/spelling')
 const discoveryArtwork = createArtworkResolver({ getDB, isElectron: true, searchArtists: require('./artistMetadata').searchArtistMetadataCandidates, searchSongs: youtube.searchSongs })
@@ -55,6 +56,7 @@ function providers() {
   return [
     { id: 'yt', label: 'YouTube Music' },
     { id: 'sc', label: 'SoundCloud' },
+    ...(qobuz.loadConfig(getDB()).enabled ? [{ id: 'qobuz', label: 'Qobuz' }] : []),
     ...sources.addons.searchable(getDB()).map(a => ({ id: a.provider, label: a.name, icon: a.icon, addon: true, album: a.resources.includes('album'), artist: a.resources.includes('artist') })),
   ]
 }
@@ -80,6 +82,13 @@ function registerOnlineHandlers(ipcMain) {
   ipcMain.handle('online:genre', (_, trackId) => genres.trackGenre(getDB(), trackId).catch(() => null))
   // The sources the search page can switch between: built-in ones, then addons.
   ipcMain.handle('online:providers', () => providers())
+  // Settings → Qobuz: the secret and token stay here; the page only learns whether they're set.
+  const guard = work => Promise.resolve().then(work).catch(e => ({ error: e.message }))
+  ipcMain.handle('qobuz:status', () => qobuz.status(getDB()))
+  ipcMain.handle('qobuz:save', (_, values) => guard(() => qobuz.saveConfig(getDB(), values)))
+  ipcMain.handle('qobuz:signIn', (_, email, password) => guard(() => qobuz.signIn(getDB(), email, password)))
+  ipcMain.handle('qobuz:signOut', () => qobuz.signOut(getDB()))
+  ipcMain.handle('qobuz:test', () => guard(() => qobuz.testConnection(getDB())))
   // A misspelt search ("micheal jackson"): the library's spelling, else YouTube Music's.
   ipcMain.handle('online:spelling', (_, query) => spelling(getDB(), query))
   ipcMain.handle('online:artwork', (_, items) => discoveryArtwork(items))

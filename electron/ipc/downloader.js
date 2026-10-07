@@ -147,7 +147,7 @@ function registerDownloaderHandlers(ipcMain) {
     // An addon track: a fresh link is asked for each time the job starts.
     const source = clean.addonSource
     const provider = String(source?.provider || '')
-    clean.addonSource = /^a-[0-9a-f]{10}$/.test(provider) && typeof source?.id === 'string' && source.id && source.id.length <= 300 && !/[\r\n]/.test(source.id)
+    clean.addonSource = (/^a-[0-9a-f]{10}$/.test(provider) || (provider === 'qobuz' && /^d{1,12}$/.test(String(source?.id)))) && typeof source?.id === 'string' && source.id && source.id.length <= 300 && !/[\r\n]/.test(source.id)
       ? { provider, id: source.id } : undefined
     // What the source said about the song, for a file that comes without tags.
     clean.tags = require('../download/postprocess').knownTagsOf(clean.tags)

@@ -80,7 +80,7 @@ function addonSourceOf(value) {
   if (!value || typeof value !== 'object') return undefined
   const provider = String(value.provider || '')
   const id = typeof value.id === 'string' ? value.id : ''
-  return /^a-[0-9a-f]{10}$/.test(provider) && id && id.length <= 300 && !/[\r\n]/.test(id) ? { provider, id } : undefined
+  return (/^a-[0-9a-f]{10}$/.test(provider) || (provider === 'qobuz' && /^d{1,12}$/.test(id))) && id && id.length <= 300 && !/[\r\n]/.test(id) ? { provider, id } : undefined
 }
 function enqueue(kind) {
   return (req, res) => {

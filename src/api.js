@@ -350,6 +350,12 @@ export const api = {
   youtubeSetLiked: (videoId, liked) => isE() ? el().youtubeSetLiked(videoId, liked) : apiFetch('/online/account-liked', { method: 'POST', body: { videoId, liked } }),
   onlineDownloadUrl: (provider, id) => isE() ? el().onlineDownloadUrl(provider, id) : apiFetch(`/online/download-url/${encodeURIComponent(provider)}/${encodeURIComponent(id)}`, { method:'POST' }),
   // Addons: online sources added by manifest URL (Settings → Addons).
+  // Qobuz (Settings → Qobuz). The secret and token stay in the backend.
+  qobuzStatus: () => isE() ? el().qobuzStatus() : apiFetch('/online/qobuz'),
+  qobuzSave: (values) => isE() ? el().qobuzSave(values) : apiFetch('/online/qobuz', { method:'PUT', body:values }),
+  qobuzSignIn: (email, password) => isE() ? el().qobuzSignIn(email, password) : apiFetch('/online/qobuz/sign-in', { method:'POST', body:{ email, password } }),
+  qobuzSignOut: () => isE() ? el().qobuzSignOut() : apiFetch('/online/qobuz/sign-out', { method:'POST' }),
+  qobuzTest: () => isE() ? el().qobuzTest() : apiFetch('/online/qobuz/test', { method:'POST' }),
   addonsList: () => isE() ? el().addonsList() : apiFetch('/online/addons'),
   // An addon's album / artist page (when its manifest lists "album" / "artist").
   addonAlbum: (provider, id) => isE() ? el().addonAlbum(provider, id) : apiFetch(`/online/addon-album/${encodeURIComponent(provider)}/${encodeURIComponent(id)}`),

@@ -7,6 +7,7 @@ import { FORMATS, MP3_BITRATES, savedFormat } from '../downloadLinks'
 import { peekCache, writeCache, usePageReady } from '../pageCache'
 import SectionSwap, { ReadyWhen } from '../components/SectionSwap'
 import AddonsSettings from '../components/AddonsSettings'
+import QobuzSettings from '../components/settings/QobuzSettings'
 import ProviderConnections from '../components/ProviderConnections'
 import { DEFAULT_DISCORD_CLIENT_ID } from '../discord'
 import PlaybackSourceSettings from '../components/PlaybackSourceSettings'
@@ -1657,6 +1658,12 @@ activeCategory === 'data' ? usersTried
             )}
           </div>
         </Section>
+      )}
+
+      {inCategory('addons') && (
+      <Section title="Qobuz">
+        <QobuzSettings />
+      </Section>
       )}
 
       {inCategory('addons') && (

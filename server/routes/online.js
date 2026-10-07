@@ -11,6 +11,7 @@ const { runJsonSearch, mapSearchResult } = require('../../electron/download/sear
 const sources = require('../../electron/online/sources')
 const genres = require('../../electron/online/genres')
 const youtube = require('../../electron/online/youtube')
+const qobuz = require('../../electron/online/qobuz')
 const { createArtworkResolver } = require('../../electron/discoveryArtwork')
 const discoveryArtwork = createArtworkResolver({ getDB, searchArtists: require('../../electron/ipc/artistMetadata').searchArtistMetadataCandidates, searchSongs: youtube.searchSongs })
 
@@ -63,6 +64,7 @@ router.get('/providers', (req, res) => {
   res.json([
     { id: 'yt', label: 'YouTube Music' },
     { id: 'sc', label: 'SoundCloud' },
+    ...(qobuz.loadConfig(getDB()).enabled ? [{ id: 'qobuz', label: 'Qobuz' }] : []),
     ...sources.addons.searchable(getDB()).map(a => ({ id: a.provider, label: a.name, icon: a.icon, addon: true, album: a.resources.includes('album'), artist: a.resources.includes('artist') })),
   ])
 })
@@ -73,6 +75,14 @@ router.post('/catalogue', async (req, res) => res.json(await youtube.fetchCatalo
 router.get('/account-playlist/:id', async (req, res) => res.json(await youtube.fetchAccountPlaylist(req.params.id, accountCookies()).catch(e => ({ error: e.message }))))
 router.get('/radio/:videoId', async (req, res) => res.json(await youtube.fetchRadio(req.params.videoId, { cookies: accountCookies() }).catch(() => [])))
 router.post('/account-liked', async (req, res) => res.json(await youtube.setAccountLiked(req.body?.videoId, !!req.body?.liked, accountCookies()).catch(e => ({ error: e.message }))))
+
+// Qobuz (Settings → Qobuz): the secret and token stay on the server.
+const guard = work => async (req, res) => { try { res.json(await work(req)) } catch (e) { res.json({ error: e.message }) } }
+router.get('/qobuz', guard(() => qobuz.status(getDB())))
+router.put('/qobuz', guard(req => qobuz.saveConfig(getDB(), req.body)))
+router.post('/qobuz/sign-in', guard(req => qobuz.signIn(getDB(), req.body?.email, req.body?.password)))
+router.post('/qobuz/sign-out', guard(() => qobuz.signOut(getDB())))
+router.post('/qobuz/test', guard(() => qobuz.testConnection(getDB())))
 
 // Direct audio link of an addon track, for "Save to library".
 router.post('/download-url/:provider/:id', async (req, res) => {

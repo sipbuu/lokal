@@ -6,11 +6,16 @@
 import { api } from './api.js'
 import { downloadBatchCurrent } from './downloadCancellation.js'
 
-export const PROVIDER_LABELS = { yt: 'YouTube', sc: 'SoundCloud' }
+export const PROVIDER_LABELS = { yt: 'YouTube', sc: 'SoundCloud', qobuz: 'Qobuz' }
 
 /** Is `provider` a user-installed addon ("a-<key>")? */
 export function isAddonProvider(provider) {
   return /^a-[0-9a-f]{10}$/.test(String(provider || ''))
+}
+
+/** Sources whose link is asked for when saving (it expires): addons and Qobuz. */
+export function usesFreshLink(provider) {
+  return isAddonProvider(provider) || provider === 'qobuz'
 }
 
 /** Label of a provider: YouTube, SoundCloud, or "Addon". */
@@ -30,8 +35,8 @@ export function streamRef(track) {
   if (fromAddon) {
     try { return { provider: `a-${fromAddon[1]}`, id: decodeURIComponent(fromAddon[2]) } } catch { return null }
   }
-  const own = path.match(/^ghost:\/\/(youtube|soundcloud)\/online\/([\w-]+)$/)
-  if (own) return { provider: own[1] === 'youtube' ? 'yt' : 'sc', id: own[2] }
+  const own = path.match(/^ghost:\/\/(youtube|soundcloud|qobuz)\/online\/([\w-]+)$/)
+  if (own) return { provider: { youtube: 'yt', soundcloud: 'sc', qobuz: 'qobuz' }[own[1]], id: own[2] }
   if (!path.startsWith('ghost://')) return null
   const url = String(track?.source_url || '')
   const yt = url.match(/(?:youtube\.com\/(?:watch\?(?:.*&)?v=|shorts\/)|youtu\.be\/)([\w-]{11})/)
@@ -66,7 +71,7 @@ export function sourceRefKey(ref) {
 }
 
 // Where a downloaded song came from (tracks.download_source).
-const DOWNLOAD_SOURCE_LABELS = { yt: 'YouTube', sc: 'SoundCloud', soulseek: 'Soulseek', web: 'Web' }
+const DOWNLOAD_SOURCE_LABELS = { yt: 'YouTube', sc: 'SoundCloud', qobuz: 'Qobuz', soulseek: 'Soulseek', web: 'Web' }
 let addonNames = null
 
 /** The installed addons' names ({ 'a-<key>': name }), loaded once. */
@@ -111,7 +116,7 @@ export function audioSrcFor(track) {
 /** The URL the downloader fetches a streamed song from. */
 export function downloadUrlFor(track) {
   const ref = streamRef(track)
-  if (!ref || isAddonProvider(ref.provider)) return null // addons: resolved when saving
+  if (!ref || usesFreshLink(ref.provider)) return null // addons, Qobuz: resolved when saving
   return ref.provider === 'sc' ? `https://api.soundcloud.com/tracks/${ref.id}` : `https://music.youtube.com/watch?v=${ref.id}`
 }
 
@@ -124,8 +129,8 @@ export async function saveToLibrary(track, extra = {}) {
   if (!isCurrent()) return { cancelled: true }
   const ref = streamRef(track)
   let url = downloadUrlFor(track)
-  if (ref && isAddonProvider(ref.provider)) {
-    // An addon's link is only known once asked for (and may expire): get it now.
+  if (ref && usesFreshLink(ref.provider)) {
+    // An addon's (or Qobuz's) link is only known once asked for (and may expire): get it now.
     const got = await api.onlineDownloadUrl(ref.provider, ref.id)
     if (!got?.url) return { error: got?.error || 'The addon gave no download link' }
     url = got.url
@@ -141,7 +146,7 @@ export async function saveToLibrary(track, extra = {}) {
     ...(extra.replaceImported?.length ? { replaceImported: extra.replaceImported } : {}),
     // An addon's link expires: the downloader asks the addon for a fresh one
     // each time the job starts (queued, restarted or retried).
-    addonSource: ref && isAddonProvider(ref.provider) ? { provider: ref.provider, id: ref.id } : undefined,
+    addonSource: ref && usesFreshLink(ref.provider) ? { provider: ref.provider, id: ref.id } : undefined,
     // An addon's file is a bare audio link, without tags: name and tag it
     // from what the addon said (only where the file has nothing).
     tags: extra.tags || extra.replaceImported?.length
@@ -149,11 +154,11 @@ export async function saveToLibrary(track, extra = {}) {
           title: extra.tags?.title || track.title || undefined,
           artist: extra.tags?.artist || track.artist || undefined,
           album: extra.tags?.album || track.album || undefined,
-          cover: ref && isAddonProvider(ref.provider)
+          cover: ref && usesFreshLink(ref.provider)
             ? (extra.tags?.cover || (/^https:\/\//.test(String(track.artwork_url || '')) ? track.artwork_url : undefined))
             : undefined,
           // Addon metadata may include details the playlist ghost did not have.
-          ...(ref && isAddonProvider(ref.provider) ? {
+          ...(ref && usesFreshLink(ref.provider) ? {
             year: extra.tags?.year || track.year || undefined,
             track: extra.tags?.track || track.track_num || undefined,
             disc: extra.tags?.disc || track.disc_num || undefined,
@@ -161,7 +166,7 @@ export async function saveToLibrary(track, extra = {}) {
             genre: extra.tags?.genre || track.genre || undefined,
           } : {}),
         }
-      : (ref && isAddonProvider(ref.provider)
+      : (ref && usesFreshLink(ref.provider)
           ? {
               title: track.title || undefined, artist: track.artist || undefined, album: track.album || undefined,
               cover: /^https:\/\//.test(String(track.artwork_url || '')) ? track.artwork_url : undefined,
