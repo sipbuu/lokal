@@ -15,7 +15,7 @@ import SelectionBar from '../components/SelectionBar'
 import { startVideoPreview } from '../videoPreview'
 import { downloadVideos, updateVideoLibrary } from '../videoActions'
 
-function VideoCard({ item, selected, onSelect, onMenu, onSave, saving, preview }) {
+function VideoCard({ item, selected, onSelect, onToggleSelection, onMenu, onSave, saving, preview }) {
   const [hover, setHover] = React.useState(false)
   const [failed, setFailed] = React.useState(false)
   const ref = React.useRef(null)
@@ -29,8 +29,9 @@ function VideoCard({ item, selected, onSelect, onMenu, onSave, saving, preview }
     if (element.readyState >= 1) start()
     return () => { element.removeEventListener('loadedmetadata', start); cleanup(); element.pause(); element.removeAttribute('src'); element.load() }
   }, [hover, preview, failed])
-  return <article className={`group min-w-0 ${selected ? 'rounded-xl ring-2 ring-accent/70' : ''}`} onContextMenu={onMenu}>
-    <button onClick={onSelect} aria-pressed={selected} aria-label={`Play video: ${item.track.title}`} onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)} className="relative block w-full aspect-video overflow-hidden rounded-xl bg-card border border-border shadow-lg">
+  return <article className={`group relative min-w-0 ${selected ? 'rounded-xl ring-2 ring-accent/70' : ''}`} onContextMenu={onMenu}>
+    <input type="checkbox" checked={selected} onChange={onToggleSelection} aria-label={`Select video: ${item.track.title}`} className={`absolute left-2 top-2 z-10 h-5 w-5 cursor-pointer accent-accent transition-opacity focus:opacity-100 ${selected ? 'opacity-100' : 'opacity-0 group-hover:opacity-100 group-focus-within:opacity-100'}`} />
+    <button onClick={onSelect} aria-label={`Play video: ${item.track.title}`} onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)} className="relative block w-full aspect-video overflow-hidden rounded-xl bg-card border border-border shadow-lg">
       <img src={item.video.thumbnail} alt="" loading="lazy" className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105" />
       {preview && hover && !failed && <video ref={ref} src={preview} muted playsInline preload="metadata" onError={() => setFailed(true)} className="absolute inset-0 w-full h-full object-cover" />}
       <span className="absolute inset-0 flex items-center justify-center bg-black/20 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity"><span className="rounded-full p-3 bg-white/90 text-black"><Play size={22} fill="currentColor" /></span></span>
@@ -140,7 +141,7 @@ export default function Videos() {
     </div>
     {error && <p role="alert" className="text-sm text-red-400">{error}</p>}
     <div className="grid grid-cols-1 @sm:grid-cols-2 @lg:grid-cols-3 @2xl:grid-cols-4 gap-x-5 gap-y-7">
-      {visible.map(item => <VideoCard key={item.track.id} item={item} selected={selection.has(item.track.id)} onSelect={event => selection.click(item.track.id, event) || play(item)} onSave={() => save(item)} saving={!!saving} onMenu={event => openMenu(event, item)} preview={item.cached && item.video.file ? api.fileURL(item.video.file) : null} />)}
+      {visible.map(item => <VideoCard key={item.track.id} item={item} selected={selection.has(item.track.id)} onSelect={event => selection.click(item.track.id, event) || play(item)} onToggleSelection={() => selection.click(item.track.id, { ctrlKey: true })} onSave={() => save(item)} saving={!!saving} onMenu={event => openMenu(event, item)} preview={item.cached && item.video.file ? api.fileURL(item.video.file) : null} />)}
     </div>
     {loaded && !visible.length && <div className="text-center py-16 text-muted"><Clapperboard size={40} className="mx-auto mb-4 opacity-40" /><p>{items.length ? 'No videos match this view.' : 'Your discovered music videos will appear here.'}</p><p className="text-xs mt-2">Play songs to discover videos, or download one from its actions.</p></div>}
     <SelectionBar open={selection.count > 0} label={`${selection.count} selected`} onClear={selection.clear} actions={[
