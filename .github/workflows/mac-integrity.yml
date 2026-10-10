@@ -32,6 +32,8 @@ jobs:
           node-version: '24'
           cache: npm
       - run: npm ci
+      - name: Install Electron before concurrent test workers
+        run: node node_modules/electron/install.js
       - run: npm run rebuild:web
       - name: Download identity and durable video integration
         timeout-minutes: 5

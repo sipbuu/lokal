@@ -22,7 +22,7 @@ The PR packaging step enables `CSC_FOR_PULL_REQUEST` only with the explicit ad-h
 
 ## Automated checks
 
-The macOS PR workflow runs explicitly selected download/video, discovery UI, YouTube account/session/login, and native playback adapter suites with bounded timeouts. Fixtures mock provider responses and audio adapters; they do not perform interactive Google sign-in or prove audible output.
+The macOS PR workflow installs Electron once before starting concurrent test workers, then runs explicitly selected download/video, discovery UI, YouTube account/session/login, and native playback adapter suites with bounded timeouts. Fixtures mock provider responses and audio adapters; they do not perform interactive Google sign-in or prove audible output.
 
 After packaging, `npm run verify:mac-package -- release x64` or `npm run verify:mac-package -- release arm64` checks:
 
