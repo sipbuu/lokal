@@ -18,6 +18,8 @@ Developer ID signing requires the first two inputs. Optional notarization uses a
 
 Without signing credentials, release/nightly and the credential-free PR workflow use ad-hoc signing and explicitly disable notarization. Ad-hoc signing verifies a bundle's local integrity; it is not Developer ID signing, notarization, or Gatekeeper approval.
 
+The PR packaging step enables `CSC_FOR_PULL_REQUEST` only with the explicit ad-hoc identity `-` and no signing secrets. Otherwise electron-builder skips signing in PR builds, leaving the upstream Electron signature invalid after the bundle is changed. Never pass Developer ID credentials into this PR step.
+
 ## Automated checks
 
 The macOS PR workflow runs explicitly selected download/video, discovery UI, YouTube account/session/login, and native playback adapter suites with bounded timeouts. Fixtures mock provider responses and audio adapters; they do not perform interactive Google sign-in or prove audible output.

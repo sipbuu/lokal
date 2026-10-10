@@ -43,6 +43,8 @@ jobs:
         timeout-minutes: 5
         run: node --test scripts/native-output.test.mjs scripts/audio-output.test.mjs scripts/player-audio.test.mjs scripts/crossfade.test.mjs scripts/music-video-playback.test.mjs
       - run: npm run build -- --publish never --mac dmg zip --${{ matrix.arch }} --config.mac.identity=- --config.mac.notarize=false
+        env:
+          CSC_FOR_PULL_REQUEST: 'true'
       - run: npm run verify:mac-package -- release ${{ matrix.arch }}
       - uses: actions/upload-artifact@v6
         with:
