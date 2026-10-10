@@ -1,6 +1,6 @@
 // The official music video of the playing song (found and checked by the main
 // process: electron/online/musicVideo.js), and whether its player is open.
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { create } from 'zustand'
 import { api } from './api'
 import { usePlayerStore } from './store/player'
@@ -39,35 +39,51 @@ export function loadMusicVideo(trackId) {
 export function useMusicVideo(track, enabled = true, prepare = false) {
   const id = enabled ? track?.id : null
   const [state, setState] = useState({ id: null, video: null, pending: false })
+  const [revision, setRevision] = useState(0)
+  const request = useRef(0)
   const downloadId = state.id === id ? state.video?.downloadId : null
   const job = useDownloads(s => downloadId ? s.jobs.find(j => j.id === downloadId) : null)
   useEffect(() => {
     if (!id) return undefined
+    const changing = event => {
+      if (event.detail?.trackId !== id && (!event.detail?.videoId || event.detail.videoId !== state.video?.videoId)) return
+      request.current++
+      setState(current => ({ ...current, pending: false, video: current.video ? { ...current.video, file: null, src: null, downloadId: null, needsDownload: true } : null }))
+    }
+    const refresh = () => setRevision(value => value + 1)
+    window.addEventListener('lokal:music-video-changing', changing)
+    window.addEventListener('lokal:refresh', refresh)
+    return () => { window.removeEventListener('lokal:music-video-changing', changing); window.removeEventListener('lokal:refresh', refresh) }
+  }, [id, state.video?.videoId])
+  useEffect(() => {
+    if (!id) return undefined
     bindProgress()
     let current = true
+    const token = ++request.current
     setState({ id, video: null, pending: true })
     loadMusicVideo(id).then(async video => {
-      if (!current) return
+      if (!current || token !== request.current) return
       if (!video || !prepare) { setState({ id, video, pending: false }); return }
-      const cached = await api.musicVideoPrepare(id).catch(e => ({ error: e.message }))
-      if (!current) return
-      setState({ id, video: cached?.error ? { ...video, error: cached.error } : cached, pending: !!cached?.downloadId })
-      if (cached?.downloadId) useDownloads.getState().load()
+      const prepared = await api.musicVideoPrepare(id).catch(e => ({ error: e.message }))
+      if (!current || token !== request.current) return
+      setState({ id, video: prepared?.error ? { ...video, error: prepared.error } : prepared, pending: !!prepared?.downloadId })
+      if (prepared?.downloadId) useDownloads.getState().load()
     })
     return () => { current = false }
-  }, [id, prepare])
+  }, [id, prepare, revision])
 
   useEffect(() => {
     if (!id || !prepare || !downloadId || !job || ['queued', 'downloading'].includes(job.status)) return undefined
     let current = true
+    const token = request.current
     if (job.status !== 'done') {
-      setState(s => ({ ...s, pending: false, video: { ...s.video, error: job.error || 'Music video download cancelled' } }))
+      setState(s => ({ ...s, pending: false, video: { ...s.video, downloadId: null, needsDownload: true, error: job.error || 'Music video download cancelled' } }))
       return undefined
     }
-    api.musicVideoPrepare(id).then(cached => {
-      if (current) setState(s => ({ id, video: cached?.error ? { ...s.video, error: cached.error } : cached, pending: !!cached?.downloadId }))
+    api.musicVideoPrepare(id).then(prepared => {
+      if (current && token === request.current) setState(s => ({ id, video: prepared?.error ? { ...s.video, error: prepared.error } : prepared, pending: !!prepared?.downloadId }))
     }).catch(e => {
-      if (current) setState(s => ({ ...s, pending: false, video: { ...s.video, error: e.message } }))
+      if (current && token === request.current) setState(s => ({ ...s, pending: false, video: { ...s.video, error: e.message } }))
     })
     return () => { current = false }
   }, [id, prepare, downloadId, job?.status])
@@ -76,13 +92,24 @@ export function useMusicVideo(track, enabled = true, prepare = false) {
   const downloadProgress = job && ['queued', 'downloading'].includes(job.status)
     ? { stage: job.status === 'queued' ? 'queued' : 'downloading', percent: job.progress }
     : null
-  return { video: mine ? state.video : null, loading: !!id && (!mine || state.pending), progress: downloadProgress || (progress?.message ? progress : mine && !state.pending ? null : progress) }
+  const download = async () => {
+    if (!id || state.pending) return
+    const token = ++request.current
+    setState(current => ({ ...current, pending: true }))
+    const result = await api.musicVideoDownload(id).catch(error => ({ error: error.message }))
+    if (token !== request.current) return
+    setState(current => ({ id, video: result?.error ? { ...current.video, error: result.error } : result, pending: !!result?.downloadId }))
+    if (result?.downloadId) useDownloads.getState().load()
+  }
+  return { video: mine ? state.video : null, loading: !!id && (!mine || state.pending), progress: downloadProgress || (progress?.message ? progress : mine && !state.pending ? null : progress), download }
 }
 
 export const useMusicVideoView = create(set => ({
   open: false,
+  mini: false,
   show: () => set({ open: true }),
   hide: () => set({ open: false }),
+  toggleMini: () => set(s => ({ mini: !s.mini })),
 }))
 
 /** Video time for a song time (seconds); null where the video doesn't have the song. */

@@ -22,6 +22,7 @@ import { recommendationKey } from '../recommendations'
 import { showToast } from './Toaster'
 import { useAppStore } from '../store/player'
 import { api } from '../api'
+import DiscoveryArtistButton from './DiscoveryArtistButton'
 
 /**
  * "In library" (all of a release) or "1/9" / "1 song" (part of it), for a
@@ -288,6 +289,7 @@ export default function OnlineArtist({ id, name: givenName, anchor = null }) {
               <button onClick={() => openRadio(nav, { artist: name, type: 'artist' }, userId)} className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-black/30 px-4 py-2 text-sm text-white backdrop-blur-sm transition-colors hover:border-accent/50"><Radio size={15} /> Artist radio</button>
               <button onClick={downloadPopular} disabled={!songs.tracks.length || busy} className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-black/30 px-4 py-2 text-sm text-white backdrop-blur-sm transition-colors hover:border-accent/50 disabled:opacity-40"><Download size={15} /> {busy ? 'Finding songs…' : 'Download popular songs'}</button>
               <RefreshButton onClick={data.refresh} loading={data.loading} loadedAt={data.loadedAt} className="border-white/15 bg-black/30 backdrop-blur-sm" />
+              <DiscoveryArtistButton name={name} className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-black/30 px-4 py-2 text-sm text-white" />
             </div>
           </div>
         </div>

@@ -662,10 +662,12 @@ class DownloadManager {
     if (ACTIVE.has(job.status)) await this.cancel(id)
     if (job.kind === 'music-video') {
       if (ACTIVE.has(job.status)) await this.waitFor(id)
+      const files = [...new Set([job.song, ...(job.filepaths || [])].filter(Boolean))]
+      try { require('../online/musicVideoDownloads').assertVideoFiles(this.db(), files) } catch (error) { return { error: error.message } }
       if (this.deps.deleteMusicVideo) {
         try { this.deps.deleteMusicVideo(job.opts.videoId) } catch (error) { return { error: error.message } }
       }
-      for (const file of new Set([job.song, ...(job.filepaths || [])].filter(Boolean))) {
+      for (const file of files) {
         try { fs.unlinkSync(file) } catch (error) { if (error.code !== 'ENOENT') return { error: error.message } }
       }
     }

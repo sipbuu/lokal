@@ -386,22 +386,13 @@ export default function Settings() {
   // Fill In Genres runs in the background; its progress, read every few seconds while it runs.
   const [genreJob, setGenreJob] = useState(null)
   const [missingRepairJob, setMissingRepairJob] = useState(null)
-  // Settings -> Library -> Maintenance: index every song's music video / lyrics
-  // ahead of time. Progress comes over IPC while either runs.
-  const [videoIndexJob, setVideoIndexJob] = useState(null)
   const [lyricsIndexJob, setLyricsIndexJob] = useState(null)
   const [videoMigration, setVideoMigration] = useState(null)
   const [videoMigrating, setVideoMigrating] = useState(false)
   useEffect(() => {
-    const offVideo = api.onMusicVideoIndexProgress?.(p => setVideoIndexJob(p))
     const offLyrics = api.onLyricsIndexProgress?.(p => setLyricsIndexJob(p))
-    return () => { offVideo?.(); offLyrics?.() }
+    return () => { offLyrics?.() }
   }, [])
-  const indexAllVideos = () => {
-    if (videoIndexJob?.running) { api.cancelMusicVideoIndex?.(); return }
-    setVideoIndexJob({ running: true, done: 0, total: 0, found: 0 })
-    Promise.resolve(api.indexAllMusicVideos?.()).catch(() => setVideoIndexJob(null))
-  }
   const indexAllLyrics = () => {
     if (lyricsIndexJob?.running) { api.cancelLyricsIndex?.(); return }
     setLyricsIndexJob({ running: true, done: 0, total: 0, found: 0 })
@@ -1242,14 +1233,6 @@ activeCategory === 'data' ? usersTried
             </button>
           </div>
         </Row>
-        {api.isElectron && (
-         <Row label="Index Music Videos" desc={`Finds and matches the official music video for every song in your library now, so they open at once later. ${indexText(videoIndexJob, 'videos')}`.trim()}>
-          <button onClick={indexAllVideos}
-            className="px-4 py-2 bg-card border border-border rounded-lg text-sm text-muted hover:text-white transition-colors">
-            {videoIndexJob?.running ? 'Stop' : 'Index All'}
-          </button>
-         </Row>
-         )}
          {api.isElectron && (<Row label="Move older video downloads (temporary migration)" desc={videoMigration?.error || (videoMigration ? `${videoMigration.completed ? `${videoMigration.migrated} moved · ${videoMigration.skipped} left unchanged. ` : ''}${videoMigration.count || 0} old files · ${fmtBytes(videoMigration.bytes || 0)} remaining. ${videoMigration.errors?.join(' · ') || 'Moves files into Videos artist folders without overwriting.'}` : 'Checks for older music-video files before moving them into your Videos folder.') }>
            <div className="flex items-center gap-2">
              <button onClick={loadVideoMigration} disabled={videoMigrating} className="px-4 py-2 bg-card border border-border rounded-lg text-sm text-muted hover:text-white transition-colors disabled:opacity-50">Check</button>

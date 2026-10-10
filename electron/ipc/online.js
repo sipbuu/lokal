@@ -145,11 +145,14 @@ function registerOnlineHandlers(ipcMain) {
         if (['downloading', 'queued'].includes(job.status)) { await manager.cancel(job.id); await manager.waitFor(job.id) }
       }
       const storage = require('../online/musicVideoDownloads')
-      storage.deleteVideoFiles(getDB(), video.videoId)
+      const files = [...manager.jobs.values()].filter(job => job.kind === 'music-video' && job.opts.videoId === video.videoId).flatMap(job => [job.song, ...(job.filepaths || [])]).filter(Boolean)
+      const local = musicVideoFile(video, { artist: trackArtist(trackId) })
+      if (local) files.push(local)
       for (const height of [1080, 720, 480]) {
         const file = storage.peekCachedVideoFile(video.videoId, { cacheDir: require('../cache').cacheDir('musicVideo'), videoHeight: height, touch: false })
-        if (file) require('fs').unlinkSync(file)
+        if (file) files.push(file)
       }
+      storage.deleteVideoFiles(getDB(), video.videoId, { files })
       for (const job of manager.jobs.values()) {
         if (job.kind === 'music-video' && job.opts.videoId === video.videoId) manager.update(job, { song: null, filepaths: [], removed: true, message: 'Downloaded video deleted' }, { persist: true, force: true })
       }
@@ -174,6 +177,7 @@ function registerOnlineHandlers(ipcMain) {
     storage.ensureDownloadsTable(getDB())
     return require('../online/musicVideoDownloads').migrateOldVideos({
       cacheDir: require('../cache').cacheDir('musicVideo'),
+      videosDir: storage.videosDir(),
       resolve: id => byId.get(id) || [...manager.jobs.values()].find(job => job.kind === 'music-video' && job.opts.videoId === id)?.opts || {},
       onMove: (from, to, video) => {
         const db = getDB()
@@ -276,15 +280,15 @@ async function musicVideoFor(trackId, { onProgress } = {}) {
   if (!track) return null
   const cacheFile = musicVideoMetadataFile()
   const matcher = require('../online/musicVideo')
-  const known = matcher.knownMusicVideos([track], { cacheFile })[0]?.video
-  if (known) return known
   ensureVideoLibrary()
+  const known = matcher.knownMusicVideos([track], { cacheFile, findFile: musicVideoFile })[0]?.video
+  if (known) return known
   for (const row of getDB().prepare('SELECT video_json FROM downloaded_music_videos').all()) {
-    try { const video = JSON.parse(row.video_json); if (video.trackId === trackId && video.motion === 'verified') return video } catch {}
+    try { const video = JSON.parse(row.video_json); if (video.trackId === trackId && (video.motion === 'verified' || musicVideoFile(video, track))) return video } catch {}
   }
   try {
     const saved = JSON.parse(getDB().prepare('SELECT video_json FROM saved_music_videos WHERE track_id = ?').get(trackId)?.video_json || 'null')
-    if (/^[\w-]{11}$/.test(String(saved?.videoId || '')) && saved.motion === 'verified') return saved
+    if (/^[\w-]{11}$/.test(String(saved?.videoId || '')) && (saved.motion === 'verified' || musicVideoFile(saved, track))) return saved
   } catch {}
   if (accountSession) await accountSession.credentials().catch(() => {})
   const { findFfmpeg } = require('./tools')
@@ -327,13 +331,27 @@ function ensureVideoLibrary() {
   require('../online/musicVideoDownloads').ensureDownloadsTable(getDB())
 }
 
+function musicVideoFile(video, track = {}) {
+  const storage = require('../online/musicVideoDownloads')
+  const height = storage.heightOf(settings().video_quality)
+  const recorded = storage.recordedVideoFile(getDB(), video.videoId, height)
+  if (recorded) return recorded
+  for (const videoHeight of new Set([height, 1080, 720, 480])) {
+    for (const artist of new Set([track.artist, video.artist].filter(Boolean))) {
+      const file = storage.peekDurableVideoFile(video.videoId, { artist, videoHeight })
+      if (file) return file
+    }
+    const legacy = storage.peekCachedVideoFile(video.videoId, { cacheDir: require('../cache').cacheDir('musicVideo'), videoHeight, touch: false })
+    if (legacy) return legacy
+  }
+  return null
+}
+
 function listMusicVideos() {
   ensureVideoLibrary()
   const tracks = getDB().prepare('SELECT * FROM tracks ORDER BY artist, title').all()
   const saved = new Map(getDB().prepare('SELECT track_id, video_json FROM saved_music_videos').all().map(row => [row.track_id, row.video_json]))
-  const { peekDurableVideoFile, recordedVideoFile, heightOf } = require('../online/musicVideoDownloads')
-  const options = { videoHeight: heightOf(settings().video_quality), touch: false }
-  const known = new Map(require('../online/musicVideo').knownMusicVideos(tracks, { cacheFile: musicVideoMetadataFile() }).map(item => [item.track.id, item]))
+  const known = new Map(require('../online/musicVideo').knownMusicVideos(tracks, { cacheFile: musicVideoMetadataFile(), findFile: musicVideoFile }).map(item => [item.track.id, item]))
   for (const row of getDB().prepare('SELECT video_json FROM downloaded_music_videos').all()) {
     try {
       const video = JSON.parse(row.video_json)
@@ -350,23 +368,27 @@ function listMusicVideos() {
       if (/^[\w-]{11}$/.test(String(video?.videoId || ''))) known.set(track.id, { track, video })
     } catch {}
   }
-  return [...known.values()].sort((a, b) => String(a.track.artist || '').localeCompare(String(b.track.artist || '')) || String(a.track.title || '').localeCompare(String(b.track.title || ''))).map(({ track, video }) => ({
-    track, video: { ...video, thumbnail: `https://i.ytimg.com/vi/${video.videoId}/mqdefault.jpg` },
-    saved: saved.has(track.id), downloaded: !!(recordedVideoFile(getDB(), video.videoId, options.videoHeight) || peekDurableVideoFile(video.videoId, { ...options, artist: video.artist || track.artist })),
-  }))
+  return [...known.values()].sort((a, b) => String(a.track.artist || '').localeCompare(String(b.track.artist || '')) || String(a.track.title || '').localeCompare(String(b.track.title || ''))).map(({ track, video }) => {
+    const file = musicVideoFile(video, track)
+    return {
+      track, video: { ...video, file, thumbnail: `https://i.ytimg.com/vi/${video.videoId}/mqdefault.jpg` },
+      saved: saved.has(track.id), downloaded: !!file,
+    }
+  })
 }
 
-/** Cache hit returns immediately; a miss becomes a real background queue job. */
 async function prepareMusicVideoFor(trackId, { wait = false, download = false } = {}) {
   const video = await musicVideoFor(trackId)
   if (!video) return null
-  const { peekDurableVideoFile, peekCachedVideoFile, recordedVideoFile, heightOf } = require('../online/musicVideoDownloads')
+  const { peekDurableVideoFile, recordedVideoFile, heightOf } = require('../online/musicVideoDownloads')
   const options = { videoHeight: heightOf(settings().video_quality), artist: trackArtist(trackId) || video.artist, title: video.title, trackId }
-  const file = recordedVideoFile(getDB(), video.videoId, options.videoHeight) || peekDurableVideoFile(video.videoId, options)
-  if (file) return { ...video, file }
+  const file = musicVideoFile(video, { artist: options.artist })
+  const durable = recordedVideoFile(getDB(), video.videoId, options.videoHeight) || peekDurableVideoFile(video.videoId, options)
+  if (durable || (file && !download)) return { ...video, file: durable || file }
   if (!download) {
-    const legacy = peekCachedVideoFile(video.videoId, { cacheDir: require('../cache').cacheDir('musicVideo'), videoHeight: options.videoHeight, touch: false })
-    if (legacy) return { ...video, file: legacy }
+    const manager = require('./downloader').manager()
+    const active = [...manager.jobs.values()].find(job => job.kind === 'music-video' && job.opts.videoId === video.videoId && ['queued', 'downloading'].includes(job.status))
+    return { ...video, file: null, ...(active ? { downloadId: active.id } : { needsDownload: true }) }
   }
   const { queueMusicVideo, waitForDownload } = require('./downloader')
   const queued = queueMusicVideo(video, options)
@@ -424,4 +446,4 @@ function registerStreamProtocol(protocol, net) {
   })
 }
 
-module.exports = { registerOnlineHandlers, registerStreamScheme, registerStreamProtocol, search, streamOptions, providers, songAudioFor, resolvedSourceAudio }
+module.exports = { registerOnlineHandlers, registerStreamScheme, registerStreamProtocol, search, streamOptions, providers, songAudioFor, resolvedSourceAudio, listMusicVideos, prepareMusicVideoFor }

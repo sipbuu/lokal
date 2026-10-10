@@ -550,12 +550,27 @@ function cacheKey(track) {
 }
 
 /** Already discovered matches only: listing Videos never downloads/scans songs. */
-function knownMusicVideos(tracks, { cacheFile, now = Date.now } = {}) {
+function knownMusicVideos(tracks, { cacheFile, now = Date.now, findFile } = {}) {
   const cache = readCache(cacheFile)
+  const local = new Map()
+  if (findFile) {
+    for (const [key, hit] of Object.entries(cache)) {
+      const parts = key.split('|')
+      if (!['v2', 'v3'].includes(parts[0])) continue
+      const hits = local.get(parts[1]) || []
+      hits.push(hit)
+      local.set(parts[1], hits)
+    }
+  }
   return (tracks || []).flatMap(track => {
-    const hit = cache[cacheKey(track)]
-    if (!hit?.video || hit.video.motion !== 'verified' || !/^[\w-]{11}$/.test(String(hit.video.videoId || '')) || now() - hit.at >= FOUND_TTL_MS) return []
-    return [{ track, video: hit.video }]
+    const key = cacheKey(track)
+    for (const hit of new Set([cache[key], ...(local.get(String(track.id)) || [])])) {
+      if (!hit?.video || !/^[\w-]{11}$/.test(String(hit.video.videoId || ''))) continue
+      const file = findFile?.(hit.video, track) || null
+      if (!file && (hit !== cache[key] || hit.video.motion !== 'verified' || now() - hit.at >= FOUND_TTL_MS)) continue
+      return [{ track, video: { ...hit.video, ...(file ? { file } : {}) } }]
+    }
+    return []
   })
 }
 

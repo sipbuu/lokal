@@ -126,14 +126,30 @@ function updateVideoReferences(db, from, to, video, dir) {
   })()
 }
 
-function deleteVideoFiles(db, videoId) {
+function assertVideoFiles(db, files) {
+  const normalize = file => {
+    let result = path.resolve(file)
+    try { result = fs.realpathSync(result) } catch {}
+    return process.platform === 'win32' ? result.toLowerCase() : result
+  }
+  const tracks = db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'tracks'").get()
+    ? db.prepare("SELECT file_path FROM tracks WHERE file_path NOT LIKE 'ghost://%'").all() : []
+  const audio = new Set(tracks.map(track => normalize(track.file_path)))
+  for (const file of files) {
+    if (typeof file !== 'string' || !['.mp4', '.webm'].includes(path.extname(file).toLowerCase()) || audio.has(normalize(file))) throw new Error('Refusing to delete a file that may belong to your audio library.')
+  }
+}
+
+function deleteVideoFiles(db, videoId, { files = [] } = {}) {
   ensureDownloadsTable(db)
   const rows = db.prepare('SELECT file_path FROM downloaded_music_videos WHERE video_id = ?').all(videoId)
-  for (const row of rows) {
-    try { fs.unlinkSync(row.file_path) } catch (error) { if (error.code !== 'ENOENT') throw error }
-    db.prepare('DELETE FROM downloaded_music_videos WHERE video_id = ? AND file_path = ?').run(videoId, row.file_path)
+  const paths = [...new Set([...rows.map(row => row.file_path), ...files].filter(Boolean))]
+  assertVideoFiles(db, paths)
+  for (const file of paths) {
+    try { fs.unlinkSync(file) } catch (error) { if (error.code !== 'ENOENT') throw error }
+    db.prepare('DELETE FROM downloaded_music_videos WHERE video_id = ? AND file_path = ?').run(videoId, file)
   }
-  return rows.length
+  return paths.length
 }
 
 function digest(file) {
@@ -333,4 +349,4 @@ function migrateOldVideos({ resolve, onProgress, onMove, ...options } = {}) {
   return { migrated, skipped, total: entries.length, migratedBytes: bytes, errors, ...migrationStatus(options) }
 }
 
-module.exports = { peekCachedVideoFile, downloadVideo, writeResponse, cachePath, heightOf, videosDir, durablePath, peekDurableVideoFile, migrationEntries, migrationStatus, migrateOldVideos, ensureDownloadsTable, rememberVideoFile, recordedVideoFile, deleteVideoFiles, safePart, replacePath, updateVideoReferences }
+module.exports = { peekCachedVideoFile, downloadVideo, writeResponse, cachePath, heightOf, videosDir, durablePath, peekDurableVideoFile, migrationEntries, migrationStatus, migrateOldVideos, ensureDownloadsTable, rememberVideoFile, recordedVideoFile, deleteVideoFiles, safePart, replacePath, updateVideoReferences, assertVideoFiles }
