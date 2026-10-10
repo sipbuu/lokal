@@ -185,7 +185,7 @@ export default function MusicVideoPlayer({ compact = false }) {
     <div className="relative aspect-video w-full overflow-hidden bg-black" aria-label={`Music video: ${currentTrack.title}`}>
       {!showVideo && (art ? <img src={art} alt="Artwork" className="absolute inset-0 h-full w-full object-contain" /> : <span className="absolute inset-0 flex items-center justify-center text-muted">♪</span>)}
       {video?.src && !video.error && !failed && <video key={video.videoId} ref={videoRef} src={video.src} muted playsInline preload="auto" disablePictureInPicture
-        onPlaying={() => { setReady(true); setEverPlayed(true) }} onCanPlay={sync} onLoadedMetadata={sync} onLoadedData={() => { setReady(true); sync() }} onSeeked={sync} onError={onVideoError}
+        onPlaying={() => { setReady(true); setEverPlayed(true); recoverRef.current = 0 }} onCanPlay={sync} onLoadedMetadata={sync} onLoadedData={() => { setReady(true); sync() }} onSeeked={sync} onError={onVideoError}
         className={`absolute inset-0 h-full w-full object-contain ${showVideo ? '' : 'opacity-0'}`} />}
       {!showVideo && message && <p role="status" className="absolute inset-x-0 bottom-0 bg-black/65 px-3 py-1 text-center text-[10px] text-white/80">{message}</p>}
       {canDownload && <button onClick={download} title="Download to your Videos folder" className="absolute right-2 top-2 inline-flex items-center gap-1 rounded-lg bg-black/75 px-2 py-1 text-xs text-white"><Download size={13} />Download</button>}
