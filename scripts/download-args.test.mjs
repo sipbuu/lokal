@@ -49,6 +49,6 @@ test('addon songs with identical media filenames get isolated, stable output pat
   assert.equal(output(first), output(first))
   assert.notEqual(output(first), output({ ...first, id: 'second' }))
   assert.notEqual(output(first), output({ ...first, provider: 'a-9876543210' }))
-  assert.ok(output({ ...first, id: '../../escape/%(title)s' }).startsWith('/music/'))
+  assert.ok(output({ ...first, id: '../../escape/%(title)s' }).replace(/\\/g, '/').startsWith('/music/'))
   assert.equal(output({ ...first, id: '../../escape/%(title)s' }).includes('escape'), false)
 })

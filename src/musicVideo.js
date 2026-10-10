@@ -18,7 +18,7 @@ function bindProgress() {
   progressBound = true
   api.onMusicVideoProgress?.(p => {
     if (!p?.trackId) return
-    useLookupProgress.setState(p.stage === 'done' ? state => { const next = { ...state }; delete next[p.trackId]; return next } : { [p.trackId]: p })
+    useLookupProgress.setState(p.stage === 'done' && !p.message ? state => { const next = { ...state }; delete next[p.trackId]; return next } : { [p.trackId]: p })
   })
 }
 
@@ -36,7 +36,6 @@ export function loadMusicVideo(trackId) {
   return lookups.get(trackId)
 }
 
-/** { video, loading, progress } for a track; optionally cache it for playback. */
 export function useMusicVideo(track, enabled = true, prepare = false) {
   const id = enabled ? track?.id : null
   const [state, setState] = useState({ id: null, video: null, pending: false })
@@ -50,7 +49,7 @@ export function useMusicVideo(track, enabled = true, prepare = false) {
     loadMusicVideo(id).then(async video => {
       if (!current) return
       if (!video || !prepare) { setState({ id, video, pending: false }); return }
-      const cached = await api.musicVideoCache(id).catch(e => ({ error: e.message }))
+      const cached = await api.musicVideoPrepare(id).catch(e => ({ error: e.message }))
       if (!current) return
       setState({ id, video: cached?.error ? { ...video, error: cached.error } : cached, pending: !!cached?.downloadId })
       if (cached?.downloadId) useDownloads.getState().load()
@@ -65,9 +64,7 @@ export function useMusicVideo(track, enabled = true, prepare = false) {
       setState(s => ({ ...s, pending: false, video: { ...s.video, error: job.error || 'Music video download cancelled' } }))
       return undefined
     }
-    // The job runs independently of this overlay. Re-check the file on completion
-    // (and on reopening); don't keep a stale path after cache eviction.
-    api.musicVideoCache(id).then(cached => {
+    api.musicVideoPrepare(id).then(cached => {
       if (current) setState(s => ({ id, video: cached?.error ? { ...s.video, error: cached.error } : cached, pending: !!cached?.downloadId }))
     }).catch(e => {
       if (current) setState(s => ({ ...s, pending: false, video: { ...s.video, error: e.message } }))
@@ -79,7 +76,7 @@ export function useMusicVideo(track, enabled = true, prepare = false) {
   const downloadProgress = job && ['queued', 'downloading'].includes(job.status)
     ? { stage: job.status === 'queued' ? 'queued' : 'downloading', percent: job.progress }
     : null
-  return { video: mine ? state.video : null, loading: !!id && (!mine || state.pending), progress: downloadProgress || (mine && !state.pending ? null : progress) }
+  return { video: mine ? state.video : null, loading: !!id && (!mine || state.pending), progress: downloadProgress || (progress?.message ? progress : mine && !state.pending ? null : progress) }
 }
 
 export const useMusicVideoView = create(set => ({

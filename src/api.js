@@ -415,9 +415,13 @@ export const api = {
     ? el().musicVideo(trackId).then(musicVideoResult)
     : Promise.resolve(null),
   // Download the discovered video into the shared cache for local playback.
-  musicVideoCache: (trackId) => isE() && el().musicVideoCache
-    ? el().musicVideoCache(trackId).then(musicVideoResult)
+  musicVideoDownload: (trackId) => isE() && el().musicVideoDownload
+    ? el().musicVideoDownload(trackId).then(musicVideoResult)
     : Promise.resolve(null),
+  musicVideoPrepare: (trackId) => isE() && el().musicVideoPrepare ? el().musicVideoPrepare(trackId).then(musicVideoResult) : Promise.resolve(null),
+  musicVideoDeleteDownload: (trackId) => isE() && el().musicVideoDeleteDownload ? el().musicVideoDeleteDownload(trackId) : Promise.resolve({ error: 'Music videos are available in the desktop app.' }),
+  musicVideoMigrationStatus: () => isE() && el().musicVideoMigrationStatus ? el().musicVideoMigrationStatus() : Promise.resolve({ count: 0, bytes: 0 }),
+  migrateMusicVideos: () => isE() && el().migrateMusicVideos ? el().migrateMusicVideos() : Promise.resolve({ error: 'Video migration is available in the desktop app.' }),
   musicVideoList: () => isE() && el().musicVideoList ? el().musicVideoList() : Promise.resolve([]),
   musicVideoSave: (trackId, saved = true) => isE() && el().musicVideoSave
     ? el().musicVideoSave(trackId, saved) : Promise.resolve({ error: 'Music videos are available in the desktop app.' }),

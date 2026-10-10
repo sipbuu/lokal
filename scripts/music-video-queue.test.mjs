@@ -1,11 +1,14 @@
 import assert from 'node:assert/strict'
 import { createRequire } from 'node:module'
 import { test } from 'node:test'
+import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
 
 const require = createRequire(import.meta.url)
 const { DownloadManager } = require('../electron/download/manager.js')
 const url = 'https://www.youtube.com/watch?v=4NRXx6U8ABQ'
-const options = { videoId: '4NRXx6U8ABQ', title: 'Blinding Lights', cacheDir: '/cache', videoHeight: 1080 }
+const options = { videoId: '4NRXx6U8ABQ', title: 'Blinding Lights', videosDir: '/videos', artist: 'The Weeknd', videoHeight: 1080 }
 
 function manager(deps = {}) {
   const mgr = new DownloadManager().configure({ findTools: () => ({ ytdlp: '/fixture/yt-dlp' }), ...deps })
@@ -14,7 +17,7 @@ function manager(deps = {}) {
   return mgr
 }
 
-test('video cache jobs share the real queue, deduplicate, and finish without audio library indexing', async () => {
+test('video downloads share the real queue, deduplicate, and finish without audio library indexing', async () => {
   let complete
   let progress
   const snapshots = []
@@ -35,12 +38,38 @@ test('video cache jobs share the real queue, deduplicate, and finish without aud
   assert.equal(mgr.list()[0].status, 'downloading')
   progress({ percent: 42 })
   assert.equal(mgr.list()[0].progress, 42)
-  complete('/cache/4NRXx6U8ABQ-1080.mp4')
+  complete('/videos/The Weeknd/Blinding Lights - 4NRXx6U8ABQ - 1080.mp4')
   const job = await mgr.waitFor(first.downloadId)
   assert.equal(job.status, 'done')
-  assert.equal(job.song, '/cache/4NRXx6U8ABQ-1080.mp4')
+  assert.equal(job.song, '/videos/The Weeknd/Blinding Lights - 4NRXx6U8ABQ - 1080.mp4')
+  assert.deepEqual(job.filepaths, [job.song])
   assert.equal(indexed, false)
   assert.ok(snapshots.some(s => s.status === 'done'))
+})
+
+test('completed video job paths survive restart and removal deletes the real file', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'lokal-video-queue-'))
+  const file = path.join(root, 'video.mp4')
+  fs.writeFileSync(file, 'video')
+  const Database = require('better-sqlite3')
+  const db = new Database(':memory:')
+  const deps = { getDB: () => db, findTools: () => ({ ytdlp: 'fixture' }), downloadMusicVideo: async () => file }
+  const original = new DownloadManager().configure(deps)
+  original.initialized = true
+  original.ensureTable()
+  try {
+    const queued = original.enqueue('music-video', url, options)
+    await original.waitFor(queued.downloadId)
+    const restarted = new DownloadManager().configure(deps)
+    restarted.init()
+    const job = restarted.list().find(job => job.id === queued.downloadId)
+    assert.equal(job.status, 'done')
+    assert.equal(job.song, file)
+    assert.deepEqual(job.filepaths, [file])
+    assert.deepEqual(await restarted.remove(queued.downloadId), { success: true })
+    assert.equal(fs.existsSync(file), false)
+    assert.equal(db.prepare('SELECT id FROM download_jobs').all().length, 0)
+  } finally { db.close(); fs.rmSync(root, { recursive: true, force: true }) }
 })
 
 test('video jobs respect download concurrency and can be cancelled from Downloads', async () => {

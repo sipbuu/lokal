@@ -8,8 +8,7 @@
 //      (onset envelopes, correlated window by window). That finds where the
 //      song sits in the video -- an intro, a skit in the middle -- as a map
 //      from song time to video time, and rejects a video whose audio isn't
-//      the song. Without ffmpeg only videos as long as the song are used,
-//      played from the start.
+//      the song.
 //
 // The video plays muted, following the song's own audio (see
 // src/musicVideo.js), so lossless files, EQ and crossfade are untouched.
@@ -48,7 +47,7 @@ const MISSING_TTL_MS = 3 * 24 * 60 * 60 * 1000
 
 // Words in a video's title that mean it isn't the recording itself, unless the
 // song's own title has them too.
-const OTHER_VERSION = ['live', 'lyric', 'lyrics', 'visualizer', 'visualiser', 'audio', 'cover', 'remix', 'sped', 'slowed', 'reverb', 'karaoke',
+const OTHER_VERSION = ['live', 'lyric', 'lyrics', 'visualizer', 'visualiser', 'audio', 'cover', 'slideshow', 'photo', 'static', 'remix', 'sped', 'slowed', 'reverb', 'karaoke',
   'instrumental', 'teaser', 'trailer', 'behind', 'making', 'reaction', 'acoustic', '8d', 'nightcore', 'boosted', 'extended', 'piano',
   'tutorial', 'practice', 'performance', 'session', 'concert', 'tour', 'rehearsal', 'shorts', 'loop', 'hour', 'mashup', 'parody']
 // Tags around the title that don't change what it is.
@@ -104,7 +103,7 @@ function sameArtist(a, b) {
 
 /** Whether a search result is the song's own official music video. */
 function isMusicVideoFor(track, item, { requireOfficial = true, requireDuration = true } = {}) {
-  if (!item?.videoId || item.kind === 'song' || (requireOfficial && !item.official)) return false
+  if (!item?.videoId || item.kind === 'song' || item.visualMotion === false || item.isStatic === true || (requireOfficial && !item.official)) return false
   const songNames = artistNames(track.artist)
   const videoNames = artistNames((item.artists || []).join(', ') || item.artist)
   if (!songNames.length || !videoNames.some(name => songNames.some(wantedName => sameArtist(name, wantedName)))) return false
@@ -121,6 +120,73 @@ function isMusicVideoFor(track, item, { requireOfficial = true, requireDuration 
   const length = Number(track.duration)
   if (!(duration > 0) || !(length > 0)) return false
   return duration >= length - LEAD_S && duration <= length + MAX_EXTRA_S
+}
+
+async function visualMotionOf(item, probe) {
+  if (item?.visualMotion === true || item?.hasMotion === true) return true
+  if (item?.visualMotion === false || item?.hasMotion === false || item?.isStatic === true) return false
+  if (typeof probe !== 'function') return null
+  try { return await probe(item) } catch { return null }
+}
+
+function hasVisualMotion(frames, frameSize = 64 * 36) {
+  const count = Math.floor(frames.length / frameSize)
+  if (count < 12) return null
+  let changed = 0
+  let textured = 0
+  for (let frame = 1; frame < count; frame++) {
+    let mean = 0
+    let difference = 0
+    let variation = 0
+    const start = frame * frameSize
+    for (let pixel = 0; pixel < frameSize; pixel++) mean += frames[start + pixel] - frames[start - frameSize + pixel]
+    mean /= frameSize
+    for (let pixel = 0; pixel < frameSize; pixel++) {
+      difference += Math.abs(frames[start + pixel] - frames[start - frameSize + pixel] - mean)
+      if (pixel % 64) variation += Math.abs(frames[start + pixel] - frames[start + pixel - 1])
+    }
+    if (variation / frameSize > 1) textured++
+    if (difference / frameSize > 1.2) changed++
+  }
+  if (!textured) return null
+  return changed >= Math.max(5, (count - 1) * 0.55)
+}
+
+function decodeVisualFrames(ffmpeg, input, { headers = {}, start = 0, seconds = 6 } = {}) {
+  return new Promise((resolve, reject) => {
+    const headerText = Object.entries(headers).map(([key, value]) => `${key}: ${value}\r\n`).join('')
+    const args = ['-v', 'error', '-nostdin', ...(headerText && /^https?:/.test(input) ? ['-headers', headerText] : []),
+      '-ss', String(start), '-i', input, '-t', String(seconds), '-an', '-vf', 'fps=12,scale=64:36', '-pix_fmt', 'gray', '-f', 'rawvideo', 'pipe:1']
+    const proc = spawn(ffmpeg, args, { windowsHide: true })
+    const chunks = []
+    const timer = setTimeout(() => { proc.kill(); reject(new Error('Video motion validation timed out')) }, 20000)
+    proc.stdout.on('data', data => chunks.push(data))
+    proc.stderr.on('data', () => {})
+    proc.on('error', error => { clearTimeout(timer); reject(error) })
+    proc.on('close', code => {
+      clearTimeout(timer)
+      if (code !== 0) reject(new Error('Video motion validation could not decode frames'))
+      else resolve(Buffer.concat(chunks))
+    })
+  })
+}
+
+async function validateVisualMotion(ffmpeg, source, duration, { decode = decodeVisualFrames } = {}) {
+  if (!ffmpeg || typeof source !== 'function' || !(Number(duration) > 30)) return null
+  let checked = 0
+  let moving = 0
+  for (const fraction of [0.15, 0.35, 0.6, 0.8]) {
+    try {
+      const media = await source()
+      if (!media?.input) return null
+      const frames = await decode(ffmpeg, media.input, { headers: media.headers, start: Math.min(Number(duration) - 6, Number(duration) * fraction) })
+      const motion = hasVisualMotion(frames)
+      if (motion !== null) checked++
+      if (motion === true) moving++
+      if (moving >= 2) return true
+    } catch { return null }
+  }
+  return checked >= 3 ? false : null
 }
 
 async function searchVideos(query, fetchImpl = fetch) {
@@ -480,7 +546,7 @@ function writeCache(file, cache) {
 }
 
 function cacheKey(track) {
-  return ['v2', track.id, clean(track.title), clean(track.artist), Math.round(Number(track.duration) || 0)].join('|')
+  return ['v3', track.id, clean(track.title), clean(track.artist), Math.round(Number(track.duration) || 0)].join('|')
 }
 
 /** Already discovered matches only: listing Videos never downloads/scans songs. */
@@ -488,7 +554,7 @@ function knownMusicVideos(tracks, { cacheFile, now = Date.now } = {}) {
   const cache = readCache(cacheFile)
   return (tracks || []).flatMap(track => {
     const hit = cache[cacheKey(track)]
-    if (!hit?.video || !/^[\w-]{11}$/.test(String(hit.video.videoId || '')) || now() - hit.at >= FOUND_TTL_MS) return []
+    if (!hit?.video || hit.video.motion !== 'verified' || !/^[\w-]{11}$/.test(String(hit.video.videoId || '')) || now() - hit.at >= FOUND_TTL_MS) return []
     return [{ track, video: hit.video }]
   })
 }
@@ -503,7 +569,7 @@ const pending = new Map()
  * `onProgress({ stage, index, total })` hears about each step: 'searching',
  * 'checking' (with index/total), 'fallback' (the vanity-free title's turn).
  */
-async function findMusicVideo(track, { ffmpeg, songAudio, videoAudio, fetchImpl = fetch, cacheFile, now = Date.now, audioDbSearch = audioDb.searchTracks, youtubeSearch, onProgress } = {}) {
+async function findMusicVideo(track, { ffmpeg, songAudio, videoAudio, fetchImpl = fetch, cacheFile, now = Date.now, audioDbSearch = audioDb.searchTracks, youtubeSearch, onProgress, visualMotion } = {}) {
   if (!track?.title || !track?.artist || !(Number(track.duration) > 30)) return null
   const progress = (update) => { try { onProgress?.(update) } catch {} }
   const key = cacheKey(track)
@@ -525,23 +591,26 @@ async function findMusicVideo(track, { ffmpeg, songAudio, videoAudio, fetchImpl 
         // By title alone (vanity-free fallback), an absurd length is still out.
         const plausible = !Number.isFinite(Number(item.duration)) || (item.duration >= 60 && item.duration <= Number(wanted.duration) * 2 + 300)
         const byTitle = acceptByTitle && plausible
+        const motion = await visualMotionOf(item, visualMotion)
+        if (motion === false) continue
+        if (motion !== true) { inconclusive = true; progress({ stage: 'motion-unverified', message: 'Video motion could not be verified. Continuing with the song and artwork.' }); continue }
         if (ffmpeg && songAudio && videoAudio) {
           try {
             songEnv ||= audioFeatures(await decodeFrom(ffmpeg, songAudio))
             const videoEnv = audioFeatures(await decodeFrom(ffmpeg, attempt => videoAudio(item.videoId, attempt)))
             const segments = alignAudio(songEnv, videoEnv)
-            if (segments) { video = describe(item, segments, 'audio'); break }
+            if (segments) { video = describe(item, segments, 'audio', motion === true); break }
             // Heard, and it isn't the song. A vanity-free fallback expects
             // that (the video is another version's): the title match is enough.
-            if (byTitle) { video = describe(item, [{ start: 0, end: null, offset: 0 }], 'title'); break }
+            if (byTitle) { video = describe(item, [{ start: 0, end: null, offset: 0 }], 'title', motion === true); break }
             continue
           } catch {
             // Couldn't listen (offline, no stream): fall back to the length.
             inconclusive = true
           }
         }
-        if (sameLength) { video = describe(item, [{ start: 0, end: null, offset: 0 }], 'length'); break }
-        if (byTitle) { video = describe(item, [{ start: 0, end: null, offset: 0 }], 'title'); break }
+        if (sameLength) { video = describe(item, [{ start: 0, end: null, offset: 0 }], 'length', motion === true); break }
+        if (byTitle) { video = describe(item, [{ start: 0, end: null, offset: 0 }], 'title', motion === true); break }
       }
       return { video, inconclusive }
     }
@@ -560,7 +629,7 @@ async function findMusicVideo(track, { ffmpeg, songAudio, videoAudio, fetchImpl 
       fresh[key] = { at: now(), video }
       writeCache(cacheFile, fresh)
     }
-    progress({ stage: 'done', found: !!video })
+    progress({ stage: 'done', found: !!video, ...(inconclusive && !video ? { message: 'Video validation could not finish. Continuing with the song and artwork.' } : {}) })
     return video
   })().finally(() => pending.delete(key))
   pending.set(key, job)
@@ -582,8 +651,8 @@ async function decodeFrom(ffmpeg, source) {
   throw error
 }
 
-function describe(item, segments, check) {
-  return { videoId: item.videoId, title: item.title, artist: item.artist, duration: item.duration, thumbnail: item.thumbnail || null, segments, check }
+function describe(item, segments, check, motionVerified = false) {
+  return { videoId: item.videoId, title: item.title, artist: item.artist, duration: item.duration, thumbnail: item.thumbnail || null, segments, check, motion: motionVerified ? 'verified' : 'unverified' }
 }
 
 /** Video time for a song time (seconds), from the segments; null where the video has no such moment. */
@@ -594,5 +663,5 @@ function videoTimeFor(segments, time) {
 
 module.exports = {
   findMusicVideo, knownMusicVideos, discoveredVideos, databaseVideos, isMusicVideoFor, baseTitle, plainTitle, artistNames, audioFeatures, alignAudio, matchAudio, decodeMono, videoTimeFor,
-  VIDEOS_PARAMS, FPS,
+  VIDEOS_PARAMS, FPS, visualMotionOf, hasVisualMotion, decodeVisualFrames, validateVisualMotion,
 }

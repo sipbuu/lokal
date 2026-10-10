@@ -390,6 +390,8 @@ export default function Settings() {
   // ahead of time. Progress comes over IPC while either runs.
   const [videoIndexJob, setVideoIndexJob] = useState(null)
   const [lyricsIndexJob, setLyricsIndexJob] = useState(null)
+  const [videoMigration, setVideoMigration] = useState(null)
+  const [videoMigrating, setVideoMigrating] = useState(false)
   useEffect(() => {
     const offVideo = api.onMusicVideoIndexProgress?.(p => setVideoIndexJob(p))
     const offLyrics = api.onLyricsIndexProgress?.(p => setLyricsIndexJob(p))
@@ -404,6 +406,15 @@ export default function Settings() {
     if (lyricsIndexJob?.running) { api.cancelLyricsIndex?.(); return }
     setLyricsIndexJob({ running: true, done: 0, total: 0, found: 0 })
     Promise.resolve(api.indexAllLyrics?.()).catch(() => setLyricsIndexJob(null))
+  }
+  const loadVideoMigration = () => Promise.resolve(api.musicVideoMigrationStatus?.()).then(setVideoMigration).catch(error => setVideoMigration({ error: error.message }))
+  const migrateVideos = async () => {
+    setVideoMigrating(true)
+    try {
+      const result = await api.migrateMusicVideos?.()
+      if (result?.error) setVideoMigration({ error: result.error })
+      else { setVideoMigration({ ...result, completed: true }); window.dispatchEvent(new Event('lokal:refresh')) }
+    } catch (error) { setVideoMigration({ error: error.message }) } finally { setVideoMigrating(false) }
   }
   const indexText = (job, what) => job?.running
     ? `${job.done || 0} of ${job.total || '…'} songs · ${job.found || 0} ${what} found${job.title ? ` · ${job.title}` : ''}`
@@ -1232,13 +1243,19 @@ activeCategory === 'data' ? usersTried
           </div>
         </Row>
         {api.isElectron && (
-        <Row label="Index Music Videos" desc={`Finds and matches the official music video for every song in your library now, so they open at once later. ${indexText(videoIndexJob, 'videos')}`.trim()}>
+         <Row label="Index Music Videos" desc={`Finds and matches the official music video for every song in your library now, so they open at once later. ${indexText(videoIndexJob, 'videos')}`.trim()}>
           <button onClick={indexAllVideos}
             className="px-4 py-2 bg-card border border-border rounded-lg text-sm text-muted hover:text-white transition-colors">
             {videoIndexJob?.running ? 'Stop' : 'Index All'}
           </button>
-        </Row>
-        )}
+         </Row>
+         )}
+         {api.isElectron && (<Row label="Move older video downloads (temporary migration)" desc={videoMigration?.error || (videoMigration ? `${videoMigration.completed ? `${videoMigration.migrated} moved · ${videoMigration.skipped} left unchanged. ` : ''}${videoMigration.count || 0} old files · ${fmtBytes(videoMigration.bytes || 0)} remaining. ${videoMigration.errors?.join(' · ') || 'Moves files into Videos artist folders without overwriting.'}` : 'Checks for older music-video files before moving them into your Videos folder.') }>
+           <div className="flex items-center gap-2">
+             <button onClick={loadVideoMigration} disabled={videoMigrating} className="px-4 py-2 bg-card border border-border rounded-lg text-sm text-muted hover:text-white transition-colors disabled:opacity-50">Check</button>
+             <button onClick={migrateVideos} disabled={videoMigrating || !videoMigration?.count} className="px-4 py-2 bg-card border border-border rounded-lg text-sm text-muted hover:text-white transition-colors disabled:opacity-50">{videoMigrating ? 'Moving…' : 'Move downloads'}</button>
+           </div>
+         </Row>)}
         {api.isElectron && (
         <Row label="Index Lyrics" desc={`Fetches and keeps the lyrics of every song in your library now, so they open at once later. ${indexText(lyricsIndexJob, 'lyrics')}`.trim()}>
           <button onClick={indexAllLyrics}
@@ -2255,13 +2272,13 @@ activeCategory === 'data' ? usersTried
 
       {api.isElectron && inCategory('data') && (
       <Section title="Cache">
-        <Row label="Cache Size Limit" desc="Moving covers, music videos, and converted copies of songs (Apple Lossless, WMA…) are kept so they load faster. Past this size, the oldest are removed.">
+         <Row label="Cache Size Limit" desc="Moving covers and converted copies of songs (Apple Lossless, WMA…) are kept so they load faster. Past this size, the oldest are removed. Downloaded videos are kept in your Videos folder.">
           <select aria-label="Cache size limit" value={String(Math.round((cacheInfo?.limit || 4096 * 1048576) / 1048576))} onChange={e => setCacheLimit(Number(e.target.value))}
             className="bg-card border border-border rounded-lg px-3 py-1.5 text-xs text-white outline-none focus:border-accent/50">
             {(cacheInfo?.limits || [512, 1024, 2048, 4096, 8192, 16384]).map(mb => <option key={mb} value={String(mb)}>{mb >= 1024 ? `${mb / 1024} GB` : `${mb} MB`}</option>)}
           </select>
         </Row>
-        <Row label="In Use" desc={cacheInfo ? `Music videos ${fmtBytes(cacheInfo.musicVideo)} · Moving covers ${fmtBytes(cacheInfo.motion)} · Playable copies ${fmtBytes(cacheInfo.playback)} · Web cache ${fmtBytes(cacheInfo.web)}` : 'Measuring…'}>
+         <Row label="In Use" desc={cacheInfo ? `Older videos awaiting migration ${fmtBytes(cacheInfo.musicVideo)} · Moving covers ${fmtBytes(cacheInfo.motion)} · Playable copies ${fmtBytes(cacheInfo.playback)} · Web cache ${fmtBytes(cacheInfo.web)}` : 'Measuring…'}>
           <div className="flex items-center gap-3">
             <span className="text-sm text-white font-display">{cacheInfo ? fmtBytes((cacheInfo.motion || 0) + (cacheInfo.playback || 0) + (cacheInfo.musicVideo || 0) + (cacheInfo.web || 0)) : '—'}</span>
             <button onClick={clearCache} disabled={!cacheInfo || cacheInfo.busy}

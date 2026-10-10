@@ -58,8 +58,6 @@ export default function MusicVideoPlayer() {
     setStalled(false); setOutside(false)
     recoverRef.current = 0
   }, [video?.videoId, open])
-  // A cached file's brief decode needs no loading card/text. Downloads alone
-  // get progress, after a short delay to avoid a flash on a cache hit.
   useEffect(() => {
     setSlowLoad(false)
     if (!open || !loading) return undefined
@@ -127,8 +125,6 @@ export default function MusicVideoPlayer() {
     return () => { clearInterval(id); document.removeEventListener('visibilitychange', sync) }
   }, [open, video?.src, isPlaying, sync])
 
-  // A local cached file should not drop, but retain recovery for files removed
-  // by the cache limit while the player is open.
   const onVideoError = useCallback(() => {
     const el = videoRef.current
     if (el && recoverRef.current < RECOVER_TRIES) {
@@ -146,7 +142,7 @@ export default function MusicVideoPlayer() {
     }
     setFailed(true)
     setStalled(false)
-    setErrorText(el?.error?.message || 'Could not open the cached video')
+    setErrorText(el?.error?.message || 'Could not open the downloaded video')
   }, [video])
 
   const art = trackArtURL(currentTrack)
@@ -166,8 +162,8 @@ export default function MusicVideoPlayer() {
       : 'Looking for the music video'
   const loadingText = loading && slowLoad ? lookupText : null
   const message = {
-    none: 'No music video for this song',
-    failed: video?.error ? `The music video couldn't be cached: ${video.error}` : errorText ? `The music video couldn't be played: ${errorText}` : "The music video couldn't be played",
+    none: lookupProgress?.message || 'No verified music video for this song. Continuing with the song and artwork.',
+    failed: video?.error ? `The music video couldn't be downloaded: ${video.error}` : errorText ? `The music video couldn't be played: ${errorText}` : "The music video couldn't be played",
     outside: null,
     loading: loadingText,
   }[status]
