@@ -415,15 +415,24 @@ export const api = {
     ? el().musicVideo(trackId).then(musicVideoResult)
     : Promise.resolve(null),
   // Download the discovered video into the shared cache for local playback.
-  musicVideoCache: (trackId) => isE() && el().musicVideoCache
-    ? el().musicVideoCache(trackId).then(musicVideoResult)
+  musicVideoDownload: (trackId) => isE() && el().musicVideoDownload
+    ? el().musicVideoDownload(trackId).then(musicVideoResult)
     : Promise.resolve(null),
+  musicVideoPrepare: (trackId) => isE() && el().musicVideoPrepare ? el().musicVideoPrepare(trackId).then(musicVideoResult) : Promise.resolve(null),
+  musicVideoDeleteDownload: async (trackId, videoId) => {
+    if (!isE() || !el().musicVideoDeleteDownload) return { error: 'Music videos are available in the desktop app.' }
+    window.dispatchEvent(new CustomEvent('lokal:music-video-changing', { detail: { trackId, videoId } }))
+    await new Promise(resolve => setTimeout(resolve, 0))
+    try { return await el().musicVideoDeleteDownload(trackId) }
+    finally { window.dispatchEvent(new Event('lokal:refresh')) }
+  },
+  musicVideoMigrationStatus: () => isE() && el().musicVideoMigrationStatus ? el().musicVideoMigrationStatus() : Promise.resolve({ count: 0, bytes: 0 }),
+  migrateMusicVideos: () => isE() && el().migrateMusicVideos ? el().migrateMusicVideos() : Promise.resolve({ error: 'Video migration is available in the desktop app.' }),
   musicVideoList: () => isE() && el().musicVideoList ? el().musicVideoList() : Promise.resolve([]),
   musicVideoSave: (trackId, saved = true) => isE() && el().musicVideoSave
     ? el().musicVideoSave(trackId, saved) : Promise.resolve({ error: 'Music videos are available in the desktop app.' }),
   // How the lookup is going ({ trackId, stage, index, total }), desktop only.
   onMusicVideoProgress: (fn) => isE() && el().onMusicVideoProgress ? el().onMusicVideoProgress((_, p) => fn(p)) : () => {},
-  // Settings -> Library -> Maintenance: index every song's music video / lyrics.
   indexAllMusicVideos: () => isE() && el().indexAllMusicVideos ? el().indexAllMusicVideos() : Promise.resolve(null),
   cancelMusicVideoIndex: () => isE() && el().cancelMusicVideoIndex ? el().cancelMusicVideoIndex() : Promise.resolve(null),
   onMusicVideoIndexProgress: (fn) => isE() && el().onMusicVideoIndexProgress ? el().onMusicVideoIndexProgress((_, p) => fn(p)) : () => {},

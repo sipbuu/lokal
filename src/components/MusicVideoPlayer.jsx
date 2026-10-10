@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { motion, AnimatePresence, useReducedMotion } from 'framer-motion'
-import { X, Play, Pause, SkipBack, SkipForward, Mic2, Clapperboard, Expand, Minimize } from 'lucide-react'
+import { X, Play, Pause, SkipBack, SkipForward, Mic2, Clapperboard, Expand, Minimize, Download } from 'lucide-react'
 import { useShallow } from 'zustand/react/shallow'
 import { usePlayerStore } from '../store/player'
 import LyricsPanel from './LyricsPanel'
@@ -26,13 +26,13 @@ function fmt(s) {
  * lyrics can sit over its side. The video is muted and follows the song, so
  * what you hear is still the song itself (lossless, EQ, crossfade...).
  */
-export default function MusicVideoPlayer() {
-  const { open, hide } = useMusicVideoView(useShallow(s => ({ open: s.open, hide: s.hide })))
+export default function MusicVideoPlayer({ compact = false }) {
+  const { open, hide } = useMusicVideoView(useShallow(s => ({ open: compact ? s.mini : s.open, hide: s.hide })))
   const { currentTrack, isPlaying, togglePlay, next, prev, progress, duration } = usePlayerStore(useShallow(s => ({
     currentTrack: s.currentTrack, isPlaying: s.isPlaying, togglePlay: s.togglePlay, next: s.next, prev: s.prev,
     progress: s.progress, duration: s.duration,
   })))
-  const { video, loading, progress: lookupProgress } = useMusicVideo(currentTrack, open, open)
+  const { video, loading, progress: lookupProgress, download } = useMusicVideo(currentTrack, open, open)
   const reduceMotion = useReducedMotion()
   const videoRef = useRef(null)
   const [ready, setReady] = useState(false)
@@ -57,9 +57,7 @@ export default function MusicVideoPlayer() {
     setReady(false); setEverPlayed(false); setFailed(false); setErrorText(null)
     setStalled(false); setOutside(false)
     recoverRef.current = 0
-  }, [video?.videoId, open])
-  // A cached file's brief decode needs no loading card/text. Downloads alone
-  // get progress, after a short delay to avoid a flash on a cache hit.
+  }, [video?.videoId, video?.src, open])
   useEffect(() => {
     setSlowLoad(false)
     if (!open || !loading) return undefined
@@ -95,7 +93,7 @@ export default function MusicVideoPlayer() {
     idleTimer.current = setTimeout(() => setIdle(true), IDLE_MS)
   }, [])
   useEffect(() => {
-    if (!open) return undefined
+    if (!open || compact) return undefined
     wake()
     const onKey = (e) => {
       if (e.key !== 'Escape') return
@@ -107,7 +105,7 @@ export default function MusicVideoPlayer() {
     }
     window.addEventListener('keydown', onKey, true)
     return () => { window.removeEventListener('keydown', onKey, true); clearTimeout(idleTimer.current) }
-  }, [open, hide, wake])
+  }, [open, compact, hide, wake])
 
   const sync = useCallback(() => {
     const result = syncVideo(videoRef.current, {
@@ -127,8 +125,6 @@ export default function MusicVideoPlayer() {
     return () => { clearInterval(id); document.removeEventListener('visibilitychange', sync) }
   }, [open, video?.src, isPlaying, sync])
 
-  // A local cached file should not drop, but retain recovery for files removed
-  // by the cache limit while the player is open.
   const onVideoError = useCallback(() => {
     const el = videoRef.current
     if (el && recoverRef.current < RECOVER_TRIES) {
@@ -146,7 +142,7 @@ export default function MusicVideoPlayer() {
     }
     setFailed(true)
     setStalled(false)
-    setErrorText(el?.error?.message || 'Could not open the cached video')
+    setErrorText(el?.error?.message || 'Could not open the downloaded video')
   }, [video])
 
   const art = trackArtURL(currentTrack)
@@ -154,6 +150,7 @@ export default function MusicVideoPlayer() {
   const status = loading ? 'loading'
     : !video ? 'none'
       : video.error ? 'failed'
+      : video.needsDownload ? 'download'
       : failed ? 'failed'
         : outside ? 'outside'
           : ready || everPlayed ? 'playing' : 'loading'
@@ -166,11 +163,13 @@ export default function MusicVideoPlayer() {
       : 'Looking for the music video'
   const loadingText = loading && slowLoad ? lookupText : null
   const message = {
-    none: 'No music video for this song',
-    failed: video?.error ? `The music video couldn't be cached: ${video.error}` : errorText ? `The music video couldn't be played: ${errorText}` : "The music video couldn't be played",
+    none: lookupProgress?.message || 'No verified music video for this song. Continuing with the song and artwork.',
+    failed: video?.error ? `The music video couldn't be downloaded: ${video.error}` : errorText ? `The music video couldn't be played: ${errorText}` : "The music video couldn't be played",
+    download: 'Download this video to your Videos folder to play it. Your song keeps playing.',
     outside: null,
     loading: loadingText,
   }[status]
+  const canDownload = !!video?.videoId && !video.src && !loading && !video.downloadId
   // The cover card never sits over open lyrics; the shade behind them is enough.
   const showCoverCard = !showVideo && !showLyrics
   const chromeHidden = idle && showVideo
@@ -181,6 +180,17 @@ export default function MusicVideoPlayer() {
       state: usePlayerStore.getState(), element: videoRef.current, segments: video?.segments,
     })
   }
+
+  if (compact) return open && currentTrack ? (
+    <div className="relative aspect-video w-full overflow-hidden bg-black" aria-label={`Music video: ${currentTrack.title}`}>
+      {!showVideo && (art ? <img src={art} alt="Artwork" className="absolute inset-0 h-full w-full object-contain" /> : <span className="absolute inset-0 flex items-center justify-center text-muted">♪</span>)}
+      {video?.src && !video.error && !failed && <video key={video.videoId} ref={videoRef} src={video.src} muted playsInline preload="auto" disablePictureInPicture
+        onPlaying={() => { setReady(true); setEverPlayed(true) }} onCanPlay={sync} onLoadedMetadata={sync} onLoadedData={() => { setReady(true); sync() }} onSeeked={sync} onError={onVideoError}
+        className={`absolute inset-0 h-full w-full object-contain ${showVideo ? '' : 'opacity-0'}`} />}
+      {!showVideo && message && <p role="status" className="absolute inset-x-0 bottom-0 bg-black/65 px-3 py-1 text-center text-[10px] text-white/80">{message}</p>}
+      {canDownload && <button onClick={download} title="Download to your Videos folder" className="absolute right-2 top-2 inline-flex items-center gap-1 rounded-lg bg-black/75 px-2 py-1 text-xs text-white"><Download size={13} />Download</button>}
+    </div>
+  ) : null
 
   return (
     <AnimatePresence>
@@ -222,13 +232,14 @@ export default function MusicVideoPlayer() {
                     {message}
                   </div>
                 )}
+                {canDownload && <button onClick={download} className="inline-flex items-center gap-2 rounded-full bg-white/90 px-5 py-2 text-sm text-black"><Download size={16} />Download to Videos</button>}
               </motion.div>
             )}
           </AnimatePresence>
 
           {/* With the lyrics open the cover card stays away; the status still speaks. */}
           {!showVideo && showLyrics && message && (
-            <div className="absolute top-20 left-8 text-sm text-white/60" aria-live="polite">{message}</div>
+            <div className="absolute top-20 left-8 text-sm text-white/60" aria-live="polite">{message}{canDownload && <button onClick={download} className="ml-3 rounded-lg bg-white/90 px-3 py-1 text-black">Download to Videos</button>}</div>
           )}
 
           {video?.src && !video.error && !failed && (

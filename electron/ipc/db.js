@@ -2,6 +2,7 @@ const Database = require('better-sqlite3')
 const path = require('path')
 const fs = require('fs-extra')
 const { randomUUID } = require('crypto')
+const { remapMusicVideoReferences, repairMusicVideoReferences } = require('../online/musicVideoReferences')
 
 function getDataDir() {
   
@@ -64,6 +65,7 @@ function consolidateDownloadedSources() {
           db.prepare('UPDATE tracks SET play_count = COALESCE(play_count, 0) + ?, liked = MAX(COALESCE(liked, 0), ?) WHERE id = ?').run(loser.play_count || 0, loser.liked || 0, winner.id)
           db.prepare('UPDATE OR IGNORE track_aliases SET track_id = ? WHERE track_id = ?').run(winner.id, loser.id)
           db.prepare('INSERT OR IGNORE INTO track_aliases (old_id, track_id) VALUES (?, ?)').run(loser.id, winner.id)
+          remapMusicVideoReferences(db, loser.id, winner.id)
           db.prepare('INSERT OR IGNORE INTO lyrics_cache (track_id, lyrics_type, content, source, cached_at) SELECT ?, lyrics_type, content, source, cached_at FROM lyrics_cache WHERE track_id = ?').run(winner.id, loser.id)
           db.prepare('DELETE FROM lyrics_cache WHERE track_id = ?').run(loser.id)
           db.prepare('INSERT OR IGNORE INTO lyrics_translations (track_id, target_lang, source_hash, detected_lang, content, provider, fetched_at) SELECT ?, target_lang, source_hash, detected_lang, content, provider, fetched_at FROM lyrics_translations WHERE track_id = ?').run(winner.id, loser.id)
@@ -459,6 +461,7 @@ function initDB() {
   db.prepare("UPDATE tracks SET source_ref = NULL WHERE source_ref = ''").run()
   consolidateDownloadedSources()
   db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_tracks_source_ref_unique ON tracks(source_ref) WHERE source_ref IS NOT NULL AND file_path NOT LIKE 'ghost://%'")
+  repairMusicVideoReferences(db)
 
   try {
     db.prepare("INSERT OR IGNORE INTO settings (key, value) VALUES ('lyrics_auto_translate', '0')").run()
@@ -642,6 +645,7 @@ function importAppData(payload = {}) {
     for (const track of rawTracks) {
       if (!trackIdRemap.has(track.id)) continue
       db.prepare('INSERT OR REPLACE INTO track_aliases (old_id, track_id) VALUES (?, ?)').run(track.id, remapTrackId(track.id))
+      remapMusicVideoReferences(db, track.id, remapTrackId(track.id))
       const keeper = tracks.find(item => item.id === remapTrackId(track.id))
       if (track.file_path === keeper?.file_path) continue
       try {

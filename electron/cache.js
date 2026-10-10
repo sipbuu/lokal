@@ -2,8 +2,6 @@
 //   motion-covers/    moving covers (.mp4), downloaded once (electron/artwork/motion.js)
 //   playback-cache/   playable copies of files the player can't decode
 //                     (Apple Lossless, WMA...; electron/download/convert.js)
-//   music-video-cache/ downloaded music videos, so playback doesn't depend on
-//                     an expiring YouTube URL (electron/online/musicVideoCache.js)
 // Everything in them can be made again. When they're over the limit together,
 // the files used longest ago go first; the one being played is kept.
 // Chromium's own web cache is reported and cleared from the desktop app's
@@ -62,7 +60,7 @@ function usage() {
 function trim({ keep = [], settings } = {}) {
   const limit = limitBytes(settings)
   const kept = new Set([].concat(keep).filter(Boolean).map(p => path.resolve(p)))
-  const all = Object.keys(DIRS).flatMap(entries).sort((a, b) => b.used - a.used)
+  const all = Object.keys(DIRS).filter(name => name !== 'musicVideo').flatMap(entries).sort((a, b) => b.used - a.used)
   let total = 0
   let removed = 0
   for (const e of all) {
@@ -78,6 +76,7 @@ function trim({ keep = [], settings } = {}) {
 function clear() {
   let removed = 0
   for (const name of Object.keys(DIRS)) {
+    if (name === 'musicVideo') continue
     for (const e of entries(name)) { try { fs.unlinkSync(e.p); removed++ } catch {} }
   }
   return removed

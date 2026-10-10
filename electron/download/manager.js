@@ -27,6 +27,7 @@ const slskd = require('./slskd')
 const { sourceIdentity, onlineTrackId, streamedTwins, sourceRefOf, sourceRefOfTrack } = require('../online/sources')
 const { readInfo, coverThumbnail, imageThumbnail } = require('./tagger')
 const { makePlayable } = require('./convert')
+const { resolveTrackId, remapTrackPointers } = require('../online/musicVideoReferences')
 
 const ACTIVE = new Set(['queued', 'downloading'])
 const RETRY_DELAYS_MS = [5000, 20000]
@@ -253,7 +254,12 @@ class DownloadManager {
     for (const row of rows) {
       let data = {}
       try { data = JSON.parse(row.data || '{}') } catch {}
+      data = remapTrackPointers(data, id => resolveTrackId(this.db(), id))
       const job = this.makeJob(row.kind, row.url, data.opts || {}, { id: row.id, createdAt: row.created_at })
+      if (job.kind === 'music-video') {
+        delete job.opts.cacheDir
+        job.opts.videosDir ||= require('../online/musicVideoDownloads').videosDir()
+      }
       Object.assign(job, {
         title: data.title || job.title,
         from: data.from || job.from,
@@ -273,6 +279,8 @@ class DownloadManager {
         progress: data.progress || 0,
         finishedAt: data.finishedAt || null,
         output: data.output || '',
+        song: data.song || null,
+        filepaths: Array.isArray(data.filepaths) ? data.filepaths : [],
         seen: data.seen !== false,
         removed: !!data.removed,
       })
@@ -437,6 +445,7 @@ class DownloadManager {
       eta: job.eta || null,
       message: job.message || null,
       song: job.song || null,
+      filepaths: job.filepaths || [],
       output: job.outputLines.length ? job.outputLines.slice(-60).join('\n') : (job.output || ''),
       error: job.error || null,
       downloadedTracks: job.downloadedTracks,
@@ -662,6 +671,17 @@ class DownloadManager {
     const job = this.jobs.get(id)
     if (!job) return { success: true }
     if (ACTIVE.has(job.status)) await this.cancel(id)
+    if (job.kind === 'music-video') {
+      if (ACTIVE.has(job.status)) await this.waitFor(id)
+      const files = [...new Set([job.song, ...(job.filepaths || [])].filter(Boolean))]
+      try { require('../online/musicVideoDownloads').assertVideoFiles(this.db(), files) } catch (error) { return { error: error.message } }
+      if (this.deps.deleteMusicVideo) {
+        try { this.deps.deleteMusicVideo(job.opts.videoId) } catch (error) { return { error: error.message } }
+      }
+      for (const file of files) {
+        try { fs.unlinkSync(file) } catch (error) { if (error.code !== 'ENOENT') return { error: error.message } }
+      }
+    }
     this.jobs.delete(id)
     this.unpersist(id)
     return { success: true }
@@ -900,6 +920,7 @@ class DownloadManager {
   }
 
   startMusicVideo(job) {
+    job.opts = remapTrackPointers(job.opts, id => resolveTrackId(this.db(), id))
     const controller = new AbortController()
     job.videoAbort = controller
     job.startedAt = Date.now()
@@ -919,7 +940,7 @@ class DownloadManager {
         this.update(job, { status: job.stop === 'suspend' ? 'queued' : job.stop, message: job.stop === 'suspend' ? 'Resuming…' : 'Cancelled', finishedAt: job.stop === 'suspend' ? null : Date.now() }, { persist: true })
         return
       }
-      this.update(job, { status: 'done', progress: 100, song: file, message: 'Music video downloaded', finishedAt: Date.now() }, { persist: true })
+      this.update(job, { status: 'done', progress: 100, song: file, filepaths: [file], message: 'Music video downloaded', finishedAt: Date.now() }, { persist: true })
       this.trimHistory()
     }).catch(error => {
       if (job.stop) this.update(job, { status: job.stop === 'suspend' ? 'queued' : job.stop, message: job.stop === 'suspend' ? 'Resuming…' : 'Cancelled', finishedAt: job.stop === 'suspend' ? null : Date.now() }, { persist: true })

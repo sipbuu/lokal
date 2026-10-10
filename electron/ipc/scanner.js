@@ -1178,7 +1178,8 @@ function registerScannerHandlers(ipcMain) {
     const db = getDB()
     let sql = 'SELECT * FROM tracks'
     const where = []; const params = []
-    where.push("file_path NOT LIKE 'ghost://%'")
+    const files = require('../libraryTracks').trackFileFilter(opts.includeGhosts)
+    if (files) where.push(files)
     const limit = Math.max(1, Math.min(500, parseInt(opts.limit, 10) || 500))
     const offset = Math.max(0, parseInt(opts.offset, 10) || 0)
     if (opts.id) { where.push('id = ?'); params.push(opts.id) }
@@ -1192,7 +1193,7 @@ function registerScannerHandlers(ipcMain) {
     if (quality) { where.push(quality.sql); params.push(...quality.params) }
     if (where.length) sql += ' WHERE ' + where.join(' AND ')
     sql += ` ORDER BY ${opts.sort || 'added_at DESC'} LIMIT ${limit} OFFSET ${offset}`
-    return db.prepare(sql).all(...params).map(track => ({ ...track, missing: !fs.existsSync(track.file_path) }))
+    return db.prepare(sql).all(...params).map(track => ({ ...track, missing: require('../libraryTracks').missingTrackFile(track, fs.existsSync) }))
   })
   ipcMain.handle('scanner:getArtists', () => {
     const db = getDB()

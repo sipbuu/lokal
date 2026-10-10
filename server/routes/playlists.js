@@ -546,6 +546,7 @@ function resolveGhostTrack(db, ghostTrackId, targetTrackId, sourceIdentity = nul
     db.prepare('DELETE FROM lyrics_cache WHERE track_id = ?').run(ghostTrackId)
     db.prepare('DELETE FROM lyrics_translations WHERE track_id = ?').run(ghostTrackId)
     db.prepare('DELETE FROM artist_track_links WHERE track_id = ?').run(ghostTrackId)
+    require('../../electron/online/musicVideoReferences').remapMusicVideoReferences(db, ghostTrackId, targetTrackId)
     db.prepare('DELETE FROM tracks WHERE id = ?').run(ghostTrackId)
     // A player or page still holding the old id finds the file through it.
     try { db.prepare('INSERT OR REPLACE INTO track_aliases (old_id, track_id) VALUES (?, ?)').run(ghostTrackId, targetTrackId) } catch {}

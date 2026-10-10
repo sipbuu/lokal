@@ -542,7 +542,7 @@ router.get('/missing', (req, res) => {
 
 router.get('/', (req, res) => {
   const db = getDB()
-  const { sort = 'added_at DESC', limit = 500, offset = 0, id, artistName, album, albumArtist, source, genre, quality } = req.query
+  const { sort = 'added_at DESC', limit = 500, offset = 0, id, artistName, album, albumArtist, source, genre, quality, includeGhosts } = req.query
   if (album) {
     const params = [album]
     let sql = "SELECT * FROM tracks WHERE album = ? AND file_path NOT LIKE 'ghost://%'"
@@ -556,7 +556,8 @@ router.get('/', (req, res) => {
   }
   let sql = 'SELECT * FROM tracks'
   const params = []
-  const where = ["file_path NOT LIKE 'ghost://%'"]
+  const files = require('../../electron/libraryTracks').trackFileFilter(includeGhosts)
+  const where = files ? [files] : []
   if (id) { where.push('id = ?'); params.push(id) }
   if (artistName) { where.push('artist = ?'); params.push(artistName) }
   const sourceWhere = require('../../electron/ipc/scanner').sourceFilter(source)
@@ -567,7 +568,7 @@ router.get('/', (req, res) => {
   if (qualityWhere) { where.push(qualityWhere.sql); params.push(...qualityWhere.params) }
   if (where.length) sql += ' WHERE ' + where.join(' AND ')
   sql += ` ORDER BY ${sort} LIMIT ${parseInt(limit)} OFFSET ${parseInt(offset)}`
-  res.json(db.prepare(sql).all(...params).map(track => ({ ...track, missing: !fs.existsSync(track.file_path) })))
+  res.json(db.prepare(sql).all(...params).map(track => ({ ...track, missing: require('../../electron/libraryTracks').missingTrackFile(track, fs.existsSync) })))
 })
 
 // Settings > Library > Fill In Genres (see electron/online/genres.js).

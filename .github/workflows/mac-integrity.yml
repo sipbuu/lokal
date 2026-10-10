@@ -33,8 +33,16 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run rebuild:web
-      - run: node --test scripts/download-library-sync.test.mjs scripts/library-duplicates.test.mjs scripts/download-upgrade.test.mjs scripts/mac-updates.test.mjs
-      - run: npm run build -- --publish never --mac dmg zip --${{ matrix.arch }} --config.mac.identity=-
+      - name: Download identity and durable video integration
+        timeout-minutes: 5
+        run: node --test scripts/download-library-sync.test.mjs scripts/library-duplicates.test.mjs scripts/download-upgrade.test.mjs scripts/download-args.test.mjs scripts/download-adapters.test.mjs scripts/discovery-video-ui.test.mjs scripts/music-video.test.mjs scripts/music-video-downloads.test.mjs scripts/music-video-integration.test.mjs scripts/music-video-identity.test.mjs scripts/music-video-queue.test.mjs scripts/music-video-playback.test.mjs scripts/mac-updates.test.mjs
+      - name: YouTube account, session and login adapters
+        timeout-minutes: 5
+        run: node --test scripts/youtube-account.test.mjs scripts/youtube-session.test.mjs scripts/youtube-embedded-login.test.mjs scripts/youtube-browser.test.mjs scripts/youtube-stream.test.mjs
+      - name: Native playback and renderer audio adapters
+        timeout-minutes: 5
+        run: node --test scripts/native-output.test.mjs scripts/audio-output.test.mjs scripts/player-audio.test.mjs scripts/crossfade.test.mjs scripts/music-video-playback.test.mjs
+      - run: npm run build -- --publish never --mac dmg zip --${{ matrix.arch }} --config.mac.identity=- --config.mac.notarize=false
       - run: npm run verify:mac-package -- release ${{ matrix.arch }}
       - uses: actions/upload-artifact@v6
         with:

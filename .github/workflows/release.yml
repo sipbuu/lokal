@@ -247,12 +247,15 @@ jobs:
         env:
           CSC_LINK: ${{ secrets.CSC_LINK }}
           CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         shell: bash
         run: |
           if [ -n "$CSC_LINK" ]; then
             npm run build -- --publish never --mac dmg zip --${{ matrix.arch }}
           else
-            npm run build -- --publish never --mac dmg zip --${{ matrix.arch }} --config.mac.identity=-
+            npm run build -- --publish never --mac dmg zip --${{ matrix.arch }} --config.mac.identity=- --config.mac.notarize=false
           fi
 
       - name: Verify macOS package integrity
