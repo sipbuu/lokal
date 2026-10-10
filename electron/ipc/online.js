@@ -268,10 +268,13 @@ function listMusicVideos() {
       if (/^[\w-]{11}$/.test(String(video?.videoId || ''))) known.set(track.id, { track, video })
     } catch {}
   }
-  return [...known.values()].sort((a, b) => String(a.track.artist || '').localeCompare(String(b.track.artist || '')) || String(a.track.title || '').localeCompare(String(b.track.title || ''))).map(({ track, video }) => ({
-    track, video: { ...video, thumbnail: `https://i.ytimg.com/vi/${video.videoId}/mqdefault.jpg` },
-    saved: saved.has(track.id), cached: !!peekCachedVideoFile(video.videoId, options),
-  }))
+  return [...known.values()].sort((a, b) => String(a.track.artist || '').localeCompare(String(b.track.artist || '')) || String(a.track.title || '').localeCompare(String(b.track.title || ''))).map(({ track, video }) => {
+    const file = peekCachedVideoFile(video.videoId, options)
+    return {
+      track, video: { ...video, file, thumbnail: `https://i.ytimg.com/vi/${video.videoId}/mqdefault.jpg` },
+      saved: saved.has(track.id), cached: !!file,
+    }
+  })
 }
 
 /** Cache hit returns immediately; a miss becomes a real background queue job. */

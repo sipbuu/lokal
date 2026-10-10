@@ -19,6 +19,7 @@ import RefreshButton from '../components/RefreshButton'
 import { isConnected, releaseTitleKey, setConnected } from '../onlineBrowse'
 import ReleaseTypeFilter from '../components/ReleaseTypeFilter'
 import { groupReleases, releaseTypeCounts, useReleaseTypes } from '../releaseTypes'
+import DiscoveryArtistButton from '../components/DiscoveryArtistButton'
 
 export default function Artist() {
   const { id } = useParams()
@@ -254,6 +255,7 @@ export default function Artist() {
         <button onClick={() => setShowManage(true)} className="absolute top-4 right-6 flex items-center gap-1.5 rounded-lg border border-white/10 bg-black/50 px-3 py-1.5 text-xs text-white/60 transition-all backdrop-blur-sm hover:border-white/20 hover:text-white">
           <Settings size={12} /> Manage
         </button>
+        <DiscoveryArtistButton name={artist.name} className="absolute top-14 right-6 flex items-center gap-1.5 rounded-lg border border-white/10 bg-black/50 px-3 py-1.5 text-xs text-white/60 transition-all hover:border-white/20 hover:text-white" />
       </div>
 
       <div className="space-y-7 px-8 py-5">

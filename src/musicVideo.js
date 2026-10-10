@@ -84,8 +84,10 @@ export function useMusicVideo(track, enabled = true, prepare = false) {
 
 export const useMusicVideoView = create(set => ({
   open: false,
+  mini: false,
   show: () => set({ open: true }),
   hide: () => set({ open: false }),
+  toggleMini: () => set(s => ({ mini: !s.mini })),
 }))
 
 /** Video time for a song time (seconds); null where the video doesn't have the song. */

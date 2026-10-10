@@ -1,12 +1,14 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { motion } from 'framer-motion'
-import { Play, Pause, SkipBack, SkipForward, X, Volume2, VolumeX, Heart } from 'lucide-react'
+import { Play, Pause, SkipBack, SkipForward, X, Volume2, VolumeX, Heart, Clapperboard } from 'lucide-react'
 import { usePlayerStore, useAppStore } from '../store/player'
 import { useShallow } from 'zustand/react/shallow'
-import { api, wordSyncEnabled } from '../api'
+import { api, wordSyncEnabled as getWordSyncEnabled } from '../api'
 import Waveform from './Waveform'
 import { useAppearanceFlag } from '../appearanceFlags'
 import { trackArtURL } from '../onlineTracks'
+import { useMusicVideo, useMusicVideoView } from '../musicVideo'
+import MusicVideoPlayer from './MusicVideoPlayer'
 
 function fmt(s) { return `${Math.floor((s||0)/60)}:${Math.floor((s||0)%60).toString().padStart(2,'0')}` }
 
@@ -26,6 +28,9 @@ export default function MiniPlayer({ windowed = false }) {
     toggleMiniPlayer, likedIds, setLiked
   })))
   const { user } = useAppStore()
+  const { video: musicVideo } = useMusicVideo(currentTrack)
+  const videoMode = useMusicVideoView(s => s.mini)
+  const toggleVideo = useMusicVideoView(s => s.toggleMini)
 
   const [lyricsLines, setLyricsLines] = useState([])
   const [lyricsType, setLyricsType] = useState(null)
@@ -44,7 +49,7 @@ export default function MiniPlayer({ windowed = false }) {
 
   const wordSyncEnabled = useMemo(() => {
     try {
-      return wordSyncEnabled()
+      return getWordSyncEnabled()
     } catch {
       return false
     }
@@ -256,6 +261,7 @@ export default function MiniPlayer({ windowed = false }) {
 
       <div className="flex items-center justify-between px-3 py-2 bg-black/25 backdrop-blur-sm border-b border-white/10" style={windowed && api.isElectron ? { WebkitAppRegion: 'drag' } : undefined}>
         <span className="text-xs text-muted font-medium">Mini Player</span>
+        {(musicVideo?.videoId || videoMode) && <button onClick={toggleVideo} aria-pressed={videoMode} aria-label={videoMode ? 'Show artwork' : 'Show music video'} style={windowed && api.isElectron ? { WebkitAppRegion: 'no-drag' } : undefined} className="inline-flex items-center gap-1 text-[10px] text-muted hover:text-white transition-colors" title={videoMode ? 'Show artwork' : 'Show music video'}><Clapperboard size={13} />{videoMode ? 'Artwork' : 'Video'}</button>}
         <button
           onClick={toggleMiniPlayer}
           className="text-muted hover:text-white transition-colors p-1"
@@ -265,14 +271,15 @@ export default function MiniPlayer({ windowed = false }) {
         </button>
       </div>
 
+      {videoMode && <MusicVideoPlayer compact />}
       <div className={`flex items-center gap-3 ${windowed ? 'p-4' : 'p-3'}`}>
-        <div className={`${windowed ? 'w-20 h-20' : 'w-16 h-16'} rounded-lg overflow-hidden flex-shrink-0 bg-card`}>
+        {!videoMode && <div className={`${windowed ? 'w-20 h-20' : 'w-16 h-16'} rounded-lg overflow-hidden flex-shrink-0 bg-card`}>
           {artSrc ? (
             <img src={artSrc} alt="Artwork" className="w-full h-full object-cover" />
           ) : (
             <div className="w-full h-full flex items-center justify-center text-subtle text-2xl">-</div>
           )}
-        </div>
+        </div>}
 
         <div className="min-w-0 flex-1">
           <p className={`${windowed ? 'text-base' : 'text-sm'} font-medium truncate text-white`}>{currentTrack?.title || '-'}</p>

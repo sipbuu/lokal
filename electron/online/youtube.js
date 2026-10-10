@@ -678,7 +678,7 @@ function parseArtistPage(root, fallbackName = '') {
  * (the library's titles), else YouTube's first.
  * { channelId, name, image, tracks, albums } or { error }
  */
-async function fetchArtistPage({ artist, channelId, anchor, hints = [] } = {}, cookies, fetchImpl = fetch) {
+async function fetchArtistPage({ artist, channelId, anchor, hints = [], releasesOnly = false } = {}, cookies, fetchImpl = fetch) {
   const config = await musicContext(cookies, fetchImpl)
   const want = plainName(artist)
   let id = /^UC[\w-]{10,}$/.test(String(channelId || '')) ? channelId : null
@@ -709,7 +709,7 @@ async function fetchArtistPage({ artist, channelId, anchor, hints = [] } = {}, c
   // Their page shows five top songs: the rest of the list (the page offers
   // ten with "Show more"), when it can be read.
   const { songsListId, ...page } = best
-  if (songsListId && page.tracks.length < 10) {
+  if (!releasesOnly && songsListId && page.tracks.length < 10) {
     try {
       const more = parseAccountTracks(await accountBrowse(songsListId, cookies, fetchImpl, config, { anonymous }), 20)
       const seen = new Set(page.tracks.map(track => track.videoId))
@@ -724,6 +724,10 @@ async function fetchCatalogue(options = {}, cookies, fetchImpl = fetch) {
   const plain = value => String(value || '').normalize('NFKD').replace(/\p{M}/gu, '').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim()
   if (!artist || (type === 'album' && !album)) return { error: 'An artist and album name are required.' }
   if (type === 'artistPage') return fetchArtistPage(options, cookies, fetchImpl)
+  if (type === 'releases') {
+    const page = await fetchArtistPage({ ...options, releasesOnly: true }, cookies, fetchImpl)
+    return page.error ? page : { albums: page.albums }
+  }
   if (type !== 'album' && type !== 'albums') {
     const tracks = (await searchSongs(String(artist), { limit: 60, fetchImpl })).filter(track => track.artists.some(name => plain(name) === plain(artist)))
     return { tracks }
