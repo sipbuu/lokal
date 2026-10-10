@@ -196,17 +196,7 @@ jobs:
         # Linux stays on a fixed, older Ubuntu: native modules compiled here
         # only run on systems at least this new, so a newer image would
         # lock older distros out of the AppImage/deb.
-        include:
-          - os: windows-latest
-            platform: windows
-          - os: macos-15-intel
-            platform: mac
-            arch: x64
-          - os: macos-14
-            platform: mac
-            arch: arm64
-          - os: ubuntu-24.04
-            platform: linux
+        os: [windows-latest, macos-latest, ubuntu-24.04]
     runs-on: ${{ matrix.os }}
     permissions:
       contents: write
@@ -239,30 +229,7 @@ jobs:
         run: npm install
 
       - name: Build Application
-        if: matrix.platform != 'mac'
         run: npm run build -- --publish never
-
-      - name: Build macOS Application
-        if: matrix.platform == 'mac'
-        env:
-          CSC_LINK: ${{ secrets.CSC_LINK }}
-          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-        shell: bash
-        run: |
-          if [ -n "$CSC_LINK" ]; then
-            npm run build -- --publish never --mac dmg zip --${{ matrix.arch }}
-          else
-            npm run build -- --publish never --mac dmg zip --${{ matrix.arch }} --config.mac.identity=- --config.mac.notarize=false
-          fi
-
-      - name: Verify macOS package integrity
-        if: matrix.platform == 'mac'
-        env:
-          REQUIRE_MAC_SIGNATURE: ${{ secrets.CSC_LINK != '' && '1' || '0' }}
-        run: npm run verify:mac-package -- release ${{ matrix.arch }}
 
       - name: Rename release files for this runner
         shell: bash
@@ -382,9 +349,6 @@ jobs:
             mkdir -p release_all
             touch release_all/.no_files
           fi
-
-      - name: Merge macOS updater manifests
-        run: node scripts/merge-mac-updates.mjs artifacts release_all
 
       - name: Generate checksums for all artifacts
         id: checksums

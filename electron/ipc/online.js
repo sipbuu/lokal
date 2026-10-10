@@ -3,7 +3,6 @@
 // protocol the player streams from. See electron/online/sources.js.
 
 const { getDB } = require('./db')
-const { resolveTrackId } = require('../online/musicVideoReferences')
 const { findYtDlp } = require('./tools')
 const { cookieArgs } = require('./ytCookies')
 const { runJsonSearch, mapSearchResult } = require('../download/search')
@@ -168,7 +167,7 @@ function registerOnlineHandlers(ipcMain) {
       const metadata = JSON.parse(require('fs').readFileSync(musicVideoMetadataFile(), 'utf8'))
       for (const [key, entry] of Object.entries(metadata)) {
         if (!entry?.video?.videoId || byId.has(entry.video.videoId)) continue
-        const track = getDB().prepare('SELECT id, artist FROM tracks WHERE id = ?').get(resolveTrackId(getDB(), key.split('|')[1]))
+        const track = getDB().prepare('SELECT id, artist FROM tracks WHERE id = ?').get(key.split('|')[1])
         byId.set(entry.video.videoId, { ...entry.video, ...(track ? { artist: track.artist, trackId: track.id } : {}) })
       }
     } catch {}
@@ -205,7 +204,6 @@ function registerOnlineHandlers(ipcMain) {
   ipcMain.handle('musicVideo:list', () => listMusicVideos())
   ipcMain.handle('musicVideo:save', async (_, trackId, saved = true) => {
     try {
-      trackId = resolveTrackId(getDB(), trackId)
       const video = await musicVideoFor(trackId)
       if (!video) throw new Error('No music video found for this song')
       ensureVideoLibrary()
@@ -278,20 +276,19 @@ function songAudioFor(track, canStream, options = {}) {
 
 /** The official music video for a track (see online/musicVideo.js), or null. */
 async function musicVideoFor(trackId, { onProgress } = {}) {
-  trackId = resolveTrackId(getDB(), trackId)
   const track = getDB().prepare('SELECT id, title, artist, duration, file_path FROM tracks WHERE id = ?').get(trackId)
   if (!track) return null
   const cacheFile = musicVideoMetadataFile()
   const matcher = require('../online/musicVideo')
   ensureVideoLibrary()
-  const known = matcher.knownMusicVideos([track], { cacheFile, findFile: musicVideoFile, resolveTrackId: id => resolveTrackId(getDB(), id) })[0]?.video
-  if (known) return { ...known, trackId }
+  const known = matcher.knownMusicVideos([track], { cacheFile, findFile: musicVideoFile })[0]?.video
+  if (known) return known
   for (const row of getDB().prepare('SELECT video_json FROM downloaded_music_videos').all()) {
-    try { const video = JSON.parse(row.video_json); if (resolveTrackId(getDB(), video.trackId) === trackId && (video.motion === 'verified' || musicVideoFile(video, track))) return { ...video, trackId } } catch {}
+    try { const video = JSON.parse(row.video_json); if (video.trackId === trackId && (video.motion === 'verified' || musicVideoFile(video, track))) return video } catch {}
   }
   try {
     const saved = JSON.parse(getDB().prepare('SELECT video_json FROM saved_music_videos WHERE track_id = ?').get(trackId)?.video_json || 'null')
-    if (/^[\w-]{11}$/.test(String(saved?.videoId || '')) && (saved.motion === 'verified' || musicVideoFile(saved, track))) return { ...saved, trackId }
+    if (/^[\w-]{11}$/.test(String(saved?.videoId || '')) && (saved.motion === 'verified' || musicVideoFile(saved, track))) return saved
   } catch {}
   if (accountSession) await accountSession.credentials().catch(() => {})
   const { findFfmpeg } = require('./tools')
@@ -322,7 +319,7 @@ async function musicVideoFor(trackId, { onProgress } = {}) {
     }), 1, 10, undefined, { timeoutMs: 15000 }) : null,
     cacheFile,
   })
-  return video ? { ...video, trackId } : video
+  return video
 }
 
 function musicVideoMetadataFile() {
@@ -354,11 +351,11 @@ function listMusicVideos() {
   ensureVideoLibrary()
   const tracks = getDB().prepare('SELECT * FROM tracks ORDER BY artist, title').all()
   const saved = new Map(getDB().prepare('SELECT track_id, video_json FROM saved_music_videos').all().map(row => [row.track_id, row.video_json]))
-  const known = new Map(require('../online/musicVideo').knownMusicVideos(tracks, { cacheFile: musicVideoMetadataFile(), findFile: musicVideoFile, resolveTrackId: id => resolveTrackId(getDB(), id) }).map(item => [item.track.id, item]))
+  const known = new Map(require('../online/musicVideo').knownMusicVideos(tracks, { cacheFile: musicVideoMetadataFile(), findFile: musicVideoFile }).map(item => [item.track.id, item]))
   for (const row of getDB().prepare('SELECT video_json FROM downloaded_music_videos').all()) {
     try {
       const video = JSON.parse(row.video_json)
-      const track = tracks.find(track => track.id === resolveTrackId(getDB(), video.trackId))
+      const track = tracks.find(track => track.id === video.trackId)
       if (track && !known.has(track.id)) known.set(track.id, { track, video })
     } catch {}
   }
@@ -381,7 +378,6 @@ function listMusicVideos() {
 }
 
 async function prepareMusicVideoFor(trackId, { wait = false, download = false } = {}) {
-  trackId = resolveTrackId(getDB(), trackId)
   const video = await musicVideoFor(trackId)
   if (!video) return null
   const { peekDurableVideoFile, recordedVideoFile, heightOf } = require('../online/musicVideoDownloads')
@@ -405,7 +401,6 @@ async function prepareMusicVideoFor(trackId, { wait = false, download = false } 
 }
 
 function trackArtist(trackId) {
-  trackId = resolveTrackId(getDB(), trackId)
   try { return getDB().prepare('SELECT artist FROM tracks WHERE id = ?').get(trackId)?.artist } catch { return null }
 }
 

@@ -91,7 +91,7 @@ function buildArgs({ kind, url, outputDir, settings, ffmpeg, format, archivePath
     // just ahead of the path so each file can be matched to its own details.
     // (`artists` is the source's own credit list, e.g. SoundCloud's publisher
     // metadata; --parse-metadata below only rewrites `artist`.)
-    '--print', 'after_move:lokalmeta:%(.{channel,uploader,track,artist,artists,creator,title,fulltitle,album,webpage_url})j',
+    '--print', 'after_move:lokalmeta:%(.{channel,uploader,track,artist,artists,creator,title,fulltitle,album})j',
     '--print', 'after_move:filepath:%(filepath)s',
     '--output', outputTemplate(kind, outputDir, addonSource),
     '--trim-filenames', '180',

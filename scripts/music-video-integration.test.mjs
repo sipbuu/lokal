@@ -94,21 +94,6 @@ test('renamed local tracks retain downloaded v2 metadata without a network resca
   } finally { state.cleanup() }
 })
 
-test('legacy metadata follows a removed track alias during offline listing and playback preparation', async () => {
-  const state = fixture()
-  try {
-    state.db.exec("CREATE TABLE track_aliases (old_id TEXT PRIMARY KEY, track_id TEXT NOT NULL); INSERT INTO track_aliases VALUES ('track-id', 'survivor'); UPDATE tracks SET id = 'survivor'")
-    const rows = state.online.listMusicVideos()
-    assert.equal(rows.length, 1)
-    assert.equal(rows[0].track.id, 'survivor')
-    assert.equal(rows[0].video.file, state.file)
-    const prepared = await state.online.prepareMusicVideoFor('track-id')
-    assert.equal(prepared.file, state.file)
-    assert.equal(prepared.trackId, 'survivor')
-    assert.equal(state.queued(), 0)
-  } finally { state.cleanup() }
-})
-
 test('prepare never queues a replacement download after explicit deletion', async () => {
   const state = fixture()
   try {

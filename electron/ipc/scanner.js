@@ -347,7 +347,6 @@ function trackParams(item, trackId = item?.id) {
     bitrate: dbValue(item?.bitrate),
     last_modified: dbValue(item?.last_modified),
     replaygain: dbValue(item?.replaygain),
-    source_ref: dbValue(item?.source_ref),
   }
 }
 
@@ -360,8 +359,6 @@ async function scanFolder(folderPath) {
     if (relinked) console.log(`[scanFolder] Re-linked artists for ${relinked} track(s)`)
   } catch (e) { console.warn('[scanFolder] Artist re-link skipped:', e.message) }
   const files = walkDir(folderPath)
-  db.exec('CREATE TABLE IF NOT EXISTS duplicate_download_files (file_path TEXT PRIMARY KEY, size INTEGER, last_modified REAL)')
-  const ignoredFile = db.prepare('SELECT size, last_modified FROM duplicate_download_files WHERE file_path = ?')
   scanStatus.total = files.length
   db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('music_folder', ?)").run(folderPath)
 
@@ -428,14 +425,9 @@ async function scanFolder(folderPath) {
   for (const filePath of files) {
     try {
       const stat = fs.statSync(filePath)
-      const ignored = ignoredFile.get(filePath)
-      if (ignored && ignored.size === stat.size && ignored.last_modified === stat.mtimeMs) {
-        scanStatus.skipped++; scanStatus.done++; emit('scanner:progress', { ...scanStatus }); continue
-      }
-      const fileHash = 't-' + hashFile(filePath, stat)
-      const existing = db.prepare('SELECT id, file_hash, last_modified FROM tracks WHERE file_path = ?').get(filePath)
-      const trackId = existing?.id || fileHash
-      if (existing && existing.file_hash === fileHash && existing.last_modified === stat.mtimeMs) {
+      const trackId = 't-' + hashFile(filePath, stat)
+      const existing = db.prepare('SELECT last_modified FROM tracks WHERE id = ?').get(trackId)
+      if (existing && existing.last_modified === stat.mtimeMs) {
         scanStatus.done++; emit('scanner:progress', { ...scanStatus }); continue
       }
       const meta = await mm.parseFile(filePath, { duration: true, skipCovers: false })
@@ -453,7 +445,7 @@ async function scanFolder(folderPath) {
       if (getSkipDrumKit() && isDrumKit(title, c.album, c.genre?.[0])) { console.log(`[scanFolder] Skipped: ${filePath} - Drumkit pattern detected`); scanStatus.skipped++; scanStatus.done++; emit('scanner:progress', { ...scanStatus }); continue }
       const artwork = await extractArtwork(meta, trackId)
       const replaygain = c.replaygain_track_gain || null
-      batch.push({ id: trackId, file_path: filePath, file_hash: fileHash, title, artist, album: c.album?.trim() || 'Unknown Album', album_artist: c.albumartist?.trim() || null, track_num: c.track?.no || null, year: c.year || null, genre: c.genre?.[0] || null, duration, artwork_path: artwork, bitrate: meta.format.bitrate ? Math.round(meta.format.bitrate / 1000) : null, last_modified: stat.mtimeMs, replaygain, quality: quality.qualityFields(meta) })
+      batch.push({ id: trackId, file_path: filePath, file_hash: trackId, title, artist, album: c.album?.trim() || 'Unknown Album', album_artist: c.albumartist?.trim() || null, track_num: c.track?.no || null, year: c.year || null, genre: c.genre?.[0] || null, duration, artwork_path: artwork, bitrate: meta.format.bitrate ? Math.round(meta.format.bitrate / 1000) : null, last_modified: stat.mtimeMs, replaygain, quality: quality.qualityFields(meta) })
       if (batch.length >= BATCH) { await insertBatch(batch); batch = [] }
     } catch { scanStatus.errors++ }
     scanStatus.done++; emit('scanner:progress', { ...scanStatus })
@@ -1758,20 +1750,9 @@ function updateTrackArtistLinks(db, trackId, artist) {
 async function indexSingleFile(filePath, opts = {}) {
   const db = getDB()
   const stat = fs.statSync(filePath)
-  const fileHash = 't-' + hashFile(filePath, stat)
-  let trackId = fileHash
-  const sourceRef = typeof opts.sourceRef === 'string' && opts.sourceRef.trim() && opts.sourceRef.length <= 500 ? opts.sourceRef.trim() : null
-  const existingBySource = sourceRef ? db.prepare("SELECT * FROM tracks WHERE source_ref = ? AND file_path NOT LIKE 'ghost://%'").get(sourceRef) : null
-  const existing = existingBySource || db.prepare('SELECT * FROM tracks WHERE file_hash = ? OR file_path = ?').get(trackId, filePath)
+  const trackId = 't-' + hashFile(filePath, stat)
+  const existing = db.prepare('SELECT * FROM tracks WHERE file_hash = ? OR file_path = ?').get(trackId, filePath)
   if (existing) {
-    if (sourceRef && existing.source_ref === sourceRef && existing.file_path !== filePath) {
-      if (!fs.existsSync(existing.file_path)) {
-        const repaired = await require('../quality/upgrade').upgradeTrackFile(db, existing.id, filePath, { storageDir: getStorageDir() })
-        if (repaired?.id) return { id: repaired.id, repaired: true }
-        return { error: repaired?.error || 'Could not repair missing source file' }
-      }
-      return { duplicate: true, id: existing.id, sourceRefMatch: true }
-    }
     const wanted = opts.metadata || {}
     const titleOverride = typeof wanted.title === 'string' && wanted.title.trim() ? wanted.title.trim() : null
     const artistOverride = typeof wanted.artist === 'string' && wanted.artist.trim() ? wanted.artist.trim() : null
@@ -1884,10 +1865,6 @@ async function indexSingleFile(filePath, opts = {}) {
     }
     return { duplicate: true, id: dupe.id }
   }
-  if (sourceRef) {
-    const concurrent = db.prepare("SELECT id FROM tracks WHERE source_ref = ? AND file_path NOT LIKE 'ghost://%'").get(sourceRef)
-    if (concurrent) return { duplicate: true, id: concurrent.id, sourceRefMatch: true }
-  }
   
   const insertTransaction = db.transaction(() => {
     const upsertArtist = db.prepare(`INSERT OR IGNORE INTO artists (id, name) VALUES (?, ?)`)
@@ -1896,12 +1873,10 @@ async function indexSingleFile(filePath, opts = {}) {
     
 
     const existingByPath = db.prepare('SELECT id FROM tracks WHERE file_path = ?').get(filePath)
-    if (existingByPath) trackId = existingByPath.id
     const params = trackParams({
       id: trackId,
       file_path: filePath,
-      file_hash: fileHash,
-      source_ref: sourceRef,
+      file_hash: trackId,
       title,
       artist,
       album,
@@ -1919,7 +1894,7 @@ async function indexSingleFile(filePath, opts = {}) {
       db.prepare(`UPDATE tracks SET file_hash = @file_hash, title = @title, artist = @artist, album = @album, album_artist = @album_artist, track_num = @track_num, year = @year, genre = @genre, duration = @duration, artwork_path = @artwork_path, bitrate = @bitrate, last_modified = @last_modified, replaygain = @replaygain WHERE file_path = @file_path`)
         .run(params)
     } else {
-      db.prepare(`INSERT INTO tracks (id, file_path, file_hash, title, artist, album, album_artist, track_num, year, genre, duration, artwork_path, bitrate, last_modified, replaygain, source_ref) VALUES (@id, @file_path, @file_hash, @title, @artist, @album, @album_artist, @track_num, @year, @genre, @duration, @artwork_path, @bitrate, @last_modified, @replaygain, @source_ref)`)
+      db.prepare(`INSERT INTO tracks (id, file_path, file_hash, title, artist, album, album_artist, track_num, year, genre, duration, artwork_path, bitrate, last_modified, replaygain) VALUES (@id, @file_path, @file_hash, @title, @artist, @album, @album_artist, @track_num, @year, @genre, @duration, @artwork_path, @bitrate, @last_modified, @replaygain)`)
         .run(params)
     }
     quality.saveFields(db, trackId, quality.qualityFields(meta), { fileChanged: true })
