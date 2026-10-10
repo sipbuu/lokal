@@ -31,8 +31,8 @@ try {
   const resources = path.join(appPath, 'Contents/Resources')
   const native = path.join(resources, `app.asar.unpacked/electron/native/audio-output.darwin-${arch}.node`)
   const machoArch = arch === 'x64' ? 'x86_64' : arch
-  run('lipo', ['-verify_arch', machoArch, executable])
-  run('lipo', ['-verify_arch', machoArch, native])
+  run('lipo', [executable, '-verify_arch', machoArch])
+  run('lipo', [native, '-verify_arch', machoArch])
   run('plutil', ['-lint', path.join(appPath, 'Contents/Info.plist')])
   const signature = spawnSync('codesign', ['-d', '--verbose=4', appPath], { encoding: 'utf8' })
   if (signature.status === 0) {
