@@ -133,7 +133,74 @@ function registerOnlineHandlers(ipcMain) {
   ipcMain.handle('musicVideo:find', (event, trackId) => musicVideoFor(trackId, {
     onProgress: musicVideoProgress(event, trackId),
   }).catch(() => null))
-  ipcMain.handle('musicVideo:cache', (_, trackId) => prepareMusicVideoFor(trackId).catch(e => ({ error: e.message })))
+  ipcMain.handle('musicVideo:download', (_, trackId) => prepareMusicVideoFor(trackId, { download: true }).catch(e => ({ error: e.message })))
+  ipcMain.handle('musicVideo:prepare', (_, trackId) => prepareMusicVideoFor(trackId).catch(e => ({ error: e.message })))
+  ipcMain.handle('musicVideo:deleteDownload', async (_, trackId) => {
+    try {
+      const video = await musicVideoFor(trackId)
+      if (!video) throw new Error('No music video found for this song')
+      const manager = require('./downloader').manager()
+      for (const job of [...manager.jobs.values()]) {
+        if (job.kind !== 'music-video' || job.opts.videoId !== video.videoId) continue
+        if (['downloading', 'queued'].includes(job.status)) { await manager.cancel(job.id); await manager.waitFor(job.id) }
+      }
+      const storage = require('../online/musicVideoDownloads')
+      const files = [...manager.jobs.values()].filter(job => job.kind === 'music-video' && job.opts.videoId === video.videoId).flatMap(job => [job.song, ...(job.filepaths || [])]).filter(Boolean)
+      const local = musicVideoFile(video, { artist: trackArtist(trackId) })
+      if (local) files.push(local)
+      for (const height of [1080, 720, 480]) {
+        const file = storage.peekCachedVideoFile(video.videoId, { cacheDir: require('../cache').cacheDir('musicVideo'), videoHeight: height, touch: false })
+        if (file) files.push(file)
+      }
+      storage.deleteVideoFiles(getDB(), video.videoId, { files })
+      for (const job of manager.jobs.values()) {
+        if (job.kind === 'music-video' && job.opts.videoId === video.videoId) manager.update(job, { song: null, filepaths: [], removed: true, message: 'Downloaded video deleted' }, { persist: true, force: true })
+      }
+      return { success: true }
+    } catch (error) { return { error: error.message } }
+  })
+  ipcMain.handle('musicVideo:migrationStatus', () => require('../online/musicVideoDownloads').migrationStatus({ cacheDir: require('../cache').cacheDir('musicVideo') }))
+  ipcMain.handle('musicVideo:migrate', () => {
+    const rows = listMusicVideos()
+    const byId = new Map(rows.map(row => [row.video.videoId, { ...row.video, artist: row.track.artist || row.video.artist, trackId: row.track.id }]))
+    try {
+      const metadata = JSON.parse(require('fs').readFileSync(musicVideoMetadataFile(), 'utf8'))
+      for (const [key, entry] of Object.entries(metadata)) {
+        if (!entry?.video?.videoId || byId.has(entry.video.videoId)) continue
+        const track = getDB().prepare('SELECT id, artist FROM tracks WHERE id = ?').get(key.split('|')[1])
+        byId.set(entry.video.videoId, { ...entry.video, ...(track ? { artist: track.artist, trackId: track.id } : {}) })
+      }
+    } catch {}
+    const manager = require('./downloader').manager()
+    if ([...manager.jobs.values()].some(job => job.kind === 'music-video' && ['queued', 'downloading'].includes(job.status))) return { error: 'Wait for video downloads to finish before moving older files.' }
+    const storage = require('../online/musicVideoDownloads')
+    storage.ensureDownloadsTable(getDB())
+    return require('../online/musicVideoDownloads').migrateOldVideos({
+      cacheDir: require('../cache').cacheDir('musicVideo'),
+      videosDir: storage.videosDir(),
+      resolve: id => byId.get(id) || [...manager.jobs.values()].find(job => job.kind === 'music-video' && job.opts.videoId === id)?.opts || {},
+      onMove: (from, to, video) => {
+        const db = getDB()
+        storage.updateVideoReferences(db, from, to, video, storage.videosDir())
+        const fs = require('fs')
+        const metadata = musicVideoMetadataFile()
+        if (fs.existsSync(metadata)) {
+          const data = JSON.stringify(storage.replacePath(JSON.parse(fs.readFileSync(metadata, 'utf8')), from, to))
+          fs.writeFileSync(`${metadata}.tmp`, data)
+          fs.renameSync(`${metadata}.tmp`, metadata)
+        }
+        for (const job of manager.jobs.values()) {
+          if (job.kind !== 'music-video' || job.opts.videoId !== video.videoId) continue
+          job.opts = { ...job.opts, durable: true, videosDir: storage.videosDir(), artist: job.opts.artist || video.artist }
+          delete job.opts.cacheDir
+          if (job.song === from) job.song = to
+          job.filepaths = (job.filepaths || []).map(file => file === from ? to : file)
+          manager.persist(job)
+          manager.emit(job, true)
+        }
+      },
+    })
+  })
   ipcMain.handle('musicVideo:list', () => listMusicVideos())
   ipcMain.handle('musicVideo:save', async (_, trackId, saved = true) => {
     try {
@@ -213,12 +280,15 @@ async function musicVideoFor(trackId, { onProgress } = {}) {
   if (!track) return null
   const cacheFile = musicVideoMetadataFile()
   const matcher = require('../online/musicVideo')
-  const known = matcher.knownMusicVideos([track], { cacheFile })[0]?.video
-  if (known) return known
   ensureVideoLibrary()
+  const known = matcher.knownMusicVideos([track], { cacheFile, findFile: musicVideoFile })[0]?.video
+  if (known) return known
+  for (const row of getDB().prepare('SELECT video_json FROM downloaded_music_videos').all()) {
+    try { const video = JSON.parse(row.video_json); if (video.trackId === trackId && (video.motion === 'verified' || musicVideoFile(video, track))) return video } catch {}
+  }
   try {
     const saved = JSON.parse(getDB().prepare('SELECT video_json FROM saved_music_videos WHERE track_id = ?').get(trackId)?.video_json || 'null')
-    if (/^[\w-]{11}$/.test(String(saved?.videoId || ''))) return saved
+    if (/^[\w-]{11}$/.test(String(saved?.videoId || '')) && (saved.motion === 'verified' || musicVideoFile(saved, track))) return saved
   } catch {}
   if (accountSession) await accountSession.credentials().catch(() => {})
   const { findFfmpeg } = require('./tools')
@@ -229,6 +299,14 @@ async function musicVideoFor(trackId, { onProgress } = {}) {
     onProgress,
     songAudio: songAudioFor(track, canStream),
     videoAudio: canStream ? youtubeAudio : null,
+    visualMotion: item => matcher.validateVisualMotion(findFfmpeg(), async () => {
+      const storage = require('../online/musicVideoDownloads')
+      const file = storage.recordedVideoFile(getDB(), item.videoId, options.videoHeight) || storage.peekCachedVideoFile(item.videoId, { cacheDir: require('../cache').cacheDir('musicVideo'), videoHeight: options.videoHeight, touch: false })
+      if (file) return { input: file, headers: {} }
+      if (!canStream) return null
+      const media = await youtube.resolveStream(item.videoId, { ...options, quality: 'video' })
+      return { input: media.url, headers: media.headers }
+    }, item.duration || track.duration),
     youtubeSearch: canStream ? query => runJsonSearch(options.ytdlp, query, entry => ({
       ...entry,
       id: entry.id,
@@ -250,15 +328,37 @@ function musicVideoMetadataFile() {
 
 function ensureVideoLibrary() {
   getDB().exec('CREATE TABLE IF NOT EXISTS saved_music_videos (track_id TEXT PRIMARY KEY, added_at INTEGER NOT NULL, video_json TEXT NOT NULL)')
+  require('../online/musicVideoDownloads').ensureDownloadsTable(getDB())
+}
+
+function musicVideoFile(video, track = {}) {
+  const storage = require('../online/musicVideoDownloads')
+  const height = storage.heightOf(settings().video_quality)
+  const recorded = storage.recordedVideoFile(getDB(), video.videoId, height)
+  if (recorded) return recorded
+  for (const videoHeight of new Set([height, 1080, 720, 480])) {
+    for (const artist of new Set([track.artist, video.artist].filter(Boolean))) {
+      const file = storage.peekDurableVideoFile(video.videoId, { artist, videoHeight })
+      if (file) return file
+    }
+    const legacy = storage.peekCachedVideoFile(video.videoId, { cacheDir: require('../cache').cacheDir('musicVideo'), videoHeight, touch: false })
+    if (legacy) return legacy
+  }
+  return null
 }
 
 function listMusicVideos() {
   ensureVideoLibrary()
   const tracks = getDB().prepare('SELECT * FROM tracks ORDER BY artist, title').all()
   const saved = new Map(getDB().prepare('SELECT track_id, video_json FROM saved_music_videos').all().map(row => [row.track_id, row.video_json]))
-  const { peekCachedVideoFile, heightOf } = require('../online/musicVideoCache')
-  const options = { cacheDir: require('../cache').cacheDir('musicVideo'), videoHeight: heightOf(settings().video_quality), touch: false }
-  const known = new Map(require('../online/musicVideo').knownMusicVideos(tracks, { cacheFile: musicVideoMetadataFile() }).map(item => [item.track.id, item]))
+  const known = new Map(require('../online/musicVideo').knownMusicVideos(tracks, { cacheFile: musicVideoMetadataFile(), findFile: musicVideoFile }).map(item => [item.track.id, item]))
+  for (const row of getDB().prepare('SELECT video_json FROM downloaded_music_videos').all()) {
+    try {
+      const video = JSON.parse(row.video_json)
+      const track = tracks.find(track => track.id === video.trackId)
+      if (track && !known.has(track.id)) known.set(track.id, { track, video })
+    } catch {}
+  }
   // Saved videos keep their metadata even when discovery expires or the file
   // is evicted. Disk-cache membership isn't library membership.
   for (const track of tracks) {
@@ -269,30 +369,39 @@ function listMusicVideos() {
     } catch {}
   }
   return [...known.values()].sort((a, b) => String(a.track.artist || '').localeCompare(String(b.track.artist || '')) || String(a.track.title || '').localeCompare(String(b.track.title || ''))).map(({ track, video }) => {
-    const file = peekCachedVideoFile(video.videoId, options)
+    const file = musicVideoFile(video, track)
     return {
       track, video: { ...video, file, thumbnail: `https://i.ytimg.com/vi/${video.videoId}/mqdefault.jpg` },
-      saved: saved.has(track.id), cached: !!file,
+      saved: saved.has(track.id), downloaded: !!file,
     }
   })
 }
 
-/** Cache hit returns immediately; a miss becomes a real background queue job. */
-async function prepareMusicVideoFor(trackId, { wait = false } = {}) {
+async function prepareMusicVideoFor(trackId, { wait = false, download = false } = {}) {
   const video = await musicVideoFor(trackId)
   if (!video) return null
-  const { peekCachedVideoFile, heightOf } = require('../online/musicVideoCache')
-  const options = { cacheDir: require('../cache').cacheDir('musicVideo'), videoHeight: heightOf(settings().video_quality) }
-  const file = peekCachedVideoFile(video.videoId, options)
-  if (file) return { ...video, file }
+  const { peekDurableVideoFile, recordedVideoFile, heightOf } = require('../online/musicVideoDownloads')
+  const options = { videoHeight: heightOf(settings().video_quality), artist: trackArtist(trackId) || video.artist, title: video.title, trackId }
+  const file = musicVideoFile(video, { artist: options.artist })
+  const durable = recordedVideoFile(getDB(), video.videoId, options.videoHeight) || peekDurableVideoFile(video.videoId, options)
+  if (durable || (file && !download)) return { ...video, file: durable || file }
+  if (!download) {
+    const manager = require('./downloader').manager()
+    const active = [...manager.jobs.values()].find(job => job.kind === 'music-video' && job.opts.videoId === video.videoId && ['queued', 'downloading'].includes(job.status))
+    return { ...video, file: null, ...(active ? { downloadId: active.id } : { needsDownload: true }) }
+  }
   const { queueMusicVideo, waitForDownload } = require('./downloader')
   const queued = queueMusicVideo(video, options)
   if (queued.error) throw new Error(queued.error)
   if (!wait) return { ...video, downloadId: queued.downloadId }
   const job = await waitForDownload(queued.downloadId)
-  const downloaded = peekCachedVideoFile(video.videoId, options)
-  if (!downloaded || job?.status !== 'done') throw new Error(job?.error || 'Could not cache the music video')
+  const downloaded = peekDurableVideoFile(video.videoId, options)
+  if (!downloaded || job?.status !== 'done') throw new Error(job?.error || 'Could not download the music video')
   return { ...video, file: downloaded }
+}
+
+function trackArtist(trackId) {
+  try { return getDB().prepare('SELECT artist FROM tracks WHERE id = ?').get(trackId)?.artist } catch { return null }
 }
 
 /** Must run before the app is ready: lets <audio> stream (and seek) from lokal-stream://. */
@@ -337,4 +446,4 @@ function registerStreamProtocol(protocol, net) {
   })
 }
 
-module.exports = { registerOnlineHandlers, registerStreamScheme, registerStreamProtocol, search, streamOptions, providers, songAudioFor, resolvedSourceAudio }
+module.exports = { registerOnlineHandlers, registerStreamScheme, registerStreamProtocol, search, streamOptions, providers, songAudioFor, resolvedSourceAudio, listMusicVideos, prepareMusicVideoFor }

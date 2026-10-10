@@ -6,7 +6,7 @@ import os from 'node:os'
 import path from 'node:path'
 
 const require = createRequire(import.meta.url)
-const { findMusicVideo, discoveredVideos, databaseVideos, isMusicVideoFor, baseTitle, plainTitle, artistNames, audioFeatures, alignAudio, videoTimeFor, FPS } = require('../electron/online/musicVideo.js')
+const { findMusicVideo, discoveredVideos, databaseVideos, isMusicVideoFor, baseTitle, plainTitle, artistNames, audioFeatures, alignAudio, videoTimeFor, FPS, hasVisualMotion, validateVisualMotion } = require('../electron/online/musicVideo.js')
 const { runJsonSearch } = require('../electron/download/search.js')
 const { songAudioFor } = require('../electron/ipc/online.js')
 
@@ -28,6 +28,8 @@ test('only the official video of the same song by the same artist is a match', (
   assert.ok(!isMusicVideoFor(track, video({ title: 'Blinding Lights (Live at SoFi Stadium)' })), 'live')
   assert.ok(!isMusicVideoFor(track, video({ title: 'Blinding Lights (Lyric Video)' })), 'lyric video')
   assert.ok(!isMusicVideoFor(track, video({ title: 'Blinding Lights (Remix)' })), 'remix')
+  assert.ok(!isMusicVideoFor(track, video({ title: 'Blinding Lights (Official Video)', isStatic: true })), 'static upload')
+  assert.ok(!isMusicVideoFor(track, video({ title: 'Blinding Lights (Official Video)', visualMotion: false })), 'motion check rejection')
   assert.ok(!isMusicVideoFor(track, video({ title: 'Save Your Tears (Official Video)' })), 'other song')
   assert.ok(!isMusicVideoFor(track, video({ title: 'Blinding Lights (Official Video)', kind: 'song' })), 'the song itself')
   assert.ok(!isMusicVideoFor(track, video({ title: 'Blinding Lights (Official Video)', duration: 120 })), 'shorter than the song')
@@ -118,7 +120,7 @@ test('a rejected curated row does not hide a later valid result with the same vi
   assert.deepEqual(found.candidates.map(item => item.videoId), ['IKqV7DB8Iwg'])
 })
 
-test('yt-dlp discovery is bounded when the child stalls', async () => {
+test('yt-dlp discovery is bounded when the child stalls', { skip: process.platform === 'win32' ? 'POSIX shell fixture requires /bin/sh' : false }, async () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'lokal-ytdlp-'))
   const script = path.join(directory, 'yt-dlp-stall.sh')
   fs.writeFileSync(script, '#!/bin/sh\nsleep 1\n')
@@ -207,6 +209,7 @@ test('falls back to the vanity-free title and takes its official video by name',
   const track = { id: 'spice-mix', title: "Let's Get It Started (Spice Mix)", artist: 'The Black Eyed Peas', duration: 180 }
   const queries = []
   const video = await findMusicVideo(track, {
+    visualMotion: async () => true,
     fetchImpl: async () => ({ ok: true, json: async () => ({}), text: async () => '' }),
     audioDbSearch: async () => [],
     youtubeSearch: async (query) => {
@@ -222,6 +225,46 @@ test('falls back to the vanity-free title and takes its official video by name',
   assert.equal(video.check, 'title')
   assert.deepEqual(video.segments, [{ start: 0, end: null, offset: 0 }])
   assert.ok(queries.some(q => q.includes('Spice Mix')) && queries.some(q => !q.includes('Spice Mix')))
+})
+
+function framesFor(kind) {
+  const frames = Buffer.alloc(64 * 36 * 72)
+  for (let frame = 0; frame < 72; frame++) {
+    const shift = kind === 'moving' ? frame : kind === 'slideshow' ? Math.floor(frame / 24) * 8 : 0
+    for (let pixel = 0; pixel < 64 * 36; pixel++) frames[frame * 64 * 36 + pixel] = ((pixel + shift) * 31) % 240
+  }
+  return frames
+}
+
+test('motion validation rejects still art and slide changes but accepts continuous picture motion', async () => {
+  assert.equal(hasVisualMotion(framesFor('static')), false)
+  assert.equal(hasVisualMotion(framesFor('slideshow')), false)
+  assert.equal(hasVisualMotion(framesFor('moving')), true)
+  assert.equal(hasVisualMotion(Buffer.alloc(64 * 36 * 72)), null)
+  assert.equal(await validateVisualMotion('ffmpeg', async () => ({ input: 'video' }), 200, { decode: async () => framesFor('moving') }), true)
+  assert.equal(await validateVisualMotion('ffmpeg', async () => ({ input: 'video' }), 200, { decode: async () => framesFor('slideshow') }), false)
+  assert.equal(await validateVisualMotion(null, async () => ({ input: 'video' }), 200), null)
+})
+
+test('unproven visual motion keeps audio fallback and does not cache a missing match', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'lokal-motion-'))
+  const cacheFile = path.join(root, 'matches.json')
+  const track = { id: 'motion', title: 'Blinding Lights', artist: 'The Weeknd', duration: 200 }
+  const options = {
+    cacheFile,
+    fetchImpl: async () => ({ ok: true, json: async () => ({}), text: async () => '' }),
+    audioDbSearch: async () => [],
+    youtubeSearch: async () => [{ videoId: '4NRXx6U8ABQ', title: 'Blinding Lights (Official Video)', artists: ['The Weeknd'], artist: 'The Weeknd', duration: 200, kind: 'video', official: true }],
+  }
+  try {
+    assert.equal(await findMusicVideo(track, { ...options, visualMotion: async () => null }), null)
+    assert.equal(fs.existsSync(cacheFile), false)
+    assert.equal(await findMusicVideo(track, { ...options, visualMotion: async () => false }), null)
+    fs.rmSync(cacheFile, { force: true })
+    const video = await findMusicVideo(track, { ...options, visualMotion: async () => true })
+    assert.equal(video?.motion, 'verified')
+    assert.equal(video?.check, 'length')
+  } finally { fs.rmSync(root, { recursive: true, force: true }) }
 })
 
 test('the lookup reports its progress', async () => {

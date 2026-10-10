@@ -121,12 +121,16 @@ function manager() {
     },
     downloadMusicVideo: (videoId, opts) => {
       const online = require('./online')
-      return require('../online/musicVideoCache').downloadVideo(videoId, {
+      return require('../online/musicVideoDownloads').downloadVideo(videoId, {
         ...online.streamOptions(),
         ...opts,
+        durable: true,
+        videosDir: opts?.videosDir || require('../online/musicVideoDownloads').videosDir(),
+        onFile: file => require('../online/musicVideoDownloads').rememberVideoFile(getDB(), { ...opts.video, videoId, title: opts.title, artist: opts.artist, trackId: opts.trackId }, file, opts.videoHeight),
         fetchImpl: (url, init) => require('electron').net.fetch(url, init),
       })
     },
+    deleteMusicVideo: videoId => require('../online/musicVideoDownloads').deleteVideoFiles(getDB(), videoId),
     emit: (snapshot) => broadcast('downloader:progress', snapshot),
   }, 10)
 }
@@ -233,8 +237,12 @@ function queueMusicVideo(video, options = {}) {
     title: video.title || 'Music video',
     from: 'Music Video',
     thumbnail: `https://i.ytimg.com/vi/${video.videoId}/mqdefault.jpg`,
-    cacheDir: options.cacheDir,
+    durable: true,
+    videosDir: options.videosDir || require('../online/musicVideoDownloads').videosDir(),
     videoHeight: options.videoHeight,
+    artist: options.artist || video.artist || video.artists?.[0],
+    trackId: options.trackId,
+    video,
   })
 }
 

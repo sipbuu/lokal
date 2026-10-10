@@ -13,13 +13,18 @@ import { showToast } from '../components/Toaster'
 import { useSelection } from '../selection'
 import SelectionBar from '../components/SelectionBar'
 import { startVideoPreview } from '../videoPreview'
-import { downloadVideos, updateVideoLibrary } from '../videoActions'
+import { deleteVideoDownloads, downloadVideos, updateVideoLibrary } from '../videoActions'
 
 function VideoCard({ item, selected, onSelect, onToggleSelection, onMenu, onSave, saving, preview }) {
   const [hover, setHover] = React.useState(false)
   const [failed, setFailed] = React.useState(false)
   const ref = React.useRef(null)
   React.useEffect(() => { setFailed(false) }, [preview])
+  React.useEffect(() => {
+    const changing = event => { if (event.detail?.trackId === item.track.id || event.detail?.videoId === item.video.videoId) setHover(false) }
+    window.addEventListener('lokal:music-video-changing', changing)
+    return () => window.removeEventListener('lokal:music-video-changing', changing)
+  }, [item.track.id, item.video.videoId])
   React.useEffect(() => {
     const element = ref.current
     if (!element || !hover || !preview) return undefined
@@ -35,7 +40,7 @@ function VideoCard({ item, selected, onSelect, onToggleSelection, onMenu, onSave
       <img src={item.video.thumbnail} alt="" loading="lazy" className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105" />
       {preview && hover && !failed && <video ref={ref} src={preview} muted playsInline preload="metadata" onError={() => setFailed(true)} className="absolute inset-0 w-full h-full object-cover" />}
       <span className="absolute inset-0 flex items-center justify-center bg-black/20 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity"><span className="rounded-full p-3 bg-white/90 text-black"><Play size={22} fill="currentColor" /></span></span>
-      {item.cached && <span className="absolute bottom-2 left-2 rounded-full bg-black/65 px-2 py-1 text-[10px] uppercase tracking-wider text-white">Downloaded</span>}
+      {item.downloaded && <span className="absolute bottom-2 left-2 rounded-full bg-black/65 px-2 py-1 text-[10px] uppercase tracking-wider text-white">Downloaded</span>}
     </button>
     <div className="flex gap-2 items-center mt-3">
       <div className="min-w-0 flex-1"><button onClick={onSelect} className="block truncate w-full text-left text-sm font-medium text-white hover:text-accent">{item.track.title}</button><p className="truncate text-xs text-muted mt-0.5">{item.track.artist}</p></div>
@@ -73,10 +78,10 @@ export default function Videos() {
     return () => { loadRevision.current++; window.removeEventListener('lokal:refresh', load); window.removeEventListener('lokal:music-video-found', load) }
   }, [load])
   const completedVideos = jobs.filter(j => j.kind === 'music-video' && j.status === 'done').length
-  useEffect(() => { if (completedVideos) load() }, [completedVideos, load])
+  useEffect(() => { load() }, [completedVideos, load])
   const visible = useMemo(() => items.filter(item => {
     if (filter === 'saved' && !item.saved) return false
-    if (filter === 'downloaded' && !item.cached) return false
+    if (filter === 'downloaded' && !item.downloaded) return false
     return `${item.track.title} ${item.track.artist}`.toLowerCase().includes(query.trim().toLowerCase())
   }), [items, filter, query])
   const keys = useMemo(() => visible.map(item => item.track.id), [visible])
@@ -107,6 +112,13 @@ export default function Videos() {
   }
   const saveMany = (rows, saved) => runAction(rows, list => updateVideoLibrary(list, saved, api, (id, value) => setItems(current => current.map(row => row.track.id === id ? { ...row, saved: value } : row))))
   const downloadMany = rows => runAction(rows, list => downloadVideos(list, api))
+  const deleteMany = rows => {
+    const downloaded = rows.filter(row => row.downloaded)
+    if (busy.current || !downloaded.length) return
+    const name = downloaded.length === 1 ? `the downloaded video for "${downloaded[0].track.title}"` : `${downloaded.length} downloaded videos`
+    if (!window.confirm(`Delete ${name} from disk? This deletes the video files permanently. Your songs, audio files and saved video entries will be kept.`)) return
+    return runAction(downloaded, list => deleteVideoDownloads(list, api))
+  }
   const save = item => saveMany([item], !item.saved)
   const openMenu = (event, item) => {
     event.preventDefault()
@@ -117,7 +129,8 @@ export default function Videos() {
     { label: chosen.length > 1 ? 'Play selected videos' : 'Play video', icon: Play, onSelect: () => play(chosen[0] || item, false, chosen) },
     chosen.some(row => !row.saved) && { label: chosen.length > 1 ? 'Save selected videos to library' : 'Save video to library', icon: Plus, disabled: !!saving, onSelect: () => saveMany(chosen.filter(row => !row.saved), true) },
     chosen.some(row => row.saved) && { label: chosen.length > 1 ? 'Remove selected videos from library' : 'Remove video from library', icon: Trash2, disabled: !!saving, onSelect: () => saveMany(chosen.filter(row => row.saved), false) },
-    { label: chosen.length > 1 ? 'Download selected videos to cache' : 'Download video to cache', icon: Download, disabled: !!saving, onSelect: () => downloadMany(chosen) },
+    { label: 'Download', icon: Download, disabled: !!saving, onSelect: () => downloadMany(chosen) },
+    chosen.some(row => row.downloaded) && { label: 'Delete downloads', icon: Trash2, disabled: !!saving, onSelect: () => deleteMany(chosen) },
     { separator: true },
     { label: 'Play next', icon: Clock, onSelect: () => playNextMany(tracks) },
     { label: 'Add to queue', icon: ListEnd, onSelect: () => addToQueueMany(tracks) },
@@ -127,7 +140,7 @@ export default function Videos() {
 
   return <div className="p-6 space-y-6 max-w-7xl mx-auto pb-10">
     <header className="flex flex-wrap items-end justify-between gap-4">
-      <div><p className="text-xs uppercase tracking-[0.2em] text-muted mb-2">Your music, in motion</p><h1 className="text-3xl font-display text-white">Videos</h1><p className="text-sm text-muted mt-2">{items.length} music videos · Save your favorites and play them from your cache.</p></div>
+      <div><p className="text-xs uppercase tracking-[0.2em] text-muted mb-2">Your music, in motion</p><h1 className="text-3xl font-display text-white">Videos</h1><p className="text-sm text-muted mt-2">{items.length} music videos · Save your favorites and play them from your Videos folder.</p></div>
       <div className="flex gap-2">
         <button disabled={!visible.length} onClick={() => play(visible[0])} className="inline-flex items-center gap-2 rounded-full px-4 py-2 bg-accent text-base disabled:opacity-40"><Play size={15} fill="currentColor" />Play</button>
         <button disabled={!visible.length} onClick={() => play(visible[Math.floor(Math.random() * visible.length)], true)} className="inline-flex items-center gap-2 rounded-full px-4 py-2 border border-border text-text disabled:opacity-40"><Shuffle size={15} />Shuffle</button>
@@ -141,7 +154,7 @@ export default function Videos() {
     </div>
     {error && <p role="alert" className="text-sm text-red-400">{error}</p>}
     <div className="grid grid-cols-1 @sm:grid-cols-2 @lg:grid-cols-3 @2xl:grid-cols-4 gap-x-5 gap-y-7">
-      {visible.map(item => <VideoCard key={item.track.id} item={item} selected={selection.has(item.track.id)} onSelect={event => selection.click(item.track.id, event) || play(item)} onToggleSelection={() => selection.click(item.track.id, { ctrlKey: true })} onSave={() => save(item)} saving={!!saving} onMenu={event => openMenu(event, item)} preview={item.cached && item.video.file ? api.fileURL(item.video.file) : null} />)}
+      {visible.map(item => <VideoCard key={item.track.id} item={item} selected={selection.has(item.track.id)} onSelect={event => selection.click(item.track.id, event) || play(item)} onToggleSelection={() => selection.click(item.track.id, { ctrlKey: true })} onSave={() => save(item)} saving={!!saving} onMenu={event => openMenu(event, item)} preview={item.downloaded && item.video.file ? api.fileURL(item.video.file) : null} />)}
     </div>
     {loaded && !visible.length && <div className="text-center py-16 text-muted"><Clapperboard size={40} className="mx-auto mb-4 opacity-40" /><p>{items.length ? 'No videos match this view.' : 'Your discovered music videos will appear here.'}</p><p className="text-xs mt-2">Play songs to discover videos, or download one from its actions.</p></div>}
     <SelectionBar open={selection.count > 0} label={`${selection.count} selected`} onClear={selection.clear} actions={[
@@ -152,6 +165,7 @@ export default function Videos() {
       { label: 'Save videos', icon: Plus, disabled: !!saving || selectedItems.every(row => row.saved), onClick: () => saveMany(selectedItems.filter(row => !row.saved), true) },
       { label: 'Remove videos', icon: Trash2, disabled: !!saving || selectedItems.every(row => !row.saved), onClick: () => saveMany(selectedItems.filter(row => row.saved), false) },
       { label: 'Download videos', icon: Download, disabled: !!saving, onClick: () => downloadMany(selectedItems) },
+      { label: 'Delete downloads', icon: Trash2, disabled: !!saving || selectedItems.every(row => !row.downloaded), onClick: () => deleteMany(selectedItems) },
     ]} />
     <ContextMenu menu={menu} />
   </div>

@@ -6,7 +6,7 @@ import { pathToFileURL } from 'node:url'
 import vm from 'node:vm'
 import { discoverNewReleases, loadArtistReleases, recentReleases } from '../src/newReleases.js'
 import { previewWindow, startVideoPreview } from '../src/videoPreview.js'
-import { downloadVideos, updateVideoLibrary } from '../src/videoActions.js'
+import { deleteVideoDownloads, downloadVideos, updateVideoLibrary } from '../src/videoActions.js'
 
 const require = createRequire(import.meta.url)
 const { trackFileFilter, missingTrackFile } = require('../electron/libraryTracks.js')
@@ -162,30 +162,42 @@ test('release catalogue reads the artist albums and singles without loading extr
   assert.deepEqual(recentReleases(result.albums, new Date('2026-10-09')).map(row => row.title), ['New single'])
 })
 
-test('bulk video saving isolates failed rows and caches only newly saved undownloaded videos', async () => {
-  const items = ['one', 'bad', 'three'].map(id => ({ track: { id }, cached: id === 'three' }))
+test('bulk video saving isolates failed rows and downloads only newly saved undownloaded videos', async () => {
+  const items = ['one', 'bad', 'three'].map(id => ({ track: { id }, downloaded: id === 'three' }))
   const saved = []
-  const cached = []
+  const downloaded = []
   const result = await updateVideoLibrary(items, true, {
     musicVideoSave: async id => id === 'bad' ? { error: 'Disk unavailable' } : { saved: true },
-    musicVideoCache: async id => { cached.push(id); return { downloadId: id } },
+    musicVideoDownload: async id => { downloaded.push(id); return { downloadId: id } },
   }, (id, value) => saved.push([id, value]))
   assert.deepEqual(saved, [['one', true], ['three', true]])
-  assert.deepEqual(cached, ['one'])
+  assert.deepEqual(downloaded, ['one'])
   assert.deepEqual(result, { succeeded: 2, errors: ['Disk unavailable'] })
-  const removed = await updateVideoLibrary(items, false, { musicVideoSave: async () => ({ saved: false }), musicVideoCache: () => { throw new Error('Must not download') } })
+  const removed = await updateVideoLibrary(items, false, { musicVideoSave: async () => ({ saved: false }), musicVideoDownload: () => { throw new Error('Must not download') } })
   assert.deepEqual(removed, { succeeded: 3, errors: [] })
 })
 
 test('bulk downloads continue after a rejected provider operation', async () => {
   const asked = []
-  const result = await downloadVideos(['one', 'bad', 'three'].map(id => ({ track: { id } })), { musicVideoCache: async id => {
+  const result = await downloadVideos(['one', 'bad', 'three'].map(id => ({ track: { id } })), { musicVideoDownload: async id => {
     asked.push(id)
     if (id === 'bad') throw new Error('Download failed')
-    return { file: '/cache/local.mp4' }
+    return { file: '/videos/artist/local.mp4' }
   } })
   assert.deepEqual(asked, ['one', 'bad', 'three'])
   assert.deepEqual(result, { succeeded: 2, errors: ['Download failed'] })
+})
+
+test('bulk deletion deletes downloaded videos only and isolates failed rows', async () => {
+  const asked = []
+  const items = ['one', 'bad', 'three', 'not-downloaded'].map(id => ({ track: { id }, downloaded: id !== 'not-downloaded' }))
+  const result = await deleteVideoDownloads(items, {
+    musicVideoDeleteDownload: async id => { asked.push(id); return id === 'bad' ? { error: 'File is locked' } : { success: true } },
+    deleteTracks: () => { throw new Error('Audio must be kept') },
+    musicVideoSave: () => { throw new Error('Saved entries must be kept') },
+  })
+  assert.deepEqual(asked, ['one', 'bad', 'three'])
+  assert.deepEqual(result, { succeeded: 2, errors: ['File is locked'] })
 })
 
 test('hover previews use a five second local window and silence the element', () => {
