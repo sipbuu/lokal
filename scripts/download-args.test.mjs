@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { createRequire } from 'node:module'
 import { test } from 'node:test'
+import path from 'node:path'
 
 const require = createRequire(import.meta.url)
 const { buildArgs } = require('../electron/download/args.js')
@@ -49,6 +50,6 @@ test('addon songs with identical media filenames get isolated, stable output pat
   assert.equal(output(first), output(first))
   assert.notEqual(output(first), output({ ...first, id: 'second' }))
   assert.notEqual(output(first), output({ ...first, provider: 'a-9876543210' }))
-  assert.ok(output({ ...first, id: '../../escape/%(title)s' }).startsWith('/music/'))
+  assert.ok(output({ ...first, id: '../../escape/%(title)s' }).startsWith(path.join(base.outputDir, path.sep)))
   assert.equal(output({ ...first, id: '../../escape/%(title)s' }).includes('escape'), false)
 })

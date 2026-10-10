@@ -1,0 +1,45 @@
+name: macOS package integrity
+
+on:
+  pull_request:
+    paths:
+      - 'electron/**'
+      - 'native/**'
+      - 'build/**'
+      - 'scripts/**'
+      - 'package*.json'
+      - '.github/workflows/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-15-intel
+            arch: x64
+          - os: macos-14
+            arch: arm64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci
+      - run: npm run rebuild:web
+      - run: node --test scripts/download-library-sync.test.mjs scripts/library-duplicates.test.mjs scripts/download-upgrade.test.mjs scripts/mac-updates.test.mjs
+      - run: npm run build -- --publish never --mac dmg zip --${{ matrix.arch }} --config.mac.identity=-
+      - run: npm run verify:mac-package -- release ${{ matrix.arch }}
+      - uses: actions/upload-artifact@v6
+        with:
+          name: mac-integrity-${{ matrix.arch }}
+          path: |
+            release/*.dmg
+            release/*.zip
+          if-no-files-found: error

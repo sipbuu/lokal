@@ -7,8 +7,8 @@ import { createRequire } from 'node:module'
 import { test } from 'node:test'
 
 const require = createRequire(import.meta.url)
-const { initDB, getDB } = require('../electron/ipc/db.js')
-const { indexSingleFile } = require('../electron/ipc/scanner.js')
+const { initDB, getDB, importAppData } = require('../electron/ipc/db.js')
+const { indexSingleFile, scanFolder } = require('../electron/ipc/scanner.js')
 const { DownloadManager } = require('../electron/download/manager.js')
 const mm = require('../electron/musicMetadata')
 
@@ -288,6 +288,225 @@ test('shared queued job merges only approvals belonging to requested rows', t =>
   assert.deepEqual(job.opts.confirmedImported, ['g2'])
   assert.deepEqual(job.opts.manuallySelectedImported, ['g2'])
   clearTimeout(job.emitTimer)
+})
+
+test('repeated YouTube requests reuse the completed source identity', t => {
+  const { db, filepath } = fixture(t)
+  const mgr = new DownloadManager()
+  mgr.configure({ getDB: () => db, findTools: () => ({ ytdlp: 'unused' }) })
+  mgr.pump = () => {}
+  const url = 'https://www.youtube.com/watch?v=aaaaaaaaaaa'
+  const first = mgr.enqueue('single', url, { title: 'Song' })
+  assert.equal(first.alreadyInLibrary, undefined)
+  mgr.jobs.get(first.downloadId).status = 'done'
+  db.prepare('INSERT INTO tracks (id, file_path, file_hash, title, artist, duration, source_ref, download_source) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+    .run('saved', filepath, 'saved-hash', 'Song', 'Artist', 200, 'yt:aaaaaaaaaaa', 'yt')
+  const second = mgr.enqueue('single', url, { title: 'Song' })
+  assert.equal(second.alreadyInLibrary, true)
+  assert.equal(mgr.jobs.size, 1)
+})
+
+test('source identity prevents a replayed file from creating a second track', async t => {
+  const { db, filepath } = fixture(t)
+  const replacement = path.join(path.dirname(filepath), 'replacement.flac')
+  fs.writeFileSync(replacement, 'another synthetic audio')
+  db.prepare('INSERT INTO tracks (id, file_path, file_hash, title, artist, duration, source_ref, download_source) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+    .run('saved', filepath, 'saved-hash', 'Song', 'Artist', 200, 'yt:bbbbbbbbbbb', 'yt')
+  t.mock.method(mm, 'parseFile', async () => ({ common: { title: 'Song', artist: 'Artist' }, format: { duration: 200 } }))
+  const result = await indexSingleFile(replacement, { sourceRef: 'yt:bbbbbbbbbbb', metadata: { title: 'Song', artist: 'Artist', duration: 200 } })
+  assert.equal(result.sourceRefMatch, true)
+  assert.equal(db.prepare('SELECT COUNT(*) AS n FROM tracks').get().n, 1)
+  fs.rmSync(replacement)
+})
+
+test('replayed downloads park extra audio and repeated refreshes retain one stable track', async t => {
+  const { db, filepath, add } = fixture(t)
+  add('saved', filepath)
+  const stat = fs.statSync(filepath)
+  const hash = 't-' + crypto.createHash('sha256').update(filepath + stat.size + stat.mtimeMs).digest('hex').slice(0, 16)
+  db.prepare('UPDATE tracks SET source_ref = ?, download_source = ?, file_hash = ?, last_modified = ?').run('yt:bbbbbbbbbbb', 'yt', hash, stat.mtimeMs)
+  const replacement = path.join(path.dirname(filepath), 'replayed.flac')
+  fs.writeFileSync(replacement, 'duplicate audio')
+  const parse = t.mock.method(mm, 'parseFile', async () => { throw new Error('Unchanged file must not be reparsed') })
+  const mgr = new DownloadManager().configure({ getDB: () => db, index: indexSingleFile })
+  const job = mgr.makeJob('single', 'https://youtu.be/bbbbbbbbbbb', { title: 'Song' })
+  const result = await mgr.indexOne(job, replacement)
+  assert.equal(result.libraryAdded, true)
+  assert.equal(fs.existsSync(replacement), false)
+  assert.equal(fs.readdirSync(path.dirname(filepath)).filter(name => name.endsWith('.lokal-duplicate')).length, 1)
+  await mgr.indexOne(job, filepath)
+  await mgr.indexOne(job, filepath)
+  assert.equal(job.indexedTracks.length, 1)
+  assert.equal(job.indexedTracks[0].filepath, filepath)
+  for (let n = 0; n < 3; n++) await scanFolder(path.dirname(filepath))
+  assert.equal(parse.mock.callCount(), 0)
+  assert.equal(db.prepare('SELECT COUNT(*) AS n FROM tracks').get().n, 1)
+  assert.equal(db.prepare('SELECT id, source_ref FROM tracks').get().id, 'saved')
+  assert.equal(db.prepare('SELECT source_ref FROM tracks').get().source_ref, 'yt:bbbbbbbbbbb')
+})
+
+test('restart replay reuses an indexed YouTube source without launching yt-dlp', async t => {
+  const { db, filepath, add } = fixture(t)
+  add('saved', filepath)
+  db.prepare('UPDATE tracks SET source_ref = ?').run('yt:ddddddddddd')
+  const mgr = new DownloadManager().configure({ getDB: () => db, index: indexSingleFile })
+  mgr.pump = () => {}
+  const job = mgr.makeJob('single', 'https://music.youtube.com/watch?v=ddddddddddd', { title: 'Song' })
+  mgr.jobs.set(job.id, job)
+  mgr.start(job)
+  while (mgr.running) await new Promise(resolve => setTimeout(resolve, 5))
+  assert.equal(job.status, 'done')
+  assert.equal(job.proc, null)
+  assert.equal(job.indexedTracks.length, 1)
+  assert.equal(db.prepare('SELECT COUNT(*) AS n FROM tracks').get().n, 1)
+})
+
+test('concurrent indexing of one YouTube identity creates only one library row', async t => {
+  const { db, filepath } = fixture(t)
+  const other = `${filepath}.mp3`
+  fs.writeFileSync(other, 'second audio')
+  t.mock.method(mm, 'parseFile', async () => ({ common: { title: 'Song', artist: 'Artist', genre: ['Rock'], picture: [{ data: Buffer.from('cover') }] }, format: { duration: 200 } }))
+  const results = await Promise.all([filepath, other].map(file => indexSingleFile(file, { sourceRef: 'yt:ggggggggggg' })))
+  assert.equal(new Set(results.map(result => result.id)).size, 1)
+  assert.ok(results.every(result => result.id && !result.error))
+  assert.equal(db.prepare('SELECT COUNT(*) AS n FROM tracks').get().n, 1)
+  assert.equal(db.prepare('SELECT source_ref FROM tracks').get().source_ref, 'yt:ggggggggggg')
+})
+
+test('replayed pending indexing clears its receipt even when the job already lists the track', async t => {
+  const { db, filepath, add } = fixture(t)
+  add('saved', filepath)
+  const mgr = new DownloadManager().configure({ getDB: () => db, index: indexSingleFile })
+  const job = mgr.makeJob('single', 'https://youtu.be/hhhhhhhhhhh', { title: 'Song' })
+  job.status = 'done'
+  job.indexedTracks = [{ filepath, id: 'saved' }]
+  job.pendingIndex = [filepath]
+  mgr.jobs.set(job.id, job)
+  await mgr.indexLeftovers()
+  assert.equal(job.indexedTracks.length, 1)
+  assert.deepEqual(job.pendingIndex, [])
+})
+
+test('a scanner-indexed replay still resolves to the original source and keeps playlist references', async t => {
+  const { db, filepath, add } = fixture(t)
+  add('saved', filepath)
+  db.prepare('UPDATE tracks SET source_ref = ? WHERE id = ?').run('yt:kkkkkkkkkkk', 'saved')
+  const extra = `${filepath}.mp3`
+  fs.writeFileSync(extra, 'new downloaded audio')
+  add('scanned-first', extra)
+  db.prepare("INSERT INTO settings (key, value) VALUES ('music_folder', ?)").run(path.dirname(filepath))
+  db.exec("INSERT INTO playlists (id, name) VALUES ('p', 'Playlist'); INSERT INTO playlist_tracks (playlist_id, track_id, position) VALUES ('p', 'scanned-first', 0)")
+  const mgr = new DownloadManager().configure({ getDB: () => db, index: indexSingleFile })
+  const job = mgr.makeJob('single', 'https://youtu.be/kkkkkkkkkkk', { title: 'Song' })
+  const result = await mgr.indexOne(job, extra)
+  assert.equal(result.libraryAdded, true)
+  assert.equal(result.id, 'saved')
+  assert.equal(db.prepare('SELECT COUNT(*) AS n FROM tracks').get().n, 1)
+  assert.equal(db.prepare('SELECT track_id FROM playlist_tracks').get().track_id, 'saved')
+  assert.equal(fs.existsSync(extra), false)
+})
+
+test('legacy download history restores a lost identity before the uniqueness migration', t => {
+  const { db, filepath, add } = fixture(t)
+  add('saved', filepath)
+  db.exec('DROP INDEX idx_tracks_source_ref_unique')
+  const mgr = new DownloadManager().configure({ getDB: () => db })
+  mgr.ensureTable()
+  const job = mgr.makeJob('single', 'https://youtu.be/iiiiiiiiiii', { title: 'Song' })
+  job.status = 'done'
+  job.indexedTracks = [{ filepath, id: 'saved' }]
+  mgr.jobs.set(job.id, job)
+  mgr.persist(job)
+  db.close()
+  const reopened = initDB()
+  assert.equal(reopened.prepare('SELECT source_ref FROM tracks').get().source_ref, 'yt:iiiiiiiiiii')
+  assert.equal(reopened.prepare('SELECT download_source FROM tracks').get().download_source, 'yt')
+  reopened.close()
+})
+
+test('loading a legacy queue merges repeated YouTube requests and their playlist targets', t => {
+  const { db } = fixture(t)
+  const original = new DownloadManager().configure({ getDB: () => db })
+  original.ensureTable()
+  for (const [id, url, ghost] of [['one', 'https://youtu.be/jjjjjjjjjjj', 'g1'], ['two', 'https://music.youtube.com/watch?v=jjjjjjjjjjj', 'g2']]) {
+    const job = original.makeJob('single', url, { title: 'Song', replaceImported: [ghost] }, { id })
+    original.jobs.set(job.id, job)
+    original.persist(job)
+  }
+  const restored = new DownloadManager().configure({ getDB: () => db })
+  restored.pump = () => {}
+  restored.init()
+  assert.equal(restored.jobs.size, 1)
+  assert.equal(db.prepare('SELECT COUNT(*) AS n FROM download_jobs').get().n, 1)
+  assert.deepEqual([...restored.jobs.values()][0].opts.replaceImported, ['g1', 'g2'])
+})
+
+test('database uniqueness covers downloaded identities and permits streamed copies', t => {
+  const { db, filepath, add } = fixture(t)
+  add('saved', filepath)
+  db.prepare('UPDATE tracks SET source_ref = ? WHERE id = ?').run('yt:eeeeeeeeeee', 'saved')
+  add('extra', `${filepath}.extra`)
+  assert.throws(() => db.prepare('UPDATE tracks SET source_ref = ? WHERE id = ?').run('yt:eeeeeeeeeee', 'extra'), /UNIQUE/)
+  add('ghost', 'ghost://youtube/online/eeeeeeeeeee')
+  db.prepare('UPDATE tracks SET source_ref = ? WHERE id = ?').run('yt:eeeeeeeeeee', 'ghost')
+})
+
+for (const blockedMove of [false, true]) {
+  test(`legacy duplicates migrate once and stay deduplicated on refresh (blocked move: ${blockedMove})`, async t => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'lokal-source-migration-'))
+    const previous = process.env.LOKAL_DATA_DIR
+    process.env.LOKAL_DATA_DIR = path.join(dir, 'data')
+    let db = initDB()
+    const first = path.join(dir, 'first.flac')
+    const second = path.join(dir, 'second.flac')
+    fs.writeFileSync(first, 'first'); fs.writeFileSync(second, 'second')
+    t.after(() => {
+      db.close()
+      if (previous === undefined) delete process.env.LOKAL_DATA_DIR
+      else process.env.LOKAL_DATA_DIR = previous
+      fs.rmSync(dir, { recursive: true, force: true })
+    })
+    db.exec('DROP INDEX idx_tracks_source_ref_unique')
+    const insert = db.prepare('INSERT INTO tracks (id, file_path, file_hash, title, artist, duration, source_ref, added_at, play_count) VALUES (?, ?, ?, ?, ?, 200, ?, ?, ?)')
+    insert.run('first', first, 'first', 'Song', 'Artist', 'yt:fffffffffff', 1, 2)
+    insert.run('second', second, 'second', 'Renamed song', 'Artist', 'yt:fffffffffff', 2, 3)
+    db.exec("INSERT INTO playlists (id, name) VALUES ('p', 'Playlist'); INSERT INTO playlist_tracks (playlist_id, track_id, position) VALUES ('p', 'first', 0); INSERT INTO play_history (user_id, track_id) VALUES ('guest', 'first'); INSERT INTO user_likes (user_id, track_id) VALUES ('guest', 'first')")
+    if (blockedMove) t.mock.method(require('fs-extra'), 'renameSync', () => { throw new Error('Permission denied') })
+    db.close()
+    db = initDB()
+    assert.equal(db.prepare('SELECT COUNT(*) AS n FROM tracks').get().n, 1)
+    assert.equal(db.prepare('SELECT id, play_count FROM tracks').get().id, 'second')
+    assert.equal(db.prepare('SELECT play_count FROM tracks').get().play_count, 5)
+    assert.equal(db.prepare('SELECT track_id FROM playlist_tracks').get().track_id, 'second')
+    assert.equal(db.prepare('SELECT track_id FROM play_history').get().track_id, 'second')
+    assert.equal(db.prepare('SELECT track_id FROM track_aliases WHERE old_id = ?').get('first').track_id, 'second')
+    t.mock.method(mm, 'parseFile', async () => ({ common: { title: 'Song', artist: 'Artist' }, format: { duration: 200 } }))
+    await scanFolder(dir)
+    await scanFolder(dir)
+    assert.equal(db.prepare('SELECT COUNT(*) AS n FROM tracks').get().n, 1)
+    assert.deepEqual(db.pragma('foreign_key_check'), [])
+    db.close()
+    db = initDB()
+    assert.equal(db.prepare('SELECT play_count FROM tracks').get().play_count, 5)
+  })
+}
+
+test('backup import collapses legacy source duplicates and preserves references', t => {
+  const { db } = fixture(t)
+  importAppData({
+    version: 1,
+    tracks: [
+      { id: 'first', file_path: '/music/first.flac', file_hash: 'first', title: 'Song', artist: 'Artist', duration: 200, source_ref: 'yt:ccccccccccc', download_source: 'yt' },
+      { id: 'second', file_path: '/music/second.flac', file_hash: 'second', title: 'Song', artist: 'Artist', duration: 200, source_ref: 'yt:ccccccccccc', download_source: 'yt' },
+    ],
+    playlists: [{ id: 'p', name: 'Playlist' }],
+    playlist_tracks: [{ playlist_id: 'p', track_id: 'second', position: 0 }],
+    user_likes: [{ user_id: 'guest', track_id: 'second' }],
+  })
+  assert.equal(db.prepare('SELECT COUNT(*) AS n FROM tracks').get().n, 1)
+  assert.equal(db.prepare('SELECT source_ref FROM tracks').get().source_ref, 'yt:ccccccccccc')
+  assert.equal(db.prepare('SELECT track_id FROM playlist_tracks').get().track_id, 'first')
+  assert.equal(db.prepare('SELECT track_id FROM user_likes').get().track_id, 'first')
 })
 
 test('desktop and web download handlers preserve only row-scoped approvals', t => {
