@@ -27,7 +27,6 @@ const slskd = require('./slskd')
 const { sourceIdentity, onlineTrackId, streamedTwins, sourceRefOf, sourceRefOfTrack } = require('../online/sources')
 const { readInfo, coverThumbnail, imageThumbnail } = require('./tagger')
 const { makePlayable } = require('./convert')
-const { resolveTrackId, remapTrackPointers } = require('../online/musicVideoReferences')
 
 const ACTIVE = new Set(['queued', 'downloading'])
 const RETRY_DELAYS_MS = [5000, 20000]
@@ -154,18 +153,6 @@ function jobSourceRef(kind, url, opts = {}) {
   return sourceIdentity(url)
 }
 
-function mergeDownloadOptions(target, incoming) {
-  if (incoming.replaceTrackId && incoming.replaceTrackId !== target.replaceTrackId) {
-    if (!target.replaceTrackId) target.replaceTrackId = incoming.replaceTrackId
-    else target.alsoReplace = [...new Set([...(target.alsoReplace || []), incoming.replaceTrackId])]
-  }
-  target.alsoReplace = [...new Set([...(target.alsoReplace || []), ...(incoming.alsoReplace || [])])]
-  if (incoming.replaceImported?.length) target.replaceImported = [...new Set([...(target.replaceImported || []), ...incoming.replaceImported])]
-  for (const key of ['confirmedImported', 'manuallySelectedImported']) {
-    if (incoming[key]?.length) target[key] = [...new Set([...(target[key] || []), ...incoming[key].filter(id => incoming.replaceImported?.includes(id))])]
-  }
-}
-
 /** Where a download's files come from, kept on their tracks: yt, sc, an addon (a-<key>), soulseek or web. */
 // Quality tiers, worst to best, for deciding whether a new download is an upgrade.
 const TIER_RANK = { unknown: 0, low: 1, high: 2, lossless: 3, hires: 4 }
@@ -235,7 +222,7 @@ class DownloadManager {
     if (this.jobs.get(job.id) !== job) return // removed while its files were still being finished
     try {
       this.db().prepare('INSERT OR REPLACE INTO download_jobs (id, kind, url, status, data, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
-        .run(job.id, job.kind, job.url, job.status, JSON.stringify({ ...this.snapshot(job), opts: job.opts, attempt: job.attempt, pendingIndex: job.pendingIndex || [], fileSourceRefs: job.fileSourceRefs || {} }), job.createdAt, Date.now())
+        .run(job.id, job.kind, job.url, job.status, JSON.stringify({ ...this.snapshot(job), opts: job.opts, attempt: job.attempt, pendingIndex: job.pendingIndex || [] }), job.createdAt, Date.now())
     } catch {}
   }
 
@@ -254,7 +241,6 @@ class DownloadManager {
     for (const row of rows) {
       let data = {}
       try { data = JSON.parse(row.data || '{}') } catch {}
-      data = remapTrackPointers(data, id => resolveTrackId(this.db(), id))
       const job = this.makeJob(row.kind, row.url, data.opts || {}, { id: row.id, createdAt: row.created_at })
       if (job.kind === 'music-video') {
         delete job.opts.cacheDir
@@ -269,7 +255,6 @@ class DownloadManager {
         message: data.message || null,
         playlistId: data.playlistId ?? job.playlistId,
         pendingIndex: Array.isArray(data.pendingIndex) ? data.pendingIndex : [],
-        fileSourceRefs: data.fileSourceRefs && typeof data.fileSourceRefs === 'object' ? data.fileSourceRefs : {},
         downloadedTracks: data.downloadedTracks || [],
         indexedTracks: data.indexedTracks || [],
         libraryFailures: data.libraryFailures || 0,
@@ -285,16 +270,6 @@ class DownloadManager {
         removed: !!data.removed,
       })
       if (ACTIVE.has(row.status)) {
-        const earlier = job.sourceRef && [...this.jobs.values()].find(existing => ACTIVE.has(existing.status) && existing.sourceRef === job.sourceRef)
-        if (earlier) {
-          mergeDownloadOptions(earlier.opts, job.opts)
-          earlier.pendingIndex = [...new Set([...(earlier.pendingIndex || []), ...job.pendingIndex])]
-          earlier.indexedTracks = [...new Map([...earlier.indexedTracks, ...job.indexedTracks].map(track => [track.id, track])).values()]
-          earlier.fileSourceRefs = { ...earlier.fileSourceRefs, ...job.fileSourceRefs }
-          this.persist(earlier)
-          this.unpersist(row.id)
-          continue
-        }
         job.status = 'queued'
         job.message = 'Resuming after restart'
         job.seen = false
@@ -374,8 +349,9 @@ class DownloadManager {
       // A file stays pending until it's in the library, so a failed attempt
       // is tried again next time.
       for (const fp of files) {
-        const result = await this.indexOne(job, fp)
-        if (!result?.libraryAdded) job.pendingIndex.push(fp)
+        const before = job.indexedTracks.length
+        await this.indexOne(job, fp)
+        if (job.indexedTracks.length === before) job.pendingIndex.push(fp)
       }
       this.persist(job)
     }
@@ -534,7 +510,20 @@ class DownloadManager {
     const running = [...this.jobs.values()].find(j => ACTIVE.has(j.status) && !j.stop &&
       (ref ? j.sourceRef === ref : j.url === url && j.kind === kind))
     if (running) {
-      mergeDownloadOptions(running.opts, opts)
+      if (opts.replaceTrackId && opts.replaceTrackId !== running.opts.replaceTrackId) {
+        if (!running.opts.replaceTrackId) running.opts.replaceTrackId = opts.replaceTrackId
+        else running.opts.alsoReplace = [...new Set([...(running.opts.alsoReplace || []), opts.replaceTrackId])]
+      }
+      if (opts.replaceImported?.length) {
+        running.opts.replaceImported = [...new Set([...(running.opts.replaceImported || []), ...opts.replaceImported])]
+      }
+      // Approval belongs to the individual playlist row, not the shared job.
+      if (opts.confirmedImported?.length) {
+        running.opts.confirmedImported = [...new Set([...(running.opts.confirmedImported || []), ...opts.confirmedImported.filter(id => opts.replaceImported?.includes(id))])]
+      }
+      if (opts.manuallySelectedImported?.length) {
+        running.opts.manuallySelectedImported = [...new Set([...(running.opts.manuallySelectedImported || []), ...opts.manuallySelectedImported.filter(id => opts.replaceImported?.includes(id))])]
+      }
       this.persist(running)
       return { downloadId: running.id, playlistId: running.playlistId, duplicate: true }
     }
@@ -754,19 +743,6 @@ class DownloadManager {
   // ------------------------------------------------------------- running
 
   start(job) {
-    if (job.kind === 'single' && job.sourceRef && !job.opts?.upgradeTrackId && this.deps.index) {
-      const owned = this.libraryTrackWithRef(job.sourceRef)
-      if (owned) {
-        this.running++
-        this.update(job, { status: 'downloading', message: 'Restoring the library copy' }, { persist: true })
-        this.indexOne(job, owned.file_path).then(result => {
-          if (this.jobs.get(job.id) !== job || job.stop || job.status !== 'downloading') return
-          if (!result?.libraryAdded) { this.fail(job, result?.error || 'Could not restore the library copy'); return }
-          this.update(job, { status: 'done', progress: 100, message: 'Already in your library', finishedAt: Date.now(), error: null }, { persist: true })
-        }).catch(error => this.fail(job, error.message)).finally(() => { this.running--; this.pump() })
-        return
-      }
-    }
     if (job.kind === 'music-video') return this.startMusicVideo(job)
     if (this.isPackageSource(job.opts?.addonSource)) return this.startPackage(job)
     // An addon download: its link expires, so ask the addon for a fresh one
@@ -920,7 +896,6 @@ class DownloadManager {
   }
 
   startMusicVideo(job) {
-    job.opts = remapTrackPointers(job.opts, id => resolveTrackId(this.db(), id))
     const controller = new AbortController()
     job.videoAbort = controller
     job.startedAt = Date.now()
@@ -1177,11 +1152,6 @@ class DownloadManager {
         if (!job.downloadedTracks.includes(name)) job.downloadedTracks.push(name)
       }
       const index = this.deps.index
-      const sourceRef = job.sourceRef || sourceIdentity(meta?.webpage_url)
-      if (sourceRef) {
-        job.fileSourceRefs = { ...(job.fileSourceRefs || {}), [finalPath]: sourceRef }
-        this.persist(job)
-      }
       if ((index || job.opts?.upgradeTrackId) && (job.settings?.index_while_downloading === '1' || job.kind === 'single' || job.kind === 'soulseek')) {
         await this.indexOne(job, finalPath)
       } else {
@@ -1215,7 +1185,6 @@ class DownloadManager {
       const videoId = job.kind === 'single' ? youTubeId(job.url) : null
       const result = await index(filepath, {
         deferGhostResolution: true,
-        sourceRef: job.sourceRef || job.fileSourceRefs?.[filepath],
         thumbnailUrl: videoId ? `https://img.youtube.com/vi/${videoId}/maxresdefault.jpg` : undefined,
         metadata: job.opts?.tags
           ? {
@@ -1237,7 +1206,7 @@ class DownloadManager {
       // its track, which keeps its playlists, likes and history. Otherwise
       // indexing would only see a duplicate and leave the new file out of the
       // library (a later rescan then added it as a file of unknown source).
-      const upgraded = result?.duplicate && !result.sourceRefMatch && result.id ? await this.replaceWorseCopy(job, result.id, filepath) : false
+      const upgraded = result?.duplicate && result.id ? await this.replaceWorseCopy(job, result.id, filepath) : false
       if (result?.id) {
         // Where it came from: tells versions apart, and stops a second download.
         // A file already in the library (indexing gave back its track) keeps
@@ -1246,7 +1215,7 @@ class DownloadManager {
           this.db().prepare(upgraded
             ? 'UPDATE tracks SET download_source = ?, source_ref = ? WHERE id = ?'
             : 'UPDATE tracks SET download_source = COALESCE(download_source, ?), source_ref = COALESCE(source_ref, ?) WHERE id = ?')
-            .run(jobSourceLabel(job), job.sourceRef || job.fileSourceRefs?.[filepath] || null, result.id)
+            .run(jobSourceLabel(job), job.sourceRef || null, result.id)
         } catch {}
         // No cover inside the file (common on Soulseek, where the art is a
         // separate cover.jpg in the uploader's folder): use the one the
@@ -1355,33 +1324,8 @@ class DownloadManager {
         // Only now does the list show the song (which refreshes the library
         // pages): once it has taken the streamed version's place, so a
         // playlist or Liked Songs doesn't reload in between.
-        const track = this.db().prepare('SELECT file_path FROM tracks WHERE id = ?').get(result.id)
-        const indexedPath = track?.file_path || filepath
-        if (result.duplicate && !upgraded && path.resolve(indexedPath) !== path.resolve(filepath)) {
-          const knownPath = this.db().prepare('SELECT id FROM tracks WHERE file_path = ?').get(filepath)
-          if (knownPath && knownPath.id !== result.id && result.sourceRefMatch) {
-            const merged = await require('../ipc/mergeDuplicates').mergeDuplicates(this.db(), result.id, [knownPath.id])
-            if (merged.error) throw new Error(merged.error)
-          }
-          if (!knownPath && fs.existsSync(filepath)) {
-            const real = fs.realpathSync(filepath)
-            const shared = this.db().prepare("SELECT file_path FROM tracks WHERE file_path NOT LIKE 'ghost://%'").all().some(row => {
-              try { return fs.realpathSync(row.file_path) === real } catch { return false }
-            })
-            if (!shared) {
-              this.db().exec('CREATE TABLE IF NOT EXISTS duplicate_download_files (file_path TEXT PRIMARY KEY, size INTEGER, last_modified REAL)')
-              const stat = fs.statSync(filepath)
-              this.db().prepare('INSERT OR REPLACE INTO duplicate_download_files (file_path, size, last_modified) VALUES (?, ?, ?)').run(filepath, stat.size, stat.mtimeMs)
-              try { fs.renameSync(filepath, `${filepath}.${require('crypto').randomUUID()}.lokal-duplicate`) } catch {}
-            }
-          }
-        }
-        const entry = { filepath: indexedPath, id: result.id, title: path.basename(indexedPath, path.extname(indexedPath)) }
-        const previous = job.indexedTracks.findIndex(item => item.id === result.id)
-        if (previous < 0) job.indexedTracks.push(entry)
-        else job.indexedTracks[previous] = entry
-        job.pendingIndex = (job.pendingIndex || []).filter(fp => fp !== filepath)
-        this.update(job, { message: `Added to library: ${path.basename(indexedPath)}`, removed: false }, { force: true, persist: true })
+        job.indexedTracks.push({ filepath, id: result.id, title: path.basename(filepath, path.extname(filepath)) })
+        this.update(job, { message: `Added to library: ${path.basename(filepath)}`, removed: false }, { force: true })
         try { this.deps.onLibraryUpdated?.(result) } catch {}
         return { ...result, libraryAdded: true }
       }

@@ -66,7 +66,6 @@ async function mergeDuplicates(db, keepId, removeIds) {
           .run(loser.play_count || 0, loser.liked || 0, keepId)
         db.prepare('UPDATE track_aliases SET track_id = ? WHERE track_id = ?').run(keepId, loser.id)
         db.prepare('INSERT OR REPLACE INTO track_aliases (old_id, track_id) VALUES (?, ?)').run(loser.id, keepId)
-        require('../online/musicVideoReferences').remapMusicVideoReferences(db, loser.id, keepId)
         for (const table of ['artist_track_links', 'lyrics_cache', 'lyrics_translations']) {
           db.prepare(`DELETE FROM ${table} WHERE track_id = ?`).run(loser.id)
         }

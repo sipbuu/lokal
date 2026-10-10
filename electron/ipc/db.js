@@ -1,8 +1,6 @@
 const Database = require('better-sqlite3')
 const path = require('path')
 const fs = require('fs-extra')
-const { randomUUID } = require('crypto')
-const { remapMusicVideoReferences, repairMusicVideoReferences } = require('../online/musicVideoReferences')
 
 function getDataDir() {
   
@@ -17,91 +15,6 @@ function getDataDir() {
 
 let db
 let _dataDir
-
-function backfillDownloadedSources() {
-  if (db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'index' AND name = 'idx_tracks_source_ref_unique'").get()) return
-  if (!db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'download_jobs'").get()) return
-  const { sourceIdentity, sourceRefOf } = require('../online/sources')
-  const update = db.prepare("UPDATE tracks SET source_ref = COALESCE(NULLIF(source_ref, ''), ?), download_source = COALESCE(download_source, ?) WHERE (id = ? OR file_path = ?) AND file_path NOT LIKE 'ghost://%'")
-  for (const row of db.prepare("SELECT kind, url, data FROM download_jobs WHERE kind = 'single'").all()) {
-    let data
-    try { data = JSON.parse(row.data || '{}') } catch { continue }
-    if (!data || typeof data !== 'object') continue
-    const addon = data.opts?.addonSource
-    const ref = addon?.provider && addon?.id ? sourceRefOf(addon.provider, addon.id) : sourceIdentity(row.url)
-    if (!ref) continue
-    for (const track of Array.isArray(data.indexedTracks) ? data.indexedTracks : []) {
-      if (!track || typeof track !== 'object') continue
-      const target = db.prepare('SELECT track_id FROM track_aliases WHERE old_id = ?').get(track.id)?.track_id || track.id
-      update.run(ref, ref.split(':')[0], target || null, track.filepath || null)
-    }
-  }
-}
-
-function consolidateDownloadedSources() {
-  const groups = db.prepare(`
-    SELECT source_ref
-    FROM tracks
-    WHERE source_ref IS NOT NULL AND file_path NOT LIKE 'ghost://%'
-    GROUP BY source_ref
-    HAVING COUNT(*) > 1
-  `).all()
-  if (!groups.length) return
-  const moved = []
-  try {
-    db.transaction(() => {
-      db.exec('CREATE TABLE IF NOT EXISTS duplicate_download_files (file_path TEXT PRIMARY KEY, size INTEGER, last_modified REAL)')
-      for (const group of groups) {
-        const tracks = db.prepare('SELECT * FROM tracks WHERE source_ref = ? AND file_path NOT LIKE \'ghost://%\' ORDER BY added_at DESC, id').all(group.source_ref)
-        const winner = tracks.find(track => fs.existsSync(track.file_path)) || tracks[0]
-        for (const loser of tracks) {
-          if (loser.id === winner.id) continue
-          db.prepare('UPDATE OR IGNORE playlist_tracks SET track_id = ? WHERE track_id = ?').run(winner.id, loser.id)
-          db.prepare('DELETE FROM playlist_tracks WHERE track_id = ?').run(loser.id)
-          db.prepare('INSERT OR IGNORE INTO user_likes (user_id, track_id, liked_at) SELECT user_id, ?, liked_at FROM user_likes WHERE track_id = ?').run(winner.id, loser.id)
-          db.prepare('DELETE FROM user_likes WHERE track_id = ?').run(loser.id)
-          db.prepare('UPDATE play_history SET track_id = ? WHERE track_id = ?').run(winner.id, loser.id)
-          db.prepare('UPDATE listening_events SET track_id = ? WHERE track_id = ?').run(winner.id, loser.id)
-          db.prepare('UPDATE tracks SET play_count = COALESCE(play_count, 0) + ?, liked = MAX(COALESCE(liked, 0), ?) WHERE id = ?').run(loser.play_count || 0, loser.liked || 0, winner.id)
-          db.prepare('UPDATE OR IGNORE track_aliases SET track_id = ? WHERE track_id = ?').run(winner.id, loser.id)
-          db.prepare('INSERT OR IGNORE INTO track_aliases (old_id, track_id) VALUES (?, ?)').run(loser.id, winner.id)
-          remapMusicVideoReferences(db, loser.id, winner.id)
-          db.prepare('INSERT OR IGNORE INTO lyrics_cache (track_id, lyrics_type, content, source, cached_at) SELECT ?, lyrics_type, content, source, cached_at FROM lyrics_cache WHERE track_id = ?').run(winner.id, loser.id)
-          db.prepare('DELETE FROM lyrics_cache WHERE track_id = ?').run(loser.id)
-          db.prepare('INSERT OR IGNORE INTO lyrics_translations (track_id, target_lang, source_hash, detected_lang, content, provider, fetched_at) SELECT ?, target_lang, source_hash, detected_lang, content, provider, fetched_at FROM lyrics_translations WHERE track_id = ?').run(winner.id, loser.id)
-          db.prepare('DELETE FROM lyrics_translations WHERE track_id = ?').run(loser.id)
-          db.prepare('INSERT OR IGNORE INTO artist_track_links (artist_id, track_id) SELECT artist_id, ? FROM artist_track_links WHERE track_id = ?').run(winner.id, loser.id)
-          db.prepare('DELETE FROM artist_track_links WHERE track_id = ?').run(loser.id)
-          if (db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'artist_link_locks'").get()) {
-            db.prepare('INSERT OR IGNORE INTO artist_link_locks (track_id) SELECT ? FROM artist_link_locks WHERE track_id = ?').run(winner.id, loser.id)
-            db.prepare('DELETE FROM artist_link_locks WHERE track_id = ?').run(loser.id)
-          }
-          db.prepare('DELETE FROM tracks WHERE id = ?').run(loser.id)
-          if (loser.file_path && fs.existsSync(loser.file_path)) {
-            const stat = fs.statSync(loser.file_path)
-            db.prepare('INSERT OR REPLACE INTO duplicate_download_files (file_path, size, last_modified) VALUES (?, ?, ?)').run(loser.file_path, stat.size, stat.mtimeMs)
-            if (fs.lstatSync(loser.file_path).isSymbolicLink()) continue
-            const real = fs.realpathSync(loser.file_path)
-            const shared = db.prepare("SELECT file_path FROM tracks WHERE file_path NOT LIKE 'ghost://%'").all().some(track => {
-              try { return fs.realpathSync(track.file_path) === real } catch { return false }
-            })
-            if (shared) continue
-            const parked = `${loser.file_path}.${randomUUID()}.lokal-duplicate`
-            try {
-              fs.renameSync(loser.file_path, parked)
-              moved.push({ parked, original: loser.file_path })
-            } catch {}
-          }
-        }
-      }
-    })()
-  } catch (error) {
-    for (const item of moved.reverse()) {
-      try { fs.renameSync(item.parked, item.original) } catch {}
-    }
-    throw error
-  }
-}
 
 function ensureStorageDirs() {
   fs.ensureDirSync(_dataDir)
@@ -457,12 +370,6 @@ function initDB() {
     } catch {}
   }
 
-  backfillDownloadedSources()
-  db.prepare("UPDATE tracks SET source_ref = NULL WHERE source_ref = ''").run()
-  consolidateDownloadedSources()
-  db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_tracks_source_ref_unique ON tracks(source_ref) WHERE source_ref IS NOT NULL AND file_path NOT LIKE 'ghost://%'")
-  repairMusicVideoReferences(db)
-
   try {
     db.prepare("INSERT OR IGNORE INTO settings (key, value) VALUES ('lyrics_auto_translate', '0')").run()
     db.prepare("INSERT OR IGNORE INTO settings (key, value) VALUES ('lyrics_translate_target', 'en')").run()
@@ -486,8 +393,6 @@ function clearDatabaseTables() {
   db.prepare('DELETE FROM artist_track_links').run()
   db.prepare('DELETE FROM lyrics_translations').run()
   db.prepare('DELETE FROM lyrics_cache').run()
-  try { db.prepare('DELETE FROM duplicate_download_files').run() } catch {}
-  try { db.prepare('DELETE FROM track_aliases').run() } catch {}
   try { db.prepare('DELETE FROM pending_import_metadata').run() } catch {}
   try { db.prepare('DELETE FROM downloaded_playlists').run() } catch {}
   db.prepare('DELETE FROM playlists').run()
@@ -524,38 +429,18 @@ function importAppData(payload = {}) {
   const users = Array.isArray(payload.users) ? payload.users : []
   const userSettings = Array.isArray(payload.user_settings) ? payload.user_settings : []
   const artists = Array.isArray(payload.artists) ? payload.artists : []
-  const rawTracks = Array.isArray(payload.tracks) ? payload.tracks : []
-  const trackIdRemap = new Map()
-  const sourceTrackIds = new Map()
-  const tracks = []
-  const orderedTracks = [...rawTracks].sort((left, right) => Number(fs.existsSync(right?.file_path || '')) - Number(fs.existsSync(left?.file_path || '')))
-  for (const track of orderedTracks) {
-    const sourceRef = String(track?.source_ref || '')
-    const isLibraryTrack = !String(track?.file_path || '').startsWith('ghost://')
-    const keeper = sourceRef && isLibraryTrack ? sourceTrackIds.get(sourceRef) : null
-    if (keeper) {
-      trackIdRemap.set(track.id, keeper.id)
-      keeper.play_count = (keeper.play_count || 0) + (track.play_count || 0)
-      keeper.liked = Math.max(keeper.liked || 0, track.liked || 0)
-      continue
-    }
-    const restored = { ...track }
-    tracks.push(restored)
-    if (sourceRef && isLibraryTrack) sourceTrackIds.set(sourceRef, restored)
-  }
-  const remapTrackId = id => trackIdRemap.get(id) || id
-  const artistLinks = [...new Map((Array.isArray(payload.artist_track_links) ? payload.artist_track_links : []).map(link => ({ ...link, track_id: remapTrackId(link.track_id) })).map(link => [`${link.artist_id}\0${link.track_id}`, link])).values()]
+  const tracks = Array.isArray(payload.tracks) ? payload.tracks : []
+  const artistLinks = Array.isArray(payload.artist_track_links) ? payload.artist_track_links : []
   const playlists = Array.isArray(payload.playlists) ? payload.playlists : []
-  const playlistTracks = (Array.isArray(payload.playlist_tracks) ? payload.playlist_tracks : []).map(item => ({ ...item, track_id: remapTrackId(item.track_id) }))
-  const userLikes = [...new Map((Array.isArray(payload.user_likes) ? payload.user_likes : []).map(item => ({ ...item, track_id: remapTrackId(item.track_id) })).map(item => [`${item.user_id}\0${item.track_id}`, item])).values()]
-  const playHistory = (Array.isArray(payload.play_history) ? payload.play_history : []).map(item => ({ ...item, track_id: remapTrackId(item.track_id) }))
-  const listeningEvents = (Array.isArray(payload.listening_events) ? payload.listening_events : []).map(item => ({ ...item, track_id: remapTrackId(item.track_id) }))
+  const playlistTracks = Array.isArray(payload.playlist_tracks) ? payload.playlist_tracks : []
+  const userLikes = Array.isArray(payload.user_likes) ? payload.user_likes : []
+  const playHistory = Array.isArray(payload.play_history) ? payload.play_history : []
+  const listeningEvents = Array.isArray(payload.listening_events) ? payload.listening_events : []
 
   fs.ensureDirSync(path.join(_dataDir, 'avatars'))
 
   const restore = db.transaction(() => {
     clearDatabaseTables()
-    try { db.exec('ALTER TABLE tracks ADD COLUMN replaygain TEXT') } catch {}
 
     const insertSetting = db.prepare('INSERT INTO settings (key, value) VALUES (?, ?)')
     for (const [key, value] of Object.entries(settings)) {
@@ -639,19 +524,6 @@ function importAppData(payload = {}) {
         track.liked || 0,
         track.added_at || Math.floor(Date.now() / 1000)
       )
-      db.prepare('UPDATE tracks SET download_source = ?, source_ref = ? WHERE id = ?').run(track.download_source || null, track.source_ref || null, track.id)
-    }
-    db.exec('CREATE TABLE IF NOT EXISTS duplicate_download_files (file_path TEXT PRIMARY KEY, size INTEGER, last_modified REAL)')
-    for (const track of rawTracks) {
-      if (!trackIdRemap.has(track.id)) continue
-      db.prepare('INSERT OR REPLACE INTO track_aliases (old_id, track_id) VALUES (?, ?)').run(track.id, remapTrackId(track.id))
-      remapMusicVideoReferences(db, track.id, remapTrackId(track.id))
-      const keeper = tracks.find(item => item.id === remapTrackId(track.id))
-      if (track.file_path === keeper?.file_path) continue
-      try {
-        const stat = fs.statSync(track.file_path)
-        db.prepare('INSERT OR REPLACE INTO duplicate_download_files (file_path, size, last_modified) VALUES (?, ?, ?)').run(track.file_path, stat.size, stat.mtimeMs)
-      } catch {}
     }
 
     const insertArtistLink = db.prepare('INSERT INTO artist_track_links (artist_id, track_id) VALUES (?, ?)')

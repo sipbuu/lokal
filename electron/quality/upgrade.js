@@ -82,9 +82,6 @@ async function upgradeTrackFile(db, trackId, newPath, { storageDir, allowDuratio
         try { db.prepare(`DELETE FROM ${table} WHERE track_id = ?`).run(other.id) } catch {}
       }
       try { db.prepare('DELETE FROM artist_track_links WHERE track_id = ?').run(other.id) } catch {}
-      require('../online/musicVideoReferences').remapMusicVideoReferences(db, other.id, track.id)
-      db.prepare('UPDATE track_aliases SET track_id = ? WHERE track_id = ?').run(track.id, other.id)
-      db.prepare('INSERT OR REPLACE INTO track_aliases (old_id, track_id) VALUES (?, ?)').run(other.id, track.id)
       db.prepare('DELETE FROM tracks WHERE id = ?').run(other.id)
     }
     db.prepare('UPDATE tracks SET file_path = ?, bitrate = ?, duration = COALESCE(?, duration), last_modified = ? WHERE id = ?')
