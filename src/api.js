@@ -423,7 +423,6 @@ export const api = {
     ? el().musicVideoSave(trackId, saved) : Promise.resolve({ error: 'Music videos are available in the desktop app.' }),
   // How the lookup is going ({ trackId, stage, index, total }), desktop only.
   onMusicVideoProgress: (fn) => isE() && el().onMusicVideoProgress ? el().onMusicVideoProgress((_, p) => fn(p)) : () => {},
-  // Settings -> Library -> Maintenance: index every song's music video / lyrics.
   indexAllMusicVideos: () => isE() && el().indexAllMusicVideos ? el().indexAllMusicVideos() : Promise.resolve(null),
   cancelMusicVideoIndex: () => isE() && el().cancelMusicVideoIndex ? el().cancelMusicVideoIndex() : Promise.resolve(null),
   onMusicVideoIndexProgress: (fn) => isE() && el().onMusicVideoIndexProgress ? el().onMusicVideoIndexProgress((_, p) => fn(p)) : () => {},

@@ -80,9 +80,9 @@ export default function SelectionBar({ open = true, label, actions = [], onClear
             <span className="text-sm font-medium tabular-nums text-accent">{shown.current.label}</span>
             <span className="hidden text-[11px] text-muted xl:inline">Ctrl+click to add · Shift+click for a range · right-click for more</span>
             <div className="ml-auto flex flex-wrap items-center gap-2 pl-2">
-              {shown.current.actions.filter(action => !action.hidden).map(({ label: text, icon: Icon, onClick, danger }) => (
-                <button key={text} onClick={onClick}
-                  className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs transition-colors ${danger ? 'bg-red-500/15 text-red-400 hover:bg-red-500/25' : 'border border-border bg-card text-white/80 hover:border-accent/40 hover:text-white'}`}>
+              {shown.current.actions.filter(action => !action.hidden).map(({ label: text, icon: Icon, onClick, danger, disabled }) => (
+                <button key={text} onClick={onClick} disabled={disabled}
+                  className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs transition-colors disabled:opacity-40 disabled:cursor-default ${danger ? 'bg-red-500/15 text-red-400 hover:bg-red-500/25' : 'border border-border bg-card text-white/80 hover:border-accent/40 hover:text-white'}`}>
                   {Icon && <Icon size={12} />} {text}
                 </button>
               ))}

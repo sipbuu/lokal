@@ -26,8 +26,8 @@ function fmt(s) {
  * lyrics can sit over its side. The video is muted and follows the song, so
  * what you hear is still the song itself (lossless, EQ, crossfade...).
  */
-export default function MusicVideoPlayer() {
-  const { open, hide } = useMusicVideoView(useShallow(s => ({ open: s.open, hide: s.hide })))
+export default function MusicVideoPlayer({ compact = false }) {
+  const { open, hide } = useMusicVideoView(useShallow(s => ({ open: compact ? s.mini : s.open, hide: s.hide })))
   const { currentTrack, isPlaying, togglePlay, next, prev, progress, duration } = usePlayerStore(useShallow(s => ({
     currentTrack: s.currentTrack, isPlaying: s.isPlaying, togglePlay: s.togglePlay, next: s.next, prev: s.prev,
     progress: s.progress, duration: s.duration,
@@ -95,7 +95,7 @@ export default function MusicVideoPlayer() {
     idleTimer.current = setTimeout(() => setIdle(true), IDLE_MS)
   }, [])
   useEffect(() => {
-    if (!open) return undefined
+    if (!open || compact) return undefined
     wake()
     const onKey = (e) => {
       if (e.key !== 'Escape') return
@@ -107,7 +107,7 @@ export default function MusicVideoPlayer() {
     }
     window.addEventListener('keydown', onKey, true)
     return () => { window.removeEventListener('keydown', onKey, true); clearTimeout(idleTimer.current) }
-  }, [open, hide, wake])
+  }, [open, compact, hide, wake])
 
   const sync = useCallback(() => {
     const result = syncVideo(videoRef.current, {
@@ -181,6 +181,16 @@ export default function MusicVideoPlayer() {
       state: usePlayerStore.getState(), element: videoRef.current, segments: video?.segments,
     })
   }
+
+  if (compact) return open && currentTrack ? (
+    <div className="relative aspect-video w-full overflow-hidden bg-black" aria-label={`Music video: ${currentTrack.title}`}>
+      {!showVideo && (art ? <img src={art} alt="Artwork" className="absolute inset-0 h-full w-full object-contain" /> : <span className="absolute inset-0 flex items-center justify-center text-muted">♪</span>)}
+      {video?.src && !video.error && !failed && <video key={video.videoId} ref={videoRef} src={video.src} muted playsInline preload="auto" disablePictureInPicture
+        onPlaying={() => { setReady(true); setEverPlayed(true); recoverRef.current = 0 }} onCanPlay={sync} onLoadedMetadata={sync} onLoadedData={() => { setReady(true); sync() }} onSeeked={sync} onError={onVideoError}
+        className={`absolute inset-0 h-full w-full object-contain ${showVideo ? '' : 'opacity-0'}`} />}
+      {!showVideo && message && <p role="status" className="absolute inset-x-0 bottom-0 bg-black/65 px-3 py-1 text-center text-[10px] text-white/80">{message}</p>}
+    </div>
+  ) : null
 
   return (
     <AnimatePresence>

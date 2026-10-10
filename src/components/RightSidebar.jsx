@@ -22,6 +22,8 @@ import { isStreamed, trackArtURL } from '../onlineTracks'
 
 import ContextMenu, { useContextMenu } from './ContextMenu'
 import { openRadio } from '../radioActions'
+import LikeBurst from './LikeBurst'
+import { showToast } from './Toaster'
 
 // "Music" is a placeholder some files carry, not a genre.
 const isPlaceholderGenre = genre => !String(genre || '').trim() || String(genre).trim().toLowerCase() === 'music'
@@ -58,18 +60,22 @@ export default function RightSidebar() {
   const {
     showRightSidebar, toggleRightSidebar, currentTrack, isPlaying, progress,
     toggleFullscreen, toggleLyricsFullscreen, playbackContext,
-    sidePanelView, setSidePanelView, toggleQueueButton, exclusiveSidePanels,
+    sidePanelView, setSidePanelView, toggleQueueButton, exclusiveSidePanels, likedIds, setLiked,
   } = usePlayerStore(useShallow(({
     showRightSidebar, toggleRightSidebar, currentTrack, isPlaying, progress,
     toggleFullscreen, toggleLyricsFullscreen, playbackContext,
-    sidePanelView, setSidePanelView, toggleQueueButton, exclusiveSidePanels,
+    sidePanelView, setSidePanelView, toggleQueueButton, exclusiveSidePanels, likedIds, setLiked,
   }) => ({
     showRightSidebar, toggleRightSidebar, currentTrack, isPlaying, progress,
     toggleFullscreen, toggleLyricsFullscreen, playbackContext,
-    sidePanelView, setSidePanelView, toggleQueueButton, exclusiveSidePanels,
+    sidePanelView, setSidePanelView, toggleQueueButton, exclusiveSidePanels, likedIds, setLiked,
   })))
   const nav = useNavigate()
   const menu = useContextMenu()
+  const likeBusy = useRef(false)
+  const burstTimer = useRef(null)
+  const [burst, setBurst] = useState(null)
+  useEffect(() => () => clearTimeout(burstTimer.current), [])
   // Your plays of the song (30 s or more, as recaps count them), streamed
   // songs too: read for each song, as the one in the player keeps the count
   // it had when it started. This play is counted once it ends.
@@ -212,6 +218,20 @@ export default function RightSidebar() {
 
   const artSrc = trackArtURL(currentTrack)
 
+  const doubleClickLike = async event => {
+    if (!currentTrack || likeBusy.current || event.target.closest?.('button, a, input, [role="slider"]')) return
+    likeBusy.current = true
+    const liked = likedIds.has(currentTrack.id)
+    setBurst({ id: Date.now(), trackId: currentTrack.id, kind: liked ? 'unlike' : 'like' })
+    clearTimeout(burstTimer.current)
+    burstTimer.current = setTimeout(() => setBurst(null), 1200)
+    try {
+      const result = await api.toggleLike(currentTrack.id, user?.id, currentTrack)
+      if (result?.error) throw new Error(result.error)
+      if (useAppStore.getState().user?.id === user?.id) setLiked(currentTrack.id, typeof result === 'boolean' ? result : !!result?.liked)
+    } catch (error) { setBurst(null); showToast(error.message || 'Could not update this song’s like.') } finally { likeBusy.current = false }
+  }
+
   const openTrackMenu = (event) => {
     if (!currentTrack) return
     menu.open(event, [
@@ -306,6 +326,8 @@ export default function RightSidebar() {
               {fx && <ArtworkBackdrop trackId={currentTrack?.id} seam={artSrc ? heroHeight : 0} />}
               <div className={`relative flex-1 overflow-y-auto ${fx ? '' : 'p-4'} pb-[calc(var(--player-space,0px)+1rem)]`}>
                 <div
+                  onDoubleClick={doubleClickLike}
+                  title="Double-click to like or unlike this song"
                   className={fx ? 'relative w-full overflow-hidden' : 'relative w-full rounded-xl overflow-hidden bg-card border border-border/50'}
                   style={{
                     // Square cover normally; a tall canvas grows it to ~60% of the panel.
@@ -326,6 +348,7 @@ export default function RightSidebar() {
                   </AnimatePresence>
                   {artSrc && <MotionCover trackId={currentTrack?.id} only="square" off={coverOff} />}
                   {artSrc && <MotionCover trackId={currentTrack?.id} only="tall" onActive={setCanvasOn} off={coverOff} />}
+                  {burst && burst.trackId === currentTrack?.id && <LikeBurst key={burst.id} kind={burst.kind} />}
                 </div>
 
                 <div className={fx ? 'relative -mt-16 px-4 pb-4 space-y-4' : 'mt-4 space-y-4'}>
