@@ -13,7 +13,8 @@
     "rebuild:electron": "electron-rebuild",
     "rebuild:web": "npm rebuild better-sqlite3",
     "postinstall": "electron-builder install-app-deps && npm run native:prepare",
-    "native:prepare": "node scripts/prepare-native.js"
+    "native:prepare": "node scripts/prepare-native.js",
+    "verify:mac-package": "node scripts/verify-mac-package.mjs"
   },
   "build": {
     "appId": "com.lokal.music",
@@ -27,8 +28,12 @@
     ],
     "asar": true,
     "asarUnpack": [
-      "electron/native/**/*.node"
+      "electron/native/**/*.node",
+      "node_modules/better-sqlite3/**/*",
+      "node_modules/@img/**/*"
     ],
+    "npmRebuild": true,
+    "beforePack": "scripts/before-pack.js",
     "publish": {
       "provider": "github",
       "owner": "sipbuu",
@@ -77,10 +82,21 @@
     "mac": {
       "icon": "public/lokal-icon.png",
       "target": [
-        "dmg",
-        "zip"
+        {
+          "target": "dmg",
+          "arch": ["x64", "arm64"]
+        },
+        {
+          "target": "zip",
+          "arch": ["x64", "arm64"]
+        }
       ],
-      "category": "public.app-category-music"
+      "category": "public.app-category-music",
+      "artifactName": "${productName}-${version}-${arch}.${ext}",
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false,
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.plist"
     },
     "linux": {
       "icon": "public/lokal-icon.png",

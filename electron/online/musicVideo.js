@@ -550,16 +550,17 @@ function cacheKey(track) {
 }
 
 /** Already discovered matches only: listing Videos never downloads/scans songs. */
-function knownMusicVideos(tracks, { cacheFile, now = Date.now, findFile } = {}) {
+function knownMusicVideos(tracks, { cacheFile, now = Date.now, findFile, resolveTrackId = id => id } = {}) {
   const cache = readCache(cacheFile)
   const local = new Map()
   if (findFile) {
     for (const [key, hit] of Object.entries(cache)) {
       const parts = key.split('|')
       if (!['v2', 'v3'].includes(parts[0])) continue
-      const hits = local.get(parts[1]) || []
+      const trackId = resolveTrackId(parts[1])
+      const hits = local.get(trackId) || []
       hits.push(hit)
-      local.set(parts[1], hits)
+      local.set(trackId, hits)
     }
   }
   return (tracks || []).flatMap(track => {
