@@ -28,7 +28,9 @@ function prepare(db,key,id,{force=false}={}){
   const existing=[...map.values()].find(job=>job.hash===hash&&job.status==='running')
   if(existing)return {pending:true,operationId:existing.id}
   const job={id:crypto.randomUUID(),hash,key,itemId:id,status:'running',progress:0,controller:new AbortController()};map.set(job.id,job)
-  job.promise=service(db).download(key,id,{purpose:'playback',signal:job.controller.signal,onProgress:update=>{job.progress=update.percent ?? job.progress;job.message=update.message || 'Preparing audio…'}}).then(async result=>{
+  const fetchAudio=()=>service(db).download(key,id,{purpose:'playback',signal:job.controller.signal,onProgress:update=>{job.progress=update.percent ?? job.progress;job.message=update.message || 'Preparing audio…'}})
+  // A worker that ran out of memory is retried once, in a fresh worker.
+  job.promise=fetchAudio().catch(error=>{if(job.controller.signal.aborted||!/memory limit|out of memory/i.test(error?.message))throw error;logFailure(db,key,id,error);job.message='Retrying…';return fetchAudio()}).then(async result=>{
     try{
       const dir=path.join(service(db).root,'audio-cache');await fsp.mkdir(dir,{recursive:true})
       const ext=path.extname(result.file).slice(1).toLowerCase()

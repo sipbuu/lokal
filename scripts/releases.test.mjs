@@ -44,3 +44,25 @@ test('an empty saved check still counts, and failed artists keep their releases 
   assert.equal(offline.failures, 2)
   assert.deepEqual(savedReleases(storage).items.map(item => item.title), ['Alpha', 'Beta'])
 })
+
+test('releases sort newest first by their exact date', () => {
+  const items = latestReleases([
+    { title: 'March', artist: 'A', release_date: '2026-03-02' },
+    { title: 'September', artist: 'B', release_date: '2026-09-30' },
+    { title: 'Last year', artist: 'C', release_date: '2025-12-31' },
+    { title: 'June', artist: 'D', release_date: '2026-06-15' },
+  ], { now: new Date('2026-10-11') })
+  assert.deepEqual(items.map(item => item.title), ['September', 'June', 'March', 'Last year'])
+})
+
+test('Deezer gives releases their exact dates; an unknown artist falls back', async () => {
+  const { createRequire } = await import('node:module')
+  const { deezerReleases, releaseCatalogue } = createRequire(import.meta.url)('../electron/online/releaseDates.js')
+  const fetchImpl = async url => ({ ok: true, json: async () => url.includes('/search/artist')
+    ? { data: [{ id: 2, name: 'Nova Lights', nb_fan: 5 }, { id: 1, name: 'Nova Lights', nb_fan: 900 }, { id: 3, name: 'Nova Lights Tribute' }] }
+    : { data: [{ title: 'Satellite', release_date: '2026-09-30', record_type: 'single', cover_xl: 'https://cdn/x.jpg' }, { title: 'Undated' }] } })
+  const result = await deezerReleases('Nova Lights', fetchImpl)
+  assert.deepEqual(result.albums, [{ title: 'Satellite', artist: 'Nova Lights', release_date: '2026-09-30', year: 2026, release_type: 'single', artwork_url: 'https://cdn/x.jpg', source: 'deezer' }])
+  const fallback = await releaseCatalogue({ artist: 'Nobody' }, async () => ({ albums: ['yt'] }), async () => ({ ok: true, json: async () => ({ data: [] }) }))
+  assert.deepEqual(fallback, { albums: ['yt'] })
+})

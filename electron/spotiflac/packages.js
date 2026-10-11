@@ -201,13 +201,13 @@ class PackageService {
       }finally{runtime?.close();await fsp.rm(staged,{recursive:true,force:true})}
     })
   }
-  createRuntime(addon,code,{root,grants=[],onProgress,signal}={}) {
+  createRuntime(addon,code,{root,grants=[],onProgress,signal,heapMb}={}) {
     let network=this.networks.get(addon.key)
     if(!network){network=new ExtensionNetwork(addon.manifest.permissions);this.restoreConnection(addon.key,network);this.networks.set(addon.key,network)}
     let session
     if(addon.manifest.signedSession){const scope=hash(JSON.stringify(addon.manifest.signedSession));session=this.sessions.get(scope);if(!session){session=new SignedSession(addon.manifest.signedSession,this.storage,network,addon.key);this.sessions.set(scope,session)}}
     const host=new ExtensionHost({addon,storage:this.storage,network,session,root:root || path.join(this.root,'data',addon.key,'files'),grants,tools:this.tools(),db:this.db,onProgress,signal})
-    const runtime=new ExtensionRuntime(code,{permissions:addon.manifest.permissions,signedSession:addon.manifest.signedSession,settings:this.settings(addon),rawFfmpeg:addon.manifest.capabilities?.rawFfmpeg},host)
+    const runtime=new ExtensionRuntime(code,{permissions:addon.manifest.permissions,signedSession:addon.manifest.signedSession,settings:this.settings(addon),rawFfmpeg:addon.manifest.capabilities?.rawFfmpeg,heapMb},host)
     runtime.ready.catch(()=>{})
     return runtime
   }
@@ -314,7 +314,9 @@ class PackageService {
     const controller=new AbortController(),opId=crypto.randomUUID(),combined=signal?AbortSignal.any([signal,controller.signal]):controller.signal
     this.operations.set(opId,{key,controller})
     const staged=path.join(this.root,'work',opId);await fsp.mkdir(staged,{recursive:true})
-    const runtime=this.createRuntime(addon,fs.readFileSync(path.join(this.root,'packages',key,'index.js'),'utf8'),{grants:[staged],onProgress,signal:combined})
+    // Downloads get more room than browsing: a worker that ran out mid-song
+    // ("reaching memory limit") failed the whole stream.
+    const runtime=this.createRuntime(addon,fs.readFileSync(path.join(this.root,'packages',key,'index.js'),'utf8'),{grants:[staged],onProgress,signal:combined,heapMb:512})
     try{
       await runtime.ready;await runtime.invoke('initialize',[this.settings(addon)],{signal:combined})
       let track=JSON.parse(this.db.prepare('SELECT metadata_json FROM spotiflac_tracks WHERE provider=? AND id=?').get(`a-${key}`,String(id))?.metadata_json || 'null')

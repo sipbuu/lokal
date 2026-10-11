@@ -69,7 +69,10 @@ router.get('/providers', (req, res) => {
 
 router.get('/account', async (req, res) => res.json(await youtube.fetchAccountData({ cookies: accountCookies(), force: req.query?.force === '1' }).catch(e => ({ error: e.message }))))
 router.post('/artwork', async (req, res) => res.json(await discoveryArtwork(req.body?.items).catch(e => ({ error: e.message }))))
-router.post('/catalogue', async (req, res) => res.json(await youtube.fetchCatalogue(req.body, accountCookies()).catch(e => ({ error: e.message }))))
+router.post('/catalogue', async (req, res) => {
+  const viaYouTube = () => youtube.fetchCatalogue(req.body, accountCookies())
+  res.json(await (req.body?.type === 'releases' ? require('../../electron/online/releaseDates').releaseCatalogue(req.body, viaYouTube) : viaYouTube()).catch(e => ({ error: e.message })))
+})
 router.get('/account-playlist/:id', async (req, res) => res.json(await youtube.fetchAccountPlaylist(req.params.id, accountCookies()).catch(e => ({ error: e.message }))))
 router.get('/radio/:videoId', async (req, res) => res.json(await youtube.fetchRadio(req.params.videoId, { cookies: accountCookies() }).catch(() => [])))
 router.post('/account-liked', async (req, res) => res.json(await youtube.setAccountLiked(req.body?.videoId, !!req.body?.liked, accountCookies()).catch(e => ({ error: e.message }))))
