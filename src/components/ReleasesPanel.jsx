@@ -10,6 +10,7 @@ import DiscoveryImage from './DiscoveryImage'
 import { checkReleases, loadArtistReleases, savedReleases } from '../newReleases'
 import { api } from '../api'
 import { plural } from '../plural'
+import { discoveryArtistKey, useDiscoveryArtists } from '../discoveryArtists'
 
 const TYPE_LABEL = { album: 'Album', single: 'Single', ep: 'EP' }
 
@@ -86,7 +87,10 @@ export default function ReleasesPanel({ artists, onPlay, onOpen, onMenu, onArtis
   const { saved, checking, start, stop } = useReleaseCheck(useShallow(state => ({ saved: state.saved, checking: state.checking, start: state.start, stop: state.stop })))
   const refresh = () => start(artists)
 
-  const items = saved?.items || []
+  // Hiding an artist from Discovery takes their releases out at once,
+  // without a new check.
+  const hidden = useDiscoveryArtists(state => state.hidden)
+  const items = (saved?.items || []).filter(release => !hidden.has(discoveryArtistKey(release.seedArtist || release.artist)) && !hidden.has(discoveryArtistKey(release.artist)))
   const newCount = items.filter(release => release.isNew).length
   return (
     <section className="space-y-4">
