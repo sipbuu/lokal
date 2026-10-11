@@ -81,7 +81,7 @@ test('a package download crosses the real host, FFprobe validation, and staged c
   const code=`registerExtension({getTrack(){return {id:'source-id',name:'Fixture Song',artists:'Fixture Artist',duration_ms:1000};},checkAvailability(){return {available:true,track_id:'source-id'};},download(id,quality,output,progress){var r=file.download('http://127.0.0.1:${server.address().port}/audio',output,{onProgress:function(w,t){progress(t?100*w/t:0);}});return {success:r.success,file_path:r.path,title:'Fixture Song',artist:'Fixture Artist'};}})`
   const installed=await service.install({buffer:archive({...manifest,permissions},code)})
   const result=await service.download(installed.key,'source-id',{purpose:'playback'})
-  try { assert.equal(result.info.codec,'pcm_s16le');assert.equal(result.info.duration_ms,1000);assert.ok((await fs.stat(result.file)).size>44) } finally { await result.cleanup() }
+  try { assert.equal(result.info.codec,'pcm_s16le');assert.equal(path.extname(result.file),'.wav','WAV audio written to audio.flac is rewrapped for the player');assert.equal(result.info.duration_ms,1000);assert.ok((await fs.stat(result.file)).size>44) } finally { await result.cleanup() }
 })
 
 test('an addon login (tokens and verification cookies) survives a restart, and Disconnect forgets it',async t=>{

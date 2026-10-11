@@ -359,6 +359,14 @@ class PackageService {
         const lossless=['alac','flac','wavpack','ape'].includes(info.codec),target=path.join(staged,lossless?'playable.flac':'playable.m4a')
         await runTool(tools.ffmpeg,['-nostdin','-y','-i',file,'-map','0:a:0','-c:a',lossless?'flac':'aac',...(lossless?[]:['-b:a','256k']),target],combined);file=target;info=await mediaInfo(file,tools,combined)
       }
+      // The player is told the type from the file name: an addon that writes
+      // MP3 or AAC into "audio.flac" (a lower quality it fell back to) gets a
+      // file the player can't open. Rewrap it in the container its audio needs.
+      const containers={flac:['flac'],mp3:['mp3'],aac:['m4a','mp4','aac'],alac:['m4a','mp4'],opus:['ogg','opus','webm'],vorbis:['ogg','webm'],pcm_s16le:['wav'],pcm_s24le:['wav'],pcm_f32le:['wav']}
+      if(purpose==='playback'&&containers[info.codec]&&!containers[info.codec].includes(path.extname(file).slice(1).toLowerCase())){
+        const target=path.join(staged,`playable-copy.${containers[info.codec][0]}`)
+        await runTool(tools.ffmpeg,['-nostdin','-y','-i',file,'-map','0:a:0','-c:a','copy',target],combined);file=target;info=await mediaInfo(file,tools,combined)
+      }
       combined.throwIfAborted()
       return {file,staging:staged,metadata:{...track,...result},info,cleanup:()=>fsp.rm(staged,{recursive:true,force:true})}
     }catch(error){await fsp.rm(staged,{recursive:true,force:true});throw error}

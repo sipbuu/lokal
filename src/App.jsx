@@ -291,7 +291,7 @@ export default function App() {
     Promise.resolve(api.clearTrackError?.(track.id)).catch(() => {})
   }, [])
 
-  const recoverOnlinePlayback = useCallback(async (el, failedTrack, failedRef, reason = 'unavailable') => {
+  const recoverOnlinePlayback = useCallback(async (el, failedTrack, failedRef, reason = 'unavailable', detail = '') => {
     const activeEl = () => usePlayerStore.getState().activeAudioElement === 'cf' ? cfAudioRef.current : audioRef.current
     if (usePlayerStore.getState().currentTrack !== failedTrack || el !== activeEl()) return
     if (streamRecoveryRef.current.track !== failedTrack) streamRecoveryRef.current = { track: failedTrack, pending: false, failed: [] }
@@ -306,7 +306,7 @@ export default function App() {
     const isCurrent = () => streamRecoveryRef.current === recovery && usePlayerStore.getState().currentTrack === failedTrack && el === activeEl()
     const toast = showLoadingToast(reason === 'preview'
       ? `${providerLabel(failedRef.provider)} only has a preview of “${failedTrack.title}”. Trying the next playback source.`
-      : `“${failedTrack.title}” couldn't play on ${providerLabel(failedRef.provider)}. Trying the next playback source.`)
+      : `“${failedTrack.title}” couldn't play on ${providerLabel(failedRef.provider)}${detail ? ` (${detail})` : ''}. Trying the next playback source.`)
     try {
       const [replacement] = await resolveRecommendationTracks([failedTrack], api, {
         reusePlayable: false, afterProvider: failedRef.provider, skipProviders: recovery.failed, isCurrent,
@@ -1887,11 +1887,15 @@ export default function App() {
       if (cancelled || live.playbackGeneration !== generation || live.currentTrack?.id !== currentTrack.id || live.currentTrack?.file_path !== currentTrack.file_path) return
       // An addon that still needs verifying says so, rather than only
       // falling back to the next source.
-      if (unavailable && isAddonProvider(ref.provider) && ADDON_ACCESS_ERROR.test(addonError)) {
-        showToast(`${providerLabel(ref.provider)} needs verifying before it can stream. Settings → Addons → Verify access.`)
-        window.dispatchEvent(new Event('lokal:addons-changed'))
+      // The addon's own reason (also in Lokal's log) goes into the fallback
+      // notice, not just "trying the next source".
+      let detail = ''
+      if (unavailable && isAddonProvider(ref.provider) && addonError) {
+        const access = ADDON_ACCESS_ERROR.test(addonError)
+        detail = access ? 'it needs verifying: Settings → Addons → Verify access' : addonError.slice(0, 160)
+        if (access) window.dispatchEvent(new Event('lokal:addons-changed'))
       }
-      if (unavailable) { await recoverOnlinePlayback(el, live.currentTrack, ref, unavailable); return }
+      if (unavailable) { await recoverOnlinePlayback(el, live.currentTrack, ref, unavailable, detail); return }
       el.dataset.fallbackPending = ''
       replaceAudioSource(el, src)
       beginLastfmPlayback(live.currentTrack)

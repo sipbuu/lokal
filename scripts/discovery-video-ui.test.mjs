@@ -4,7 +4,7 @@ import { createRequire } from 'node:module'
 import { readFile } from 'node:fs/promises'
 import { pathToFileURL } from 'node:url'
 import vm from 'node:vm'
-import { discoverNewReleases, loadArtistReleases, recentReleases } from '../src/newReleases.js'
+import { latestReleases, loadArtistReleases } from '../src/newReleases.js'
 import { previewWindow, startVideoPreview } from '../src/videoPreview.js'
 import { deleteVideoDownloads, downloadVideos, updateVideoLibrary } from '../src/videoActions.js'
 
@@ -87,51 +87,6 @@ test('artist hiding persists through settings, serializes changes and restores w
   delete globalThis.discoveryTestApi
 })
 
-test('new releases require recent release dates, deduplicate and sort newest first', () => {
-  const rows = recentReleases([
-    { title: 'Old', artist: 'A', year: 2020 },
-    { title: 'Future', artist: 'A', year: 2030 },
-    { title: 'Upcoming this year', artist: 'A', release_date: '2026-12-01' },
-    { title: 'Malformed date', artist: 'A', release_date: '2026-garbage' },
-    { title: 'Undated', artist: 'A' },
-    { title: 'Last year', artist: 'A', year: 2025 },
-    { title: 'NEW', artist: 'b', year: 2026 },
-    { title: 'New', artist: 'B', release_date: '2026-09-01' },
-  ], new Date('2026-10-09'))
-  assert.deepEqual(rows.map(row => row.title), ['New', 'Last year'])
-})
-
-test('local artists seed release discovery with bounded concurrency and failure isolation', async () => {
-  let active = 0
-  let peak = 0
-  const asked = []
-  const result = await discoverNewReleases([{ name: 'A' }, { name: 'A' }, { name: 'B' }, { name: 'C' }, { name: 'D' }], async name => {
-    asked.push(name)
-    peak = Math.max(peak, ++active)
-    await new Promise(resolve => setTimeout(resolve, 5))
-    active--
-    if (name === 'B') throw new Error('Offline')
-    return [{ title: `${name} release`, year: 2026 }]
-  }, { now: new Date('2026-10-09') })
-  assert.equal(peak, 3)
-  assert.deepEqual(asked, ['A', 'B', 'C', 'D'])
-  assert.equal(result.items.length, 3)
-  assert.equal(result.failures, 1)
-})
-
-test('cancelled release discovery starts no more requests', async () => {
-  const result = await discoverNewReleases([{ name: 'A' }], () => { throw new Error('Must not run') }, { isCurrent: () => false })
-  assert.deepEqual(result.items, [])
-  assert.equal(result.failures, 0)
-})
-
-test('release discovery rotates its bounded batch to reach more than twelve local artists', async () => {
-  const asked = []
-  await discoverNewReleases(Array.from({ length: 20 }, (_, index) => ({ name: `Artist ${index}` })), async name => { asked.push(name); return [] }, { startAt: 12 })
-  assert.equal(asked.length, 12)
-  assert.deepEqual(asked.slice(0, 8), Array.from({ length: 8 }, (_, index) => `Artist ${index + 12}`))
-})
-
 test('release loading uses real artist catalogues and reports provider errors and timeouts', async () => {
   const client = { discoveryCatalogue: async options => {
     assert.deepEqual(options, { source: 'youtube', type: 'releases', artist: 'A' })
@@ -159,7 +114,8 @@ test('release catalogue reads the artist albums and singles without loading extr
   const result = await youtube.fetchCatalogue({ source: 'youtube', type: 'releases', artist: 'A' }, 'SAPISID=test; __Secure-3PSID=test', fetchImpl)
   assert.deepEqual(result.albums.map(row => [row.title, row.artist, row.year]), [['New single', 'A', 2026], ['Old single', 'A', 2015]])
   assert.equal(calls.length, 2)
-  assert.deepEqual(recentReleases(result.albums, new Date('2026-10-09')).map(row => row.title), ['New single'])
+  // Home → Releases keeps every dated release, newest first (no year cut-off).
+  assert.deepEqual(latestReleases(result.albums, { now: new Date('2026-10-09') }).map(row => row.title), ['New single', 'Old single'])
 })
 
 test('bulk video saving isolates failed rows and downloads only newly saved undownloaded videos', async () => {
