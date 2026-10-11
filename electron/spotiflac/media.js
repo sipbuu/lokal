@@ -7,6 +7,14 @@ const { service } = require('./packages')
 
 const jobs = new WeakMap()
 const MIME = { flac:'audio/flac',mp3:'audio/mpeg',m4a:'audio/mp4',mp4:'audio/mp4',ogg:'audio/ogg',opus:'audio/ogg',wav:'audio/wav',webm:'audio/webm',aac:'audio/aac' }
+const redact=text=>String(text||'').replace(/(hmac|token|signature|sig|key|secret|grant|code)=([^&\s"]+)/gi,'$1=…').replace(/qbza_[\w-]+/g,'qbza_…').slice(0,500)
+function logFailure(db,key,id,error){
+  try{
+    const name=service(db).find(key)?.manifest?.displayName || key
+    const line=`[SpotiFLAC] ${name}: couldn't prepare ${String(id).slice(0,80)} for playback: ${redact(error?.message)}${error?.errorType?` (${error.errorType})`:''}`
+    try{require('electron-log').warn(line)}catch{console.warn(line)}
+  }catch{}
+}
 function state(db) {let value=jobs.get(db);if(!value){value=new Map();jobs.set(db,value)}return value}
 function cacheKey(db,key,id){const addon=service(db).find(key);if(!addon?.enabled)throw new Error('Addon is not available');return crypto.createHash('sha256').update(JSON.stringify([key,id,addon.digest,service(db).settings(addon).downloadQuality])).digest('hex')}
 function cached(db,key,id){
@@ -32,7 +40,11 @@ function prepare(db,key,id,{force=false}={}){
       // The cache joins Lokal's shared limit; installed code and credentials do not.
       require('../cache').trim({keep:[file]})
     }finally{await result.cleanup()}
-  }).catch(error=>{job.status=job.controller.signal.aborted?'cancelled':'error';job.error=error.message}).finally(()=>{
+  }).catch(error=>{
+    job.status=job.controller.signal.aborted?'cancelled':'error';job.error=error.message
+    // Kept in Lokal's log: without it a song that won't stream says nothing about why.
+    if(job.status==='error')logFailure(db,key,id,error)
+  }).finally(()=>{
     job.finishedAt=Date.now();const timer=setTimeout(()=>map.delete(job.id),5*60*1000);timer.unref?.()
   })
   return {pending:true,operationId:job.id}

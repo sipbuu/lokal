@@ -139,7 +139,68 @@ jobs:
           echo "Building nightly version $(node -p "require('./package.json').version")"
 
       - name: Build Application
+        if: runner.os != 'macOS'
         run: npm run build -- --publish never
+
+      # macOS: one runner (macos-latest, Apple silicon). Signing only happens
+      # when the certificate secrets exist: an empty CSC_LINK makes
+      # electron-builder read the project folder as the certificate ("not a
+      # file") and fail, which is what broke the mac build in #277. Without
+      # them, the app is signed ad-hoc (see below).
+      # DMG creation (hdiutil) fails now and then on hosted runners with
+      # "Resource busy"; one clean retry covers it.
+      - name: Build Application (macOS)
+        if: runner.os == 'macOS'
+        shell: bash
+        env:
+          MAC_CSC_LINK: ${{ secrets.CSC_LINK }}
+          MAC_CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+        run: |
+          SIGN_ARGS=()
+          if [ -n "$MAC_CSC_LINK" ]; then
+            export CSC_LINK="$MAC_CSC_LINK" CSC_KEY_PASSWORD="$MAC_CSC_KEY_PASSWORD"
+            echo "Signing with the configured certificate."
+          else
+            # Ad-hoc signature over the whole bundle. Without it the app kept
+            # Electron's stale signature ("code has no resources but signature
+            # indicates they must be present"), which macOS reports as a
+            # damaged app on Apple silicon. The hardened runtime only matters
+            # for notarization, and with an ad-hoc signature it makes macOS
+            # refuse to load the app's own native modules.
+            SIGN_ARGS=(-c.mac.identity=- -c.mac.notarize=false -c.mac.hardenedRuntime=false)
+            echo "No signing certificate configured; signing ad-hoc."
+          fi
+          for attempt in 1 2; do
+            if npm run build -- --publish never "${SIGN_ARGS[@]}"; then exit 0; fi
+            echo "::warning::macOS build attempt ${attempt} failed."
+            [ "$attempt" = 2 ] && exit 1
+            for d in $(hdiutil info 2>/dev/null | awk '/^\/dev\/disk/{print $1}'); do hdiutil detach -force "$d" >/dev/null 2>&1 || true; done
+            rm -rf release
+            sleep 15
+          done
+
+      - name: Check the macOS app
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          shopt -s nullglob
+          dmgs=(release/*.dmg); zips=(release/*-mac.zip)
+          [ ${#dmgs[@]} -gt 0 ] || { echo "::error::No .dmg was built."; exit 1; }
+          [ ${#zips[@]} -gt 0 ] || { echo "::error::No mac .zip (needed by the updater) was built."; exit 1; }
+          [ -f release/latest-mac.yml ] || { echo "::error::latest-mac.yml is missing."; exit 1; }
+          app=$(find release -maxdepth 2 -name '*.app' -type d | head -1)
+          [ -n "$app" ] || { echo "::error::No .app bundle in release/."; exit 1; }
+          codesign --verify --deep --strict --verbose=2 "$app"
+          for f in "${dmgs[@]}"; do hdiutil verify "$f"; done
+          # The native modules must be built for the app's architecture.
+          while IFS= read -r -d '' module; do
+            # Prebuilt binaries for other systems ride along in some packages
+            # (prebuilds/, skipped); the ones loaded must be arm64.
+            file -b "$module" | grep -q Mach-O || continue
+            archs=$(lipo -archs "$module" 2>/dev/null || echo unknown)
+            echo "$module: $archs"
+            case " $archs " in *" arm64 "*) ;; *) echo "::error::$module isn't built for arm64."; exit 1 ;; esac
+          done < <(find "$app" -name '*.node' -not -path '*/prebuilds/*' -print0)
 
       - name: Rename release files for this runner
         shell: bash
@@ -328,6 +389,8 @@ jobs:
             ## Setup
 
             See [README.md](./README.md) for full setup instructions.
+
+            ${{ secrets.CSC_LINK == '' && '**macOS:** this build is ad-hoc signed, not notarized (no Developer ID certificate is configured). The first time, right-click Lokal in Applications and choose Open, or run `xattr -dr com.apple.quarantine /Applications/Lokal.app`.' || '' }}
 
             ---
 

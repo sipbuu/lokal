@@ -4,6 +4,7 @@ const path = require('path')
 const crypto = require('crypto')
 const AdmZip = require('adm-zip')
 const { AddonStorage, atomicWrite } = require('./storage')
+const { CookieJar } = require('tough-cookie')
 const { ExtensionNetwork, validateURL } = require('./network')
 const { SignedSession } = require('./session')
 const { ExtensionHost, safePath, runTool, mediaInfo } = require('./host')
@@ -20,7 +21,9 @@ function compareVersions(a,b) {
 }
 function validateManifest(manifest) {
   if(!manifest || !/^[a-z0-9][a-z0-9_-]{0,99}$/.test(manifest.name || '') || typeof manifest.displayName!=='string' || !/^\d+\.\d+\.\d+(?:[-+][\w.-]+)?$/.test(manifest.version || ''))throw new Error('Invalid SpotiFLAC package manifest')
-  if(!Array.isArray(manifest.type)||!manifest.type.includes('download_provider'))throw new Error('Only download-capable SpotiFLAC addons can be installed')
+  // Download providers, or metadata addons that read playlist links (Spotify
+  // Web, Apple Music): those are only used to sync linked playlists.
+  if(!Array.isArray(manifest.type)||!(manifest.type.includes('download_provider')||manifest.type.includes('metadata_provider')&&manifest.urlHandler?.enabled))throw new Error('Only download-capable or playlist-link SpotiFLAC addons can be installed')
   if(compareVersions(manifest.minAppVersion,COMPAT_VERSION)>0)throw new Error(`This addon requires SpotiFLAC compatibility ${manifest.minAppVersion}`)
   for(const required of manifest.requiredRuntimeFeatures || []){
     const match=String(required).match(/^([A-Za-z]+)@(\d+)$/)
@@ -81,7 +84,28 @@ class PackageService {
     const resources=['stream',...(addon.methods.includes('customSearch')||addon.methods.includes('searchTracks')?['search']:[]),...['album','artist','playlist'].filter(r=>addon.methods.includes(`get${r[0].toUpperCase()+r.slice(1)}`))]
     let icon=null
     if(addon.manifest.icon){try{const file=safePath(path.join(this.root,'packages',addon.key),addon.manifest.icon);const data=fs.readFileSync(file);if(data.length<256*1024&&/\.(png|jpg|jpeg|webp)$/i.test(file))icon=`data:image/${/\.png$/i.test(file)?'png':/\.webp$/i.test(file)?'webp':'jpeg'};base64,${data.toString('base64')}`}catch{}}
-    return {key:addon.key,provider:`a-${addon.key}`,id:addon.name,name:addon.manifest.displayName,version:addon.manifest.version,description:addon.manifest.description || '',icon,resources,enabled:!!addon.enabled,installedAt:addon.installed_at,kind:'spotiflac',host:'SpotiFLAC package',repositoryId:addon.repository_id,settingsSchema:schema,settings:{...Object.fromEntries(Object.entries(values).filter(([k])=>!secretKeys.has(k)&&k!=='qualitySettings')),qualitySettings},configuredSecrets:[...secretKeys].filter(k=>values[k]),qualityOptions:addon.manifest.qualityOptions || [],signedSession:!!addon.manifest.signedSession,actions:addon.manifest.globalActions || [],searchFilters:addon.manifest.searchBehavior?.filters || [],compatibilityVersion:COMPAT_VERSION}
+    return {key:addon.key,provider:`a-${addon.key}`,id:addon.name,name:addon.manifest.displayName,version:addon.manifest.version,description:addon.manifest.description || '',icon,resources,enabled:!!addon.enabled,installedAt:addon.installed_at,kind:'spotiflac',host:'SpotiFLAC package',repositoryId:addon.repository_id,settingsSchema:schema,settings:{...Object.fromEntries(Object.entries(values).filter(([k])=>!secretKeys.has(k)&&k!=='qualitySettings')),qualitySettings},configuredSecrets:[...secretKeys].filter(k=>values[k]),qualityOptions:addon.manifest.qualityOptions || [],signedSession:!!addon.manifest.signedSession,actions:addon.manifest.globalActions || [],searchFilters:addon.manifest.searchBehavior?.filters || [],compatibilityVersion:COMPAT_VERSION,access:this.access(addon,values),linksOnly:!addon.manifest.type.includes('download_provider')}
+  }
+  /**
+   * Whether an addon still needs setting up before it can stream or download:
+   * an unverified signed session, an account login it hasn't done, or a
+   * required setting left empty. Read from what's saved (no runtime starts).
+   */
+  access(addon,values=this.settings(addon)) {
+    const missing=(addon.manifest.settings || []).filter(field=>field.required&&field.type!=='button'&&(values[field.key]===undefined||values[field.key]==='')).map(field=>field.label || field.key)
+    if(addon.manifest.signedSession){
+      const config=addon.manifest.signedSession,live=this.sessions.get(hash(JSON.stringify(config)))
+      let verified=false;try{verified=!!(live || new SignedSession(config,this.storage,null,addon.key)).status().authenticated}catch{}
+      return {kind:'verification',ready:verified&&!missing.length,verified,missing}
+    }
+    const login=(addon.manifest.globalActions || []).some(item=>/log\s*in|sign\s*in|connect|auth|account/i.test(`${item.action} ${item.label || ''}`))
+    if(login){
+      let auth=this.networks.get(addon.key)?.auth;if(!auth){try{auth=this.storage.read(addon.key,'connection').auth}catch{}}
+      const tokens=!!(auth?.access_token || auth?.refresh_token || auth?.code)
+      let account=false;try{account=Object.keys(this.storage.read(addon.key,'credentials')).length>0}catch{}
+      return {kind:'login',ready:(tokens||account)&&!missing.length,verified:tokens||account,missing}
+    }
+    return {kind:missing.length?'settings':'none',ready:!missing.length,verified:true,missing}
   }
   list() {return this.db.prepare('SELECT key FROM spotiflac_packages ORDER BY installed_at').all().map(({key})=>this.publicView(this.find(key)))}
   repos() {return this.db.prepare('SELECT id,url,name,refreshed_at,error FROM spotiflac_repositories ORDER BY rowid').all()}
@@ -116,8 +140,12 @@ class PackageService {
     try{
       const index=JSON.parse((await this.document(repo.url)).toString())
       if(index.version!==1||!Array.isArray(index.extensions)||index.extensions.length>2000)throw new Error('Invalid SpotiFLAC registry')
-      const entries=index.extensions.filter(e=>e.category==='download').map(e=>{
-        if(!/^[a-z0-9][a-z0-9_-]{0,99}$/.test(e.id || e.name || '')||typeof e.version!=='string'||!/^[a-f0-9]{64}$/i.test(e.sha256 || '')||new URL(e.download_url).protocol!=='https:')throw new Error('Invalid registry package entry')
+      const valid=e=>{try{return /^[a-z0-9][a-z0-9_-]{0,99}$/.test(e.id || e.name || '')&&typeof e.version==='string'&&/^[a-f0-9]{64}$/i.test(e.sha256 || '')&&new URL(e.download_url).protocol==='https:'}catch{return false}}
+      // Download sources must all be well formed; metadata ("integration")
+      // entries are only offered as playlist-link readers, and skipped when
+      // incomplete (installing one still checks it reads links).
+      const entries=index.extensions.filter(e=>e.category==='download'||(e.category==='integration'&&valid(e))).map(e=>{
+        if(!valid(e))throw new Error('Invalid registry package entry')
         return {...e,id:e.id || e.name}
       })
       if(new Set(entries.map(e=>e.id)).size!==entries.length)throw new Error('Duplicate registry package IDs')
@@ -156,7 +184,8 @@ class PackageService {
         const candidate={key,name:manifest.name,manifest,enabled:1}
         runtime=this.createRuntime(candidate,code,{root:path.join(staged,'validation-data')})
         await runtime.ready
-        if(!runtime.methods.includes('download'))throw new Error('Download provider has no registered download() method')
+        if(manifest.type.includes('download_provider')&&!runtime.methods.includes('download'))throw new Error('Download provider has no registered download() method')
+        if((manifest.urlHandler?.enabled||!manifest.type.includes('download_provider'))&&!runtime.methods.includes('handleUrl'))throw new Error('Playlist-link addon has no registered handleUrl() method')
         const methods=runtime.methods
         runtime.close();runtime=null
         await fsp.rm(path.join(staged,'validation-data'),{recursive:true,force:true})
@@ -174,7 +203,7 @@ class PackageService {
   }
   createRuntime(addon,code,{root,grants=[],onProgress,signal}={}) {
     let network=this.networks.get(addon.key)
-    if(!network){network=new ExtensionNetwork(addon.manifest.permissions);this.networks.set(addon.key,network)}
+    if(!network){network=new ExtensionNetwork(addon.manifest.permissions);this.restoreConnection(addon.key,network);this.networks.set(addon.key,network)}
     let session
     if(addon.manifest.signedSession){const scope=hash(JSON.stringify(addon.manifest.signedSession));session=this.sessions.get(scope);if(!session){session=new SignedSession(addon.manifest.signedSession,this.storage,network,addon.key);this.sessions.set(scope,session)}}
     const host=new ExtensionHost({addon,storage:this.storage,network,session,root:root || path.join(this.root,'data',addon.key,'files'),grants,tools:this.tools(),db:this.db,onProgress,signal})
@@ -194,8 +223,26 @@ class PackageService {
     await runtime.initialized
     return runtime
   }
-  retire(key) {this.runtimes.get(key)?.close();this.runtimes.delete(key);for(const op of this.operations.values())if(op.key===key)op.controller.abort();this.networks.delete(key);if(process.versions.electron)require('./authWindow').closeAuthWindow(key)}
-  shutdown() { for(const key of [...this.runtimes.keys()]) this.retire(key); for(const op of this.operations.values()) op.controller.abort(); this.operations.clear() }
+  // A login (tokens, the cookies a verification page set) outlives restarts:
+  // it's kept sealed with the addon's other credentials.
+  restoreConnection(key,network) {
+    let saved={};try{saved=this.storage.read(key,'connection')}catch{}
+    if(saved.auth&&typeof saved.auth==='object')network.auth={...saved.auth}
+    if(saved.cookies){try{network.cookies=CookieJar.deserializeSync(saved.cookies)}catch{}}
+    network.persist=()=>this.saveConnection(key,network)
+  }
+  saveConnection(key,network,{now=false}={}) {
+    clearTimeout(network.persistTimer);network.persistTimer=null
+    const write=()=>{network.persistTimer=null;try{if(!this.find(key))return;const {pending,...auth}=network.auth || {};this.storage.write(key,'connection',{auth,cookies:network.cookies.serializeSync()})}catch{}}
+    if(now)return write()
+    network.persistTimer=setTimeout(write,250);network.persistTimer.unref?.()
+  }
+  // Disconnect: the login, its cookies and what the addon stored as its
+  // account credentials. The generation makes a token exchange still in
+  // flight drop its result instead of writing it back afterwards.
+  forgetConnection(key) {const network=this.networks.get(key);if(network){network.generation=(network.generation || 0)+1;clearTimeout(network.persistTimer);network.persistTimer=null;for(const field of Object.keys(network.auth || {}))delete network.auth[field];network.cookies=new CookieJar()}try{this.storage.write(key,'connection',{})}catch{}try{this.storage.write(key,'credentials',{})}catch{}}
+  retire(key) {const network=this.networks.get(key);if(network?.persistTimer)this.saveConnection(key,network,{now:true});this.runtimes.get(key)?.close();this.runtimes.delete(key);for(const op of this.operations.values())if(op.key===key)op.controller.abort();this.networks.delete(key);if(process.versions.electron)require('./authWindow').closeAuthWindow(key)}
+  shutdown() { for(const [key,network] of this.networks)if(network.persistTimer)this.saveConnection(key,network,{now:true}); for(const key of [...this.runtimes.keys()]) this.retire(key); for(const op of this.operations.values()) op.controller.abort(); this.operations.clear() }
   async remove(key) {
     if(!/^[a-f0-9]{10}$/.test(key))throw new Error('Invalid addon key')
     return this.locked(key,async()=>{this.retire(key);this.db.prepare('DELETE FROM spotiflac_packages WHERE key=?').run(key);await fsp.rm(path.join(this.root,'packages',key),{recursive:true,force:true});await fsp.rm(path.join(this.root,'data',key),{recursive:true,force:true});return {ok:true}})
@@ -253,14 +300,14 @@ class PackageService {
     if(schema){if(schema.version!==1||!runtime.methods.includes(schema.submit_action)||!Array.isArray(schema.fields)||schema.fields.length>12)throw new Error('Invalid addon account form');const next=crypto.randomUUID();this.forms.set(next,{key,action:schema.submit_action,steps:(form?.steps || 0)+1,expires:Date.now()+300000});payload.formToken=next}
     return payload
   }
-  async authStatus(key) {const runtime=await this.runtime(key);return {...runtime.host.session?.status(),open_auth_url:runtime.host.session?.pending?.url || runtime.host.auth.pending?.url || ''}}
+  async authStatus(key) {const runtime=await this.runtime(key),access=this.access(this.find(key)),session=runtime.host.session?.status();return {...session,authenticated:session?session.authenticated:access.verified,access,open_auth_url:runtime.host.session?.pending?.url || runtime.host.auth.pending?.url || ''}}
   async authCallback(key,raw) {
     const runtime=await this.runtime(key)
     if(runtime.host.session?.pending)return runtime.host.session.callback(raw,runtime.host.signal)
     const pending=runtime.host.auth.pending,url=new URL(raw)
     if(!pending||Date.now()-pending.createdAt>180000||url.searchParams.get('state')!==pending.state)throw new Error('Invalid or expired OAuth callback')
     if(pending.callback){const expected=new URL(pending.callback);if(url.protocol!==expected.protocol||url.host!==expected.host||url.pathname!==expected.pathname)throw new Error('Unexpected OAuth callback URL')}
-    runtime.host.auth.code=url.searchParams.get('code') || '';runtime.host.auth.pending=null;return {success:true}
+    runtime.host.auth.code=url.searchParams.get('code') || '';runtime.host.auth.pending=null;runtime.host.network.persist?.();return {success:true}
   }
   async download(key,id,{signal,onProgress,quality,purpose='download'}={}) {
     const addon=this.find(key);if(!addon||!addon.enabled)throw new Error('Addon is not available')
@@ -314,6 +361,14 @@ class PackageService {
       if(purpose==='playback'&&!['flac','mp3','aac','opus','vorbis','pcm_s16le','pcm_s24le','pcm_f32le'].includes(info.codec)){
         const lossless=['alac','flac','wavpack','ape'].includes(info.codec),target=path.join(staged,lossless?'playable.flac':'playable.m4a')
         await runTool(tools.ffmpeg,['-nostdin','-y','-i',file,'-map','0:a:0','-c:a',lossless?'flac':'aac',...(lossless?[]:['-b:a','256k']),target],combined);file=target;info=await mediaInfo(file,tools,combined)
+      }
+      // The player is told the type from the file name: an addon that writes
+      // MP3 or AAC into "audio.flac" (a lower quality it fell back to) gets a
+      // file the player can't open. Rewrap it in the container its audio needs.
+      const containers={flac:['flac'],mp3:['mp3'],aac:['m4a','mp4','aac'],alac:['m4a','mp4'],opus:['ogg','opus','webm'],vorbis:['ogg','webm'],pcm_s16le:['wav'],pcm_s24le:['wav'],pcm_f32le:['wav']}
+      if(purpose==='playback'&&containers[info.codec]&&!containers[info.codec].includes(path.extname(file).slice(1).toLowerCase())){
+        const target=path.join(staged,`playable-copy.${containers[info.codec][0]}`)
+        await runTool(tools.ffmpeg,['-nostdin','-y','-i',file,'-map','0:a:0','-c:a','copy',target],combined);file=target;info=await mediaInfo(file,tools,combined)
       }
       combined.throwIfAborted()
       return {file,staging:staged,metadata:{...track,...result},info,cleanup:()=>fsp.rm(staged,{recursive:true,force:true})}

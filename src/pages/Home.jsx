@@ -23,7 +23,8 @@ import { recommendationSession, rememberHomePath } from '../recommendationSessio
 import { playRecommendationPool } from '../recommendationPlayback'
 import { loadDiscoveryCatalogue } from '../discoveryCatalogue'
 import { discoveryArtistKey, loadDiscoveryArtists, setDiscoveryArtistHidden, useDiscoveryArtists } from '../discoveryArtists'
-import { discoverNewReleases, loadArtistReleases, recentReleases } from '../newReleases'
+import ReleasesPanel from '../components/ReleasesPanel'
+import { onlineAlbumPath } from '../onlineBrowse'
 import HiddenDiscoveryArtists from '../components/HiddenDiscoveryArtists'
 
 const today = () => new Date().toLocaleDateString(undefined, { day: 'numeric', month: 'long', year: 'numeric' })
@@ -32,7 +33,7 @@ const mixTitle = (mix) => (mix.type === 'artist' ? `${mix.name} Mix` : mix.name)
 function homeRoute(pathname) {
   const parts = String(pathname || '').split('/').filter(Boolean)
   if (parts[0] !== 'home') return { tab: 'home', section: null }
-  return { tab: ['discovery', 'mixlab', 'history'].includes(parts[1]) ? parts[1] : 'home', section: parts[2] || null }
+  return { tab: ['discovery', 'mixlab', 'releases', 'history'].includes(parts[1]) ? parts[1] : 'home', section: parts[2] || null }
 }
 
 function secureImage(value) {
@@ -139,7 +140,7 @@ function ScrobbleHistory({ entries, resolveTracks }) {
   return <div className="space-y-6">{groups.map(group => <section key={group.date}><div className="mb-2 flex items-center gap-2 text-xs font-display uppercase tracking-widest text-muted"><CalendarDays size={14} />{group.date}</div><div className="rounded-xl border border-border bg-elevated p-3"><TrackList tracks={recommendationRows(group.entries)} extraColumns={historyColumns} resolveTracks={resolveTracks} reduceMotion context={{ type: 'discovery', name: 'Scrobble History' }} /></div></section>)}</div>
 }
 
-function RecommendationSections({ data, localArtists, allArtists, releases, source: selectedSource, loading, error, onRefresh, onSourceChange, onPlay, resolveTracks, getDownloadTrack, onTrackMenu, onRadio, onArtistPlay, onArtistMenu, onAlbumPlay, onAlbumMenu, onProviderMixPlay, onProviderMixMenu, onSaveFresh, onSaveQuick, saving, onOpenSettings, activeSection, onSection }) {
+function RecommendationSections({ data, localArtists, allArtists, source: selectedSource, loading, error, onRefresh, onSourceChange, onPlay, resolveTracks, getDownloadTrack, onTrackMenu, onRadio, onArtistPlay, onArtistMenu, onAlbumPlay, onAlbumMenu, onProviderMixPlay, onProviderMixMenu, onSaveFresh, onSaveQuick, saving, onOpenSettings, activeSection, onSection }) {
   const source = sourceName(selectedSource)
   const quick = Array.isArray(data?.quickPicks) ? data.quickPicks : []
   const liked = Array.isArray(data?.liked) ? data.liked : []
@@ -157,11 +158,9 @@ function RecommendationSections({ data, localArtists, allArtists, releases, sour
         <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-accent/10"><Sparkles size={16} className="text-accent" /></div>
         <div className="min-w-0"><div className="flex items-center gap-2"><h2 className="text-sm font-medium text-white">Discovery</h2><span className="text-xs uppercase tracking-[0.18em] text-muted">{source}</span></div><p className="mt-0.5 truncate text-xs text-muted">Personalized recommendations from your selected provider.</p></div>
       </div>
-      <div className="flex shrink-0 items-center gap-3"><div role="group" aria-label="Discovery provider" className="flex items-center gap-0.5 rounded-lg border border-border bg-card/70 p-0.5">{[['lastfm', 'Last.fm'], ['youtube', 'YouTube Music']].map(([id, label]) => <button key={id} type="button" aria-pressed={selectedSource === id} onClick={() => onSourceChange?.(id)} className={`rounded-md px-2.5 py-1 !text-[11px] transition-colors ${selectedSource === id ? 'bg-accent text-base' : 'text-muted hover:text-white'}`}>{label}</button>)}</div><button onClick={onRefresh} disabled={loading || releases.loading} className="inline-flex items-center gap-1.5 text-xs text-accent hover:text-accent/70 disabled:opacity-50"><RefreshCw size={13} className={loading || releases.loading ? 'animate-spin' : ''} />Refresh</button></div>
+      <div className="flex shrink-0 items-center gap-3"><div role="group" aria-label="Discovery provider" className="flex items-center gap-0.5 rounded-lg border border-border bg-card/70 p-0.5">{[['lastfm', 'Last.fm'], ['youtube', 'YouTube Music']].map(([id, label]) => <button key={id} type="button" aria-pressed={selectedSource === id} onClick={() => onSourceChange?.(id)} className={`rounded-md px-2.5 py-1 !text-[11px] transition-colors ${selectedSource === id ? 'bg-accent text-base' : 'text-muted hover:text-white'}`}>{label}</button>)}</div><button onClick={onRefresh} disabled={loading} className="inline-flex items-center gap-1.5 text-xs text-accent hover:text-accent/70 disabled:opacity-50"><RefreshCw size={13} className={loading ? 'animate-spin' : ''} />Refresh</button></div>
     </div>
     {error && <p role="status" className="rounded-xl border border-red-400/25 bg-red-400/10 px-4 py-3 text-sm text-red-200">{error}</p>}
-    {localArtists.length > 0 && <section><SectionHeader icon={User} title="Your Library Artists" count={localArtists.length} subtitle="Explore artists from your local music collection." onExpand={localArtists.length > 8 ? () => toggle('library-artists') : undefined} expanded={activeSection === 'library-artists'} /><div className="grid grid-cols-3 gap-4 @sm:grid-cols-4 @md:grid-cols-6 @lg:grid-cols-8">{(activeSection === 'library-artists' ? localArtists : localArtists.slice(0, 8)).map(artist => <ArtistRecommendation key={artist.id || artist.name} artist={artist} onClick={onArtistPlay} onContextMenu={onArtistMenu} />)}</div></section>}
-    <section><SectionHeader icon={CalendarDays} title="New Releases" subtitle="Dated releases from this year and last year by your library artists. Refresh checks the next group of artists." count={releases.items.length || null} onExpand={releases.items.length > 6 ? () => toggle('releases') : undefined} expanded={activeSection === 'releases'} />{releases.items.length ? <div className="grid grid-cols-2 gap-4 @md:grid-cols-3 @lg:grid-cols-6">{(activeSection === 'releases' ? releases.items : releases.items.slice(0, 6)).map(album => <AlbumRecommendation key={`${album.artist}-${album.title}`} album={album} onClick={onAlbumPlay} onContextMenu={onAlbumMenu} />)}</div> : <p role="status" className="rounded-xl border border-border bg-elevated px-4 py-8 text-center text-sm text-muted">{releases.loading ? 'Checking artist catalogues for new releases…' : releases.error || (localArtists.length ? 'No dated recent releases found. Refresh to check again.' : 'Add music to your library to find new releases.')}</p>}{releases.items.length > 0 && (releases.loading || releases.error) && <p role="status" className="mt-3 text-xs text-muted">{releases.loading ? 'Checking more artist catalogues…' : releases.error}</p>}</section>
     {!data && (loading
       ? <p className="py-10 text-center text-sm text-muted">Building your {source} recommendations…</p>
       : <div className="rounded-xl border border-border bg-elevated p-4"><ProviderConnections compact onOpenSettings={onOpenSettings} /></div>)}
@@ -225,8 +224,6 @@ function HomeContent({ user }) {
   const [saving, setSaving] = useState(null)
   const [localArtists, setLocalArtists] = useState([])
   const hiddenArtists = useDiscoveryArtists(s => s.hidden)
-  const [releases, setReleases] = useState({ items: [], loading: true, error: '' })
-  const [releaseRevision, setReleaseRevision] = useState(0)
   const playRequestRef = useRef(0)
   const pendingPlayRef = useRef(null)
   const accountRef = useRef(sessionState.account)
@@ -378,18 +375,6 @@ function HomeContent({ user }) {
 
   useEffect(() => { load() }, [user?.id])
   useEffect(() => { loadDiscoveryArtists().catch(() => {}) }, [])
-  useEffect(() => {
-    if (tab !== 'discovery') return undefined
-    let current = true
-    const artists = localArtists.filter(artist => !hiddenArtists.has(discoveryArtistKey(artist.name)))
-    const known = new Set(artists.map(artist => discoveryArtistKey(artist.name)))
-    const keep = items => items.filter(album => known.has(discoveryArtistKey(album.seedArtist || album.artist)))
-    setReleases(previous => ({ items: keep(previous.items), loading: true, error: '' }))
-    discoverNewReleases(artists, name => loadArtistReleases(name, api), { startAt: releaseRevision * 12, isCurrent: () => current, onItems: items => { if (current) setReleases(previous => ({ items: recentReleases([...items, ...keep(previous.items)]).slice(0, 36), loading: true, error: '' })) } }).then(result => {
-      if (current) setReleases(previous => ({ items: recentReleases([...result.items, ...keep(previous.items)]).slice(0, 36), loading: false, error: result.failures ? `Could not check ${plural(result.failures, 'artist catalogue')}. Refresh to try again.` : '' }))
-    }).catch(error => { if (current) setReleases(previous => ({ ...previous, loading: false, error: error.message })) })
-    return () => { current = false }
-  }, [tab, localArtists, hiddenArtists, releaseRevision])
   useEffect(() => { session.ensure() }, [session])
   useEffect(() => {
     const refresh = () => load()
@@ -496,7 +481,7 @@ function HomeContent({ user }) {
     return saveList(key, `${title} - ${today()}`, () => resolveRecommendationTracks(tracks, api, { isCurrent: () => account === accountRef.current }), description)
   }
   const sectionProps = {
-    data: data ? { ...data, artists: visibleArtists(data.artists) } : data, localArtists: visibleArtists(localArtists), allArtists: [...localArtists, ...(discovery?.artists || [])], releases, source: recommendationSource, loading: discoveryLoading, error: discoveryError,
+    data: data ? { ...data, artists: visibleArtists(data.artists) } : data, localArtists: visibleArtists(localArtists), allArtists: [...localArtists, ...(discovery?.artists || [])], source: recommendationSource, loading: discoveryLoading, error: discoveryError,
     getDownloadTrack: resolveDownloadTrack,
     onProviderMixPlay: playProviderMix,
     onProviderMixMenu: (event, mix) => menu.open(event, [
@@ -504,7 +489,7 @@ function HomeContent({ user }) {
       { label: 'Save as playlist', icon: ListPlus, onSelect: () => saveProviderMix(mix) },
       { label: 'Download mix', icon: Download, onSelect: () => saveProviderMix(mix, true) },
     ]),
-    onRefresh: () => { session.refresh(); setReleaseRevision(value => value + 1) }, onSourceChange: async source => {
+    onRefresh: () => { session.refresh() }, onSourceChange: async source => {
       if (source === recommendationSource) return
       const result = await api.saveSettings({ recommendation_source: source }).catch(error => ({ error: error.message }))
       if (result?.error) showToast(result.error)
@@ -547,13 +532,18 @@ function HomeContent({ user }) {
 
   return <div className="p-6 space-y-7 w-full max-w-6xl mx-auto pb-10">
     <div><h1 className="text-2xl font-display text-white">{new Date().getHours() < 12 ? 'Good morning' : new Date().getHours() < 18 ? 'Good afternoon' : 'Good evening'}</h1><p className="text-sm text-muted mt-1">Your music, listening history, and recommendations</p></div>
-    <div className="flex gap-1 p-0.5 bg-elevated rounded-lg border border-border w-fit">{[['home', 'Local'], ['discovery', 'Discovery'], ['mixlab', 'Mix'], ['history', 'History']].map(([id, label]) => <button key={id} onClick={() => goHome(id)} className={`px-4 py-1.5 text-xs font-display uppercase tracking-wider rounded transition-colors ${tab === id ? 'bg-accent text-base' : 'text-muted hover:text-white'}`}>{label}</button>)}</div>
+    <div className="flex gap-1 p-0.5 bg-elevated rounded-lg border border-border w-fit">{[['home', 'Local'], ['discovery', 'Discovery'], ['mixlab', 'Mix'], ['releases', 'Releases'], ['history', 'History']].map(([id, label]) => <button key={id} onClick={() => goHome(id)} className={`px-4 py-1.5 text-xs font-display uppercase tracking-wider rounded transition-colors ${tab === id ? 'bg-accent text-base' : 'text-muted hover:text-white'}`}>{label}</button>)}</div>
     <SectionSwap id={tab} className="space-y-10">
       {tab === 'history' ? <section>
         <SectionHeader icon={History} eyebrow="History" title="Listen History" count={localHistory.length} />
         {localHistory.length ? <TrackList tracks={localHistory} reduceMotion context={{ type: 'history', name: 'Listen History' }} /> : <p className="py-10 text-center text-sm text-muted">No listen history yet.</p>}
       </section>
         : tab === 'mixlab' ? <MixPanel tracks={mixLab?.tracks || []} source={mixLab.source || recommendationSource} size={Number(mixLab?.size) || 32} error={mixError} generating={mixGenerating} saving={!!saving} onSize={session.setSize} onGenerate={session.generate} onPlay={tracks => playQueue(tracks, 0, { type: 'mix', name: `${sourceName(mixLab.source || recommendationSource)} Mix` })} onSave={() => saveList('mixlab', `Mix - ${today()}`, mixLab?.tracks || [], `${sourceName(mixLab.source || recommendationSource)} recommendation Mix`)} />
+        : tab === 'releases' ? <ReleasesPanel artists={localArtists}
+            onPlay={album => playCatalogue('album', album)}
+            onOpen={album => navigate(onlineAlbumPath({ artist: album.artist, album: album.title, albumId: album.albumId }), { state: { artwork: album.artwork_url || '' } })}
+            onMenu={sectionProps.onAlbumMenu}
+            onArtist={album => { const local = localArtists.find(artist => discoveryArtistKey(artist.name) === discoveryArtistKey(album.seedArtist || album.artist)); if (local?.id) navigate(`/artist/${encodeURIComponent(local.id)}`); else playCatalogue('artist', { name: album.artist }) }} />
         : tab === 'discovery' ? <RecommendationSections {...sectionProps} />
         : localHome
       }

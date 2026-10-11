@@ -56,6 +56,8 @@ export default function MiniPlayer({ windowed = false }) {
   }, [])
 
   const isLiked = currentTrack && likedIds.has(currentTrack.id)
+  // The line being sung, for the video's caption.
+  const lyricLine = lyricsCurrent
   const miniRootRef = useRef(null)
 
   // The native window resize/always-on-top toggle used to happen here, in a
@@ -260,7 +262,7 @@ export default function MiniPlayer({ windowed = false }) {
       )}
 
       <div className="flex items-center justify-between px-3 py-2 bg-black/25 backdrop-blur-sm border-b border-white/10" style={windowed && api.isElectron ? { WebkitAppRegion: 'drag' } : undefined}>
-        <span className="text-xs text-muted font-medium">Mini Player</span>
+        <span className="min-w-0 flex-1 truncate pr-2 text-xs text-muted font-medium">{videoMode && currentTrack ? <><span className="text-white/90">{currentTrack.title}</span>{currentTrack.artist ? ` · ${currentTrack.artist}` : ''}</> : 'Mini Player'}</span>
         {(musicVideo?.videoId || videoMode) && <button onClick={toggleVideo} aria-pressed={videoMode} aria-label={videoMode ? 'Show artwork' : 'Show music video'} style={windowed && api.isElectron ? { WebkitAppRegion: 'no-drag' } : undefined} className="inline-flex items-center gap-1 text-[10px] text-muted hover:text-white transition-colors" title={videoMode ? 'Show artwork' : 'Show music video'}><Clapperboard size={13} />{videoMode ? 'Artwork' : 'Video'}</button>}
         <button
           onClick={toggleMiniPlayer}
@@ -271,7 +273,37 @@ export default function MiniPlayer({ windowed = false }) {
         </button>
       </div>
 
-      {videoMode && <MusicVideoPlayer compact />}
+      {videoMode ? (
+        // Video mode: just the video and its lyrics. The seek bar and the
+        // controls show over it on hover (and while paused).
+        <div className="group/video relative">
+          <MusicVideoPlayer compact />
+          {lyricLine && <p className={`pointer-events-none absolute inset-x-3 bottom-2.5 text-center text-[13px] font-medium leading-snug text-white [text-shadow:0_1px_3px_rgba(0,0,0,0.9)] transition-transform duration-200 group-hover/video:-translate-y-[4.25rem] group-focus-within/video:-translate-y-[4.25rem] ${isPlaying ? '' : '-translate-y-[4.25rem]'}`}>{lyricLine}</p>}
+          <div className={`absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/85 via-black/55 to-transparent px-3 pb-2 pt-6 transition-opacity duration-200 group-hover/video:opacity-100 focus-within:opacity-100 ${isPlaying ? 'opacity-0' : 'opacity-100'}`}>
+            <div className="h-1 cursor-pointer rounded-full bg-white/25 outline-none focus-visible:ring-2 focus-visible:ring-accent/70" onClick={handleScrub} role="slider" tabIndex={0} aria-label="Seek" aria-valuemin={0} aria-valuemax={Math.round(duration || 0)} aria-valuenow={Math.round(progress || 0)} aria-valuetext={`${fmt(progress)} of ${fmt(duration)}`}
+              onKeyDown={event => {
+                // Arrows step five seconds, like the main player's keys.
+                if (!duration || (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight')) return
+                event.preventDefault()
+                setProgressWithAudioUpdate(Math.min(duration, Math.max(0, (progress || 0) + (event.key === 'ArrowRight' ? 5 : -5))))
+              }}>
+              <div className="h-full rounded-full bg-accent" style={{ width: `${duration ? (progress / duration) * 100 : 0}%` }} />
+            </div>
+            <div className="mt-1.5 flex items-center justify-between">
+              <span className="w-20 text-[10px] tabular-nums text-white/70">{fmt(progress)} / {fmt(duration)}</span>
+              <div className="flex items-center gap-1">
+                <button onClick={prev} aria-label="Previous" className="p-1.5 text-white/80 hover:text-white"><SkipBack size={15} fill="currentColor" /></button>
+                <button onClick={togglePlay} disabled={!currentTrack} aria-label={isPlaying ? 'Pause' : 'Play'} className="flex h-8 w-8 items-center justify-center rounded-full bg-white text-black transition-transform hover:scale-105 disabled:opacity-40">{isPlaying ? <Pause size={15} fill="currentColor" /> : <Play size={15} fill="currentColor" className="translate-x-px" />}</button>
+                <button onClick={next} aria-label="Next" className="p-1.5 text-white/80 hover:text-white"><SkipForward size={15} fill="currentColor" /></button>
+              </div>
+              <div className="flex w-20 items-center justify-end gap-0.5">
+                <button onClick={toggleLike} disabled={!currentTrack} aria-label={isLiked ? 'Unlike' : 'Like'} className={`p-1.5 disabled:opacity-40 ${isLiked ? 'text-accent' : 'text-white/80 hover:text-white'}`}><Heart size={14} fill={isLiked ? 'currentColor' : 'none'} /></button>
+                <button onClick={() => setVolume(volume > 0 ? 0 : 0.8)} aria-label={volume === 0 ? 'Unmute' : 'Mute'} className="p-1.5 text-white/80 hover:text-white">{volume === 0 ? <VolumeX size={14} /> : <Volume2 size={14} />}</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : <>
       <div className={`flex items-center gap-3 ${windowed ? 'p-4' : 'p-3'}`}>
         {!videoMode && <div className={`${windowed ? 'w-20 h-20' : 'w-16 h-16'} rounded-lg overflow-hidden flex-shrink-0 bg-card`}>
           {artSrc ? (
@@ -398,6 +430,7 @@ export default function MiniPlayer({ windowed = false }) {
           />
         </div>
       </div>
+      </>}
     </motion.div>
   )
 }

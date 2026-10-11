@@ -887,6 +887,7 @@ export default function TrackList({ tracks = [], showQuality = false, onRemove =
                   {!!track.explicit && <span className="px-1.5 py-0.5 rounded border border-border bg-card text-[10px] leading-[14px] font-display uppercase tracking-wide text-muted flex-shrink-0">E</span>}
                   {isMissing && <span className="px-1.5 py-0.5 rounded-full bg-red-400/10 border border-red-400/20 text-[10px] leading-[14px] uppercase tracking-wide text-red-200 flex-shrink-0">Missing file</span>}
                   {!isMissing && isGhost && <span className="px-1.5 py-0.5 rounded-full bg-yellow-400/10 border border-yellow-400/20 text-[10px] leading-[14px] uppercase tracking-wide text-yellow-200 flex-shrink-0">Ghost</span>}
+                  {!isMissing && track.playback_error && <span title={track.playback_error} className="px-1.5 py-0.5 rounded-full bg-red-400/10 border border-red-400/20 text-[10px] leading-[14px] uppercase tracking-wide text-red-200 flex-shrink-0">Can't play</span>}
                 </div>
                 <div className="flex min-w-0 items-center text-xs text-muted leading-4 h-4">
                   {columns.artist && <span className="min-w-0 flex-1 truncate" title={track.artist}>{track.artist}</span>}

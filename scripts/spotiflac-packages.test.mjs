@@ -43,6 +43,16 @@ test('registries exclude metadata-only entries and enforce package SHA-256 and i
   service.removeRepo(repo.id);assert.equal(service.list().length,1)
 })
 
+test('playlist-link addons (metadata with a link handler) install but are not stream or download sources',async t=>{
+  const {service}=await fixture(t)
+  const links={...manifest,name:'links-fixture',type:['metadata_provider'],urlHandler:{enabled:true,patterns:['open.example.com']}}
+  await assert.rejects(service.install({buffer:archive({...links,urlHandler:undefined})}),/playlist-link/)
+  const installed=await service.install({buffer:archive(links,`registerExtension({initialize(){},handleUrl(u){return {type:'playlist',name:'P',tracks:[{id:'1',name:'Song',artists:'A'}]};}})`)})
+  assert.equal(installed.linksOnly,true)
+  const addons=require('../electron/online/addons')
+  assert.equal(addons.searchable(service.db).some(a=>a.key===installed.key),false)
+})
+
 test('packages reject unsafe archive paths, missing downloads, and unsupported compatibility features',()=>{
   assert.throws(()=>validateManifest({...manifest,type:['metadata_provider']}),/download-capable/)
   assert.throws(()=>validateManifest({...manifest,requiredRuntimeFeatures:['futureApi@99']}),/Unsupported/)
@@ -71,5 +81,30 @@ test('a package download crosses the real host, FFprobe validation, and staged c
   const code=`registerExtension({getTrack(){return {id:'source-id',name:'Fixture Song',artists:'Fixture Artist',duration_ms:1000};},checkAvailability(){return {available:true,track_id:'source-id'};},download(id,quality,output,progress){var r=file.download('http://127.0.0.1:${server.address().port}/audio',output,{onProgress:function(w,t){progress(t?100*w/t:0);}});return {success:r.success,file_path:r.path,title:'Fixture Song',artist:'Fixture Artist'};}})`
   const installed=await service.install({buffer:archive({...manifest,permissions},code)})
   const result=await service.download(installed.key,'source-id',{purpose:'playback'})
-  try { assert.equal(result.info.codec,'pcm_s16le');assert.equal(result.info.duration_ms,1000);assert.ok((await fs.stat(result.file)).size>44) } finally { await result.cleanup() }
+  try { assert.equal(result.info.codec,'pcm_s16le');assert.equal(path.extname(result.file),'.wav','WAV audio written to audio.flac is rewrapped for the player');assert.equal(result.info.duration_ms,1000);assert.ok((await fs.stat(result.file)).size>44) } finally { await result.cleanup() }
+})
+
+test('an addon login (tokens and verification cookies) survives a restart, and Disconnect forgets it',async t=>{
+  const {service,db,root}=await fixture(t),installed=await service.install({buffer:archive({...manifest,signedSession:undefined,globalActions:[{action:'login',label:'Log in'}]})})
+  assert.equal(service.list()[0].access.kind,'login');assert.equal(service.list()[0].access.ready,false)
+  const runtime=await service.runtime(installed.key)
+  await runtime.host.call('auth.setAuthCode',[{access_token:'token-1',refresh_token:'refresh-1',expires_at:Date.now()+3600000}])
+  runtime.host.network.cookies.setCookieSync('cf_clearance=abc; Domain=example.com; Path=/; Secure','https://example.com/')
+  runtime.host.network.persist()
+  service.shutdown()
+  assert.equal((await fs.readFile(path.join(root,'data',installed.key,'connection.enc'))).includes(Buffer.from('token-1')),false)
+  const restarted=new PackageService(db,{root,tools:()=>({})});t.after(()=>{for(const r of restarted.runtimes.values())r.close()})
+  assert.equal(restarted.list()[0].access.ready,true)
+  const again=await restarted.runtime(installed.key)
+  assert.equal(await again.host.call('auth.getTokens',[]).then(tokens=>tokens.access_token),'token-1')
+  assert.match(again.host.network.cookies.getCookieStringSync('https://example.com/'),/cf_clearance=abc/)
+  restarted.storage.write(installed.key,'credentials',{account:'saved-by-addon'})
+  const generation=again.host.network.generation || 0
+  restarted.forgetConnection(installed.key);again.host.session?.clear()
+  assert.equal(again.host.network.generation,generation+1)
+  assert.deepEqual(Object.keys(restarted.storage.read(installed.key,'credentials')),[])
+  await again.host.call('auth.clearAuth',[])
+  restarted.shutdown()
+  const fresh=new PackageService(db,{root,tools:()=>({})});t.after(()=>{for(const r of fresh.runtimes.values())r.close()})
+  assert.equal(fresh.list()[0].access.ready,false)
 })

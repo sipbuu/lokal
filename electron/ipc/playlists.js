@@ -792,6 +792,17 @@ function registerPlaylistHandlers() {
     }
   });
 
+  // Linked streaming playlists (electron/playlists/sync.js).
+  ipcMain.handle('playlist:syncStatus', (_, playlistId) => { try { return require('../playlists/sync').status(getDB(), playlistId) } catch (e) { return { error: e.message } } });
+  ipcMain.handle('playlist:syncLink', (_, playlistId, url) => { try { return require('../playlists/sync').link(getDB(), playlistId, url) } catch (e) { return { error: e.message } } });
+  ipcMain.handle('playlist:syncUnlink', (_, playlistId) => { try { return require('../playlists/sync').unlink(getDB(), playlistId) } catch (e) { return { error: e.message } } });
+  ipcMain.handle('playlist:syncLinked', () => { try { return require('../playlists/sync').linked(getDB()) } catch { return [] } });
+  ipcMain.handle('playlist:sync', async (_, playlistId, userId) => {
+    try {
+      return await require('../playlists/sync').sync(getDB(), playlistId, { packages: require('../spotiflac/packages').service(getDB()), helpers: { findTrack, createGhostTrack }, userId: userId || 'guest' });
+    } catch (e) { return { error: e.message } }
+  });
+
   ipcMain.handle('playlist:resolveGhostTrack', async (event, ghostTrackId, targetTrackId, options = {}) => {
     try {
       return resolveGhostTrack(getDB(), ghostTrackId, targetTrackId, null, options || {});

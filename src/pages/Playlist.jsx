@@ -17,6 +17,7 @@ import { downloadGhostSongs, ghostDownloadMessage, downloadGhostResult as queueG
 import { showLoadingToast } from '../components/Toaster'
 import { useCachedState, usePageReady } from '../pageCache'
 import HoverScrollTitle from '../components/HoverScrollTitle'
+import PlaylistSyncButton from '../components/PlaylistSyncButton'
 import { useGhostDownloadSources } from '../components/useGhostDownloadSources'
 import { useGhostDurationConfirmation } from '../components/useGhostDurationConfirmation'
 import { usePlaylistSortStore, playlistSortPreference } from '../store/playlistSort'
@@ -529,6 +530,7 @@ export default function Playlist() {
                 <AlertCircle size={15} /> Ghost Songs ({ghostTracks.length})
               </button>
             )}
+            {!smart && playlist?.id && <PlaylistSyncButton playlistId={playlist.id} userId={user?.id} />}
             {smart ? (
               <button
                 onClick={() => openSmartPlaylistEditor(playlist)}

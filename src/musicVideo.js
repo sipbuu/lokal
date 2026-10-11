@@ -110,6 +110,8 @@ export const useMusicVideoView = create(set => ({
   show: () => set({ open: true }),
   hide: () => set({ open: false }),
   toggleMini: () => set(s => ({ mini: !s.mini })),
+  // From the full video to the mini player, still showing the video.
+  enterMini: () => set({ open: false, mini: true }),
 }))
 
 /** Video time for a song time (seconds); null where the video doesn't have the song. */

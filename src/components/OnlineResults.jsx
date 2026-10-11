@@ -20,6 +20,7 @@ import OnlineCollections from './OnlineCollections'
 import DownloadNotices from './DownloadNotices'
 import SourceIcon from './SourceIcon'
 import AddonCollections from './AddonCollections'
+import AddonSetupNotice from './AddonSetupNotice'
 
 const DEBOUNCE_MS = 450
 const PROVIDER_KEY = 'lokal-online-provider'
@@ -155,6 +156,7 @@ export default function OnlineResults({ query, soulseekFor = null }) {
               >
                  {p.addon && p.icon ? <img src={p.icon} alt="" className="h-3.5 w-3.5 shrink-0 rounded-sm object-cover" referrerPolicy="no-referrer" /> : <SourceIcon source={p.id} colored />}
                 <span className="truncate">{p.label}</span>
+                {p.needsSetup && <span title="Needs setting up" aria-label="Needs setting up" className="h-1.5 w-1.5 shrink-0 rounded-full bg-yellow-400" />}
               </button>
             ))}
           </div>
@@ -162,6 +164,7 @@ export default function OnlineResults({ query, soulseekFor = null }) {
         <span className="min-w-0 text-[10px] text-muted/80 truncate">{soulseek ? 'Files people share, through slskd' : providers.find(p => p.id === provider)?.addon ? 'From an addon you installed' : 'Streams with yt-dlp'} · not in your library</span>
       </div>
       <div className="mb-3 empty:hidden"><DownloadNotices youtube={provider === 'yt'} /></div>
+      {!soulseek && <AddonSetupNotice source={providers.find(p => p.id === provider)} className="mb-3" />}
       {soulseek ? (
         <SoulseekSearch
           query={q}

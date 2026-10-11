@@ -32,6 +32,7 @@ async function openAuthWindow(packages, key) {
           const attributes = `${cookie.name}=${cookie.value}; Domain=${cookie.domain}; Path=${cookie.path || '/'}${cookie.secure ? '; Secure' : ''}${cookie.httpOnly ? '; HttpOnly' : ''}`
           try { runtime.host.network.cookies.setCookieSync(attributes, `${cookie.secure ? 'https' : 'http'}://${host}${cookie.path || '/'}`) } catch {}
         }
+        runtime.host.network.persist?.()
         await packages.authCallback(key, raw)
         if (!window.isDestroyed()) window.close()
       } catch (error) {
@@ -50,9 +51,25 @@ async function openAuthWindow(packages, key) {
   })
   partition.setPermissionRequestHandler((_contents, _permission, callback) => callback(false))
   const timer = setTimeout(() => { if (!window.isDestroyed()) window.close() }, 180000)
-  window.on('closed', () => { clearTimeout(timer); if (windows.get(key) === window) windows.delete(key) })
+  // However the window closes (verified, the person closed it, timed out),
+  // access is checked again and the Addons page is told.
+  window.on('closed', () => {
+    clearTimeout(timer)
+    if (windows.get(key) === window) windows.delete(key)
+    packages.authStatus(key).then(status => announce(key, status), error => announce(key, { authenticated: false, error: error.message }))
+  })
   await window.loadURL(pending.url)
   return { success: true, message: 'Complete verification in the addon window.' }
 }
+function announce(key, status) {
+  const { BrowserWindow } = require('electron')
+  const auth = new Set(windows.values())
+  for (const window of BrowserWindow.getAllWindows()) if (!auth.has(window) && !window.isDestroyed()) window.webContents.send('addons:auth-changed', { key, ...status })
+}
 function closeAuthWindow(key) { windows.get(key)?.close() }
-module.exports = { openAuthWindow, closeAuthWindow }
+/** Forget what the addon's login pages stored (Disconnect). */
+async function clearAuthSession(key) {
+  windows.get(key)?.close()
+  try { await require('electron').session.fromPartition(`lokal-addon-${key}`).clearStorageData() } catch {}
+}
+module.exports = { openAuthWindow, closeAuthWindow, clearAuthSession }

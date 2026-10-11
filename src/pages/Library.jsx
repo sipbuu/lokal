@@ -24,7 +24,7 @@ export default function Library() {
   const [genres, setGenres] = useCachedState('library:genres', [])
   // One audio quality tier, or '' for all (the Audio Quality page's tiers).
   const [quality, setQuality] = useCachedState('library:quality', '')
-  const [includeGhosts, setIncludeGhosts] = useCachedState('library:includeGhosts', false)
+  const [problemsOnly, setProblemsOnly] = useCachedState('library:problemsOnly', false)
   const [view, setView] = useCachedState('library:view', 'list')
   const [loading, setLoading] = useState(false)
   const [hasMore, setHasMore] = useCachedState('library:hasMore', true)
@@ -48,11 +48,11 @@ export default function Library() {
     loadingRef.current = true
     setLoading(true)
     try {
-      const result = await api.getTracks({ sort, limit: LIBRARY_PAGE_SIZE, offset: nextOffset, ...(source !== 'all' ? { source } : {}), ...(genre ? { genre } : {}), ...(quality ? { quality } : {}), ...(includeGhosts ? { includeGhosts: true } : {}) })
+      const result = await api.getTracks({ sort, limit: LIBRARY_PAGE_SIZE, offset: nextOffset, ...(source !== 'all' ? { source } : {}), ...(genre ? { genre } : {}), ...(quality ? { quality } : {}), ...(problemsOnly ? { problems: true } : {}) })
       if (requestId !== requestIdRef.current) return
       // A failed request keeps the list already shown (and cached).
       if (!Array.isArray(result)) return
-      const items = includeGhosts ? result : result.filter(track => !String(track?.file_path || '').startsWith('ghost://'))
+      const items = problemsOnly ? result : result.filter(track => !String(track?.file_path || '').startsWith('ghost://'))
       offsetRef.current = nextOffset + items.length
       setTracks(prev => append ? [...prev, ...items] : items)
       setHasMore(items.length === LIBRARY_PAGE_SIZE)
@@ -74,13 +74,13 @@ export default function Library() {
     offsetRef.current = 0
     setHasMore(false)
     load(false)
-  }, [sort, source, genre, quality, includeGhosts])
+  }, [sort, source, genre, quality, problemsOnly])
 
   useEffect(() => {
     const handleRefresh = () => { load(false); loadGenres() }
     window.addEventListener('lokal:refresh', handleRefresh)
     return () => window.removeEventListener('lokal:refresh', handleRefresh)
-  }, [sort, source, genre, quality, includeGhosts])
+  }, [sort, source, genre, quality, problemsOnly])
 
   // The genres to pick from: every one in the library, on opening and after a refresh.
   const loadGenres = () => Promise.resolve(api.getAllGenres())
@@ -99,7 +99,7 @@ export default function Library() {
     }, { rootMargin: '300px 0px' })
     observer.observe(node)
     return () => observer.disconnect()
-  }, [hasMore, loading, sort, source, genre, quality, includeGhosts, tracks.length])
+  }, [hasMore, loading, sort, source, genre, quality, problemsOnly, tracks.length])
 
   const artSrc = (t) => t.artwork_path
     ? (api.isElectron ? `file://${t.artwork_path}` : api.artworkURL(t.id))
@@ -140,7 +140,7 @@ export default function Library() {
             <option value="low">Low</option>
             <option value="suspect">Suspect</option>
           </select>
-          <label className="flex items-center gap-1.5 text-xs text-muted"><input type="checkbox" checked={includeGhosts} onChange={e => setIncludeGhosts(e.target.checked)} className="accent-accent" />Show ghost songs</label>
+          <label title="Only songs that can't be played: their file is missing, or playing them failed" className={`flex items-center gap-1.5 text-xs ${problemsOnly ? 'text-accent' : 'text-muted'}`}><input type="checkbox" checked={problemsOnly} onChange={e => setProblemsOnly(e.target.checked)} className="accent-accent" />Songs with errors</label>
           <select value={sort} onChange={e => setSort(e.target.value)} aria-label="Sort"
             className="bg-elevated border border-border rounded-lg px-3 py-1.5 text-xs text-muted outline-none focus:border-accent/50">
             <option value="added_at DESC">Recently Added</option>
@@ -204,7 +204,7 @@ export default function Library() {
       {loaded && !loading && !tracks.length && (
         <div className="text-center py-24 text-muted">
           <Music size={48} className="mx-auto mb-4 opacity-20" />
-          <p>{source === 'all' && !genre && !quality ? 'No tracks yet — pick your music folder above.' : quality ? 'No songs of this quality with these filters.' : genre ? `No ${genre} songs${source === 'all' ? '' : ' from this source'}.` : 'No songs from this source.'}</p>
+          <p>{problemsOnly ? 'No songs with errors: everything here can be played.' : source === 'all' && !genre && !quality ? 'No tracks yet — pick your music folder above.' : quality ? 'No songs of this quality with these filters.' : genre ? `No ${genre} songs${source === 'all' ? '' : ' from this source'}.` : 'No songs from this source.'}</p>
           {genre && (
             <button onClick={() => setGenre('')} className="mt-3 text-xs text-accent transition-colors hover:text-accent/70">Show all genres</button>
           )}
