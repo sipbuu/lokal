@@ -228,7 +228,7 @@ class ExtensionHost {
         const pkce=await this.authCall('generatePKCE',[64])
         for(const [key,v]of Object.entries({client_id:config.clientId,redirect_uri:config.redirectUri,response_type:'code',scope:config.scope || (config.scopes || []).join(' '),code_challenge:pkce.challenge,code_challenge_method:'S256',...config.extraParams}))if(v!=null)url.searchParams.set(key,String(v))
       }
-      this.auth.pending={url:url.href,state,createdAt:Date.now(),callback:config.redirectUri || ''};return {success:true,open_auth_url:url.href,message:'Open the login page and paste its callback URL into Addons.'}
+      this.auth.pending={url:url.href,state,createdAt:Date.now(),callback:config.redirectUri || ''};return {success:true,open_auth_url:url.href,message:'Log in on the page Lokal opens; access is checked when it closes.'}
     }
     if(name==='exchangeCodeWithPKCE'){
       const config=value || {},body=new URLSearchParams({grant_type:'authorization_code',client_id:config.clientId,code:config.code || this.auth.code || '',code_verifier:this.auth.pkce?.verifier || '',...(config.redirectUri?{redirect_uri:config.redirectUri}:{}),...config.extraParams})
@@ -263,7 +263,7 @@ class ExtensionHost {
       if(action==='completeGrant')return this.session.completeGrant(args[0],this.signal)
       if(action==='status'||action==='clear')return this.session[action]()
     }
-    if(name==='auth')return this.authCall(action,args)
+    if(name==='auth'){const result=await this.authCall(action,args);if(!['getAuthCode','getTokens','isAuthenticated','getPKCE'].includes(action))this.network.persist?.();return result}
     if(name==='ffmpeg'){
       try {
         if(action==='getInfo')return await mediaInfo(this.file(args[0]),this.tools,this.signal)

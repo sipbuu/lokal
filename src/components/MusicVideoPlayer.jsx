@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { motion, AnimatePresence, useReducedMotion } from 'framer-motion'
-import { X, Play, Pause, SkipBack, SkipForward, Mic2, Clapperboard, Expand, Minimize, Download } from 'lucide-react'
+import { X, Play, Pause, SkipBack, SkipForward, Mic2, Clapperboard, Expand, Minimize, Download, PictureInPicture2 } from 'lucide-react'
 import { useShallow } from 'zustand/react/shallow'
 import { usePlayerStore } from '../store/player'
 import LyricsPanel from './LyricsPanel'
@@ -81,6 +81,11 @@ export default function MusicVideoPlayer({ compact = false }) {
       screenOwned.current = true
       document.documentElement.requestFullscreen?.().catch(() => { screenOwned.current = false })
     }
+  }
+  const toMiniPlayer = () => {
+    if (document.fullscreenElement) document.exitFullscreen?.().catch(() => {})
+    useMusicVideoView.getState().enterMini()
+    if (!usePlayerStore.getState().showMiniPlayer) usePlayerStore.getState().toggleMiniPlayer()
   }
   useEffect(() => { if (!currentTrack) hide() }, [currentTrack, hide])
   useEffect(() => {
@@ -300,8 +305,12 @@ export default function MusicVideoPlayer({ compact = false }) {
                 <X size={18} />
               </button>
               <span className="flex items-center gap-1.5 text-[11px] uppercase tracking-[0.18em] text-white/60"><Clapperboard size={13} /> Music Video</span>
-              <button onClick={toggleScreen} title={screenFull ? 'Exit full screen' : 'Enter full screen'} aria-label={screenFull ? 'Exit full screen' : 'Enter full screen'}
+              <button onClick={toMiniPlayer} title="Mini player: keep watching in a small window" aria-label="Open the video in the mini player"
                 className="ml-auto w-10 h-10 flex items-center justify-center rounded-full border border-white/[0.14] bg-white/[0.08] text-white/90 hover:bg-white/[0.16] transition-colors">
+                <PictureInPicture2 size={18} />
+              </button>
+              <button onClick={toggleScreen} title={screenFull ? 'Exit full screen' : 'Enter full screen'} aria-label={screenFull ? 'Exit full screen' : 'Enter full screen'}
+                className="w-10 h-10 flex items-center justify-center rounded-full border border-white/[0.14] bg-white/[0.08] text-white/90 hover:bg-white/[0.16] transition-colors">
                 {screenFull ? <Minimize size={18} /> : <Expand size={18} />}
               </button>
             </div>

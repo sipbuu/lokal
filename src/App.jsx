@@ -41,10 +41,13 @@ import { usePlayerStore, useAppStore } from './store/player'
 import { useShallow } from 'zustand/react/shallow'
 import { api } from './api'
 import { createDiscordPublisher } from './discord'
-import Toaster, { showLoadingToast } from './components/Toaster'
+import Toaster, { showLoadingToast, showToast } from './components/Toaster'
 import ReleaseRefreshBanner from './components/ReleaseRefreshBanner'
 import { PageReadyContext, PageShownContext, PAGE_READY_TIMEOUT_MS } from './pageCache'
-import { audioSrcFor, providerLabel, streamRef } from './onlineTracks'
+import { audioSrcFor, isAddonProvider, providerLabel, streamRef } from './onlineTracks'
+
+// An addon refusing because its access isn't set up (or has lapsed).
+const ADDON_ACCESS_ERROR = /VERIFY_REQUIRED|verif|log\s*in|sign\s*in|unauthori[sz]ed|not authenticated/i
 import { playbackAvailability, playbackFallbackMessage, resolveRecommendationTracks } from './recommendations'
 import { isAudioEventForTrack, replaceAudioSource } from './playerAudio'
 import { skipUnavailableRecommendation } from './recommendationPlayback'
@@ -274,6 +277,19 @@ export default function App() {
   const audioRef = useRef(null)
   const cfAudioRef = useRef(null)
   const streamRecoveryRef = useRef({ track: null, pending: false, failed: [] })
+  // Library → Songs with errors: a song that failed to play is noted, and
+  // the note goes once it plays again.
+  const reportPlaybackError = useCallback((track, message) => {
+    if (!track?.id || String(track.id).startsWith('import-')) return
+    track.playback_error = message
+    Promise.resolve(api.reportTrackError?.(track.id, message)).catch(() => {})
+  }, [])
+  const clearPlaybackError = useCallback(() => {
+    const track = usePlayerStore.getState().currentTrack
+    if (!track?.playback_error) return
+    delete track.playback_error
+    Promise.resolve(api.clearTrackError?.(track.id)).catch(() => {})
+  }, [])
 
   const recoverOnlinePlayback = useCallback(async (el, failedTrack, failedRef, reason = 'unavailable') => {
     const activeEl = () => usePlayerStore.getState().activeAudioElement === 'cf' ? cfAudioRef.current : audioRef.current
@@ -312,6 +328,7 @@ export default function App() {
         usePlayerStore.getState().setIsBuffering(false)
         const message = 'No full-length stream was found in your playback sources.'
         setStreamError({ title: failedTrack.title, message })
+        reportPlaybackError(failedTrack, message)
         toast.close(message)
       }
     } finally {
@@ -319,7 +336,7 @@ export default function App() {
       recovery.pending = false
       el.dataset.fallbackPending = ''
     }
-  }, [])
+  }, [reportPlaybackError])
 
   // A file the player can't decode (Apple Lossless .m4a, WMA, APE...): ask the
   // main process for a playable copy (converted once, cached) and switch to it.
@@ -345,6 +362,10 @@ export default function App() {
       let filePath = src.slice('file://'.length)
       try { filePath = decodeURIComponent(filePath) } catch {}
       const copy = await api.playableFile?.(filePath).catch(() => null)
+      if (!copy && el.getAttribute('src') === src) {
+        const failed = usePlayerStore.getState().currentTrack
+        reportPlaybackError(failed, failed?.missing ? 'The file is no longer on disk' : "The file couldn't be decoded, even after conversion")
+      }
       if (!copy || el.getAttribute('src') !== src) return
       const next = `file://${copy.replace(/\\/g, '/').split('/').map(p => encodeURIComponent(p)).join('/').replace(/%3A/g, ':')}`
       el.dataset.fallbackSrc = next
@@ -354,7 +375,7 @@ export default function App() {
     } finally {
       el.dataset.fallbackPending = ''
     }
-  }, [recoverOnlinePlayback])
+  }, [recoverOnlinePlayback, reportPlaybackError])
 
   // A pause event that doesn't mean "the user paused": the file failed to
   // decode (the failed first attempt at an Apple Lossless .m4a fires one), it
@@ -1341,6 +1362,29 @@ export default function App() {
     return playedSeconds >= Math.min(durationSeconds / 2, 240)
   }, [getLastfmTrackDuration])
 
+  // Settings → Sync Linked Playlists at Launch: once, a little after start.
+  useEffect(() => {
+    if (!api.isElectron) return undefined
+    const timer = setTimeout(async () => {
+      const settings = await Promise.resolve(api.getSettings()).catch(() => null)
+      if (settings?.playlist_sync_on_launch !== '1') return
+      const { syncLinkedPlaylists } = await import('./playlistSync')
+      const results = await syncLinkedPlaylists({ userId: useAppStore.getState().user?.id }).catch(() => [])
+      const added = results.reduce((sum, result) => sum + (Number(result.added) || 0), 0)
+      const failed = results.filter(result => result.error)
+      if (added) showToast(`Linked playlists synced: ${added} new song${added === 1 ? '' : 's'}.`)
+      if (failed.length) showToast(`${failed.length} linked playlist${failed.length === 1 ? '' : 's'} couldn't sync: ${failed[0].error}`)
+    }, 15000)
+    return () => clearTimeout(timer)
+  }, [])
+
+  // An addon's login / verification window closed: sources refresh, and a
+  // successful verification is confirmed wherever the person is.
+  useEffect(() => api.onAddonAuthChanged(status => {
+    window.dispatchEvent(new Event('lokal:addons-changed'))
+    if (status?.authenticated) showToast('Addon access verified. It can now stream and download.')
+  }), [])
+
   // An online song that couldn't be streamed (shown as a small notice).
   const [streamError, setStreamError] = useState(null)
   useEffect(() => {
@@ -1663,7 +1707,8 @@ export default function App() {
       }
       const onReady = async () => {
         const ref = streamRef(nextTrack)
-        const unavailable = ref ? await playbackAvailability({ id: ref.id }, ref.provider).catch(() => 'unavailable') : null
+        let addonError = ''
+      const unavailable = ref ? await playbackAvailability({ id: ref.id }, ref.provider, api, undefined, error => { addonError = String(error || '') }).catch(() => 'unavailable') : null
         done(unavailable ? 'failed' : 'ready')
       }
       const onFailed = () => done('failed')
@@ -1836,9 +1881,16 @@ export default function App() {
     const start = async () => {
       const generation = usePlayerStore.getState().playbackGeneration
       const ref = streamRef(currentTrack)
-      const unavailable = ref ? await playbackAvailability({ id: ref.id }, ref.provider).catch(() => 'unavailable') : null
+      let addonError = ''
+      const unavailable = ref ? await playbackAvailability({ id: ref.id }, ref.provider, api, undefined, error => { addonError = String(error || '') }).catch(() => 'unavailable') : null
       const live = usePlayerStore.getState()
       if (cancelled || live.playbackGeneration !== generation || live.currentTrack?.id !== currentTrack.id || live.currentTrack?.file_path !== currentTrack.file_path) return
+      // An addon that still needs verifying says so, rather than only
+      // falling back to the next source.
+      if (unavailable && isAddonProvider(ref.provider) && ADDON_ACCESS_ERROR.test(addonError)) {
+        showToast(`${providerLabel(ref.provider)} needs verifying before it can stream. Settings → Addons → Verify access.`)
+        window.dispatchEvent(new Event('lokal:addons-changed'))
+      }
       if (unavailable) { await recoverOnlinePlayback(el, live.currentTrack, ref, unavailable); return }
       el.dataset.fallbackPending = ''
       replaceAudioSource(el, src)
@@ -2383,7 +2435,7 @@ export default function App() {
           onEnded={handlePrimaryEnded}
           onError={handleAudioError}
           onWaiting={(e) => { if (isEventFromActive(e) && streamRef(usePlayerStore.getState().currentTrack)) setIsBuffering(true) }}
-          onPlaying={(e) => { if (isEventFromActive(e)) setIsBuffering(false) }}
+          onPlaying={(e) => { if (isEventFromActive(e)) { setIsBuffering(false); clearPlaybackError() } }}
           onPlay={(e) => { if (!isEventFromActive(e)) return; setIsPlaying(true); startTimer(); sendListenBrainzNowPlaying() }}
           onPause={(e) => { if (pauseSuppressRef.current) return; if (!isEventFromActive(e)) return; if (ignoreElementPause(e.currentTarget)) return; setIsPlaying(false); stopTimer() }}
         />
@@ -2397,7 +2449,7 @@ export default function App() {
           onEnded={handleCfEnded}
           onError={handleAudioError}
           onWaiting={(e) => { if (isEventFromActive(e) && streamRef(usePlayerStore.getState().currentTrack)) setIsBuffering(true) }}
-          onPlaying={(e) => { if (isEventFromActive(e)) setIsBuffering(false) }}
+          onPlaying={(e) => { if (isEventFromActive(e)) { setIsBuffering(false); clearPlaybackError() } }}
           onPlay={(e) => { if (!isEventFromActive(e)) return; setIsPlaying(true); startTimer(); sendListenBrainzNowPlaying() }}
           onPause={(e) => { if (pauseSuppressRef.current) return; if (!isEventFromActive(e)) return; if (ignoreElementPause(e.currentTarget)) return; setIsPlaying(false); stopTimer() }}
         />

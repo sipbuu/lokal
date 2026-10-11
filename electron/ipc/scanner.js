@@ -1168,12 +1168,10 @@ function registerScannerHandlers(ipcMain) {
   })
   ipcMain.handle('scanner:getTracks', (_, opts = {}) => {
     const db = getDB()
-    let sql = 'SELECT * FROM tracks'
     const where = []; const params = []
-    const files = require('../libraryTracks').trackFileFilter(opts.includeGhosts)
+    // Songs with errors include streamed ones whose playback failed.
+    const files = opts.problems ? null : require('../libraryTracks').trackFileFilter(opts.includeGhosts)
     if (files) where.push(files)
-    const limit = Math.max(1, Math.min(500, parseInt(opts.limit, 10) || 500))
-    const offset = Math.max(0, parseInt(opts.offset, 10) || 0)
     if (opts.id) { where.push('id = ?'); params.push(opts.id) }
     if (opts.artistName) { where.push('artist = ?'); params.push(opts.artistName) }
     if (opts.artistId) { where.push('id IN (SELECT track_id FROM artist_track_links WHERE artist_id = ?)'); params.push(opts.artistId) }
@@ -1183,10 +1181,10 @@ function registerScannerHandlers(ipcMain) {
     if (genre) { where.push(genre.sql); params.push(...genre.params) }
     const quality = opts.quality ? require('../quality').tierFilter(db, opts.quality) : null
     if (quality) { where.push(quality.sql); params.push(...quality.params) }
-    if (where.length) sql += ' WHERE ' + where.join(' AND ')
-    sql += ` ORDER BY ${opts.sort || 'added_at DESC'} LIMIT ${limit} OFFSET ${offset}`
-    return db.prepare(sql).all(...params).map(track => ({ ...track, missing: require('../libraryTracks').missingTrackFile(track, fs.existsSync) }))
+    return require('../trackErrors').listTracks(db, opts, { where, params, exists: fs.existsSync })
   })
+  ipcMain.handle('tracks:reportError', (_, trackId, message) => { try { return require('../trackErrors').recordTrackError(getDB(), trackId, message) } catch { return false } })
+  ipcMain.handle('tracks:clearError', (_, trackId) => { try { return require('../trackErrors').clearTrackError(getDB(), trackId) } catch { return false } })
   ipcMain.handle('scanner:getArtists', () => {
     const db = getDB()
     const artists = db.prepare(`SELECT a.*, COUNT(DISTINCT atl.track_id) as track_count FROM artists a LEFT JOIN artist_track_links atl ON atl.artist_id = a.id LEFT JOIN tracks t ON t.id = atl.track_id AND t.file_path NOT LIKE 'ghost://%' GROUP BY a.id HAVING COUNT(DISTINCT t.id) > 0 ORDER BY a.name`).all()

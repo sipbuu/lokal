@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Clapperboard, Play, Shuffle, Search, Plus, Check, MoreHorizontal, Clock, ListEnd, ListPlus, Download, Trash2 } from 'lucide-react'
+import { Clapperboard, Play, Shuffle, Search, Plus, Check, MoreHorizontal, Clock, ListEnd, ListPlus, Download, Trash2, ScanSearch, X, Loader2 } from 'lucide-react'
 import { api } from '../api'
 import { usePageReady } from '../pageCache'
 import { usePlayerStore } from '../store/player'
@@ -15,7 +15,7 @@ import SelectionBar from '../components/SelectionBar'
 import { startVideoPreview } from '../videoPreview'
 import { deleteVideoDownloads, downloadVideos, updateVideoLibrary } from '../videoActions'
 
-function VideoCard({ item, selected, onSelect, onToggleSelection, onMenu, onSave, saving, preview }) {
+function VideoCard({ item, selected, playing, onSelect, onMenu, onSave, saving, preview }) {
   const [hover, setHover] = React.useState(false)
   const [failed, setFailed] = React.useState(false)
   const ref = React.useRef(null)
@@ -35,12 +35,16 @@ function VideoCard({ item, selected, onSelect, onToggleSelection, onMenu, onSave
     return () => { element.removeEventListener('loadedmetadata', start); cleanup(); element.pause(); element.removeAttribute('src'); element.load() }
   }, [hover, preview, failed])
   return <article className={`group relative min-w-0 ${selected ? 'rounded-xl ring-2 ring-accent/70' : ''}`} onContextMenu={onMenu}>
-    <input type="checkbox" checked={selected} onChange={onToggleSelection} aria-label={`Select video: ${item.track.title}`} className={`absolute left-2 top-2 z-10 h-5 w-5 cursor-pointer accent-accent transition-opacity focus:opacity-100 ${selected ? 'opacity-100' : 'opacity-0 group-hover:opacity-100 group-focus-within:opacity-100'}`} />
     <button onClick={onSelect} aria-label={`Play video: ${item.track.title}`} onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)} className="relative block w-full aspect-video overflow-hidden rounded-xl bg-card border border-border shadow-lg">
-      <img src={item.video.thumbnail} alt="" loading="lazy" className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105" />
+      <img src={item.video.thumbnail} alt="" loading="lazy" className="w-full h-full object-cover transition-[transform,filter] duration-500 ease-out group-hover:scale-[1.03] group-hover:brightness-110" />
       {preview && hover && !failed && <video ref={ref} src={preview} muted playsInline preload="metadata" onError={() => setFailed(true)} className="absolute inset-0 w-full h-full object-cover" />}
-      <span className="absolute inset-0 flex items-center justify-center bg-black/20 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity"><span className="rounded-full p-3 bg-white/90 text-black"><Play size={22} fill="currentColor" /></span></span>
-      {item.downloaded && <span className="absolute bottom-2 left-2 rounded-full bg-black/65 px-2 py-1 text-[10px] uppercase tracking-wider text-white">Downloaded</span>}
+      {/* Hover: a soft shade along the bottom and the length of the song,
+          instead of a play button over the picture (the preview plays). */}
+      <span aria-hidden className="pointer-events-none absolute inset-x-0 bottom-0 h-1/2 bg-gradient-to-t from-black/60 to-transparent opacity-0 transition-opacity duration-300 group-hover:opacity-100 group-focus-within:opacity-100" />
+      {item.track.duration > 0 && <span className="absolute bottom-2 right-2 rounded-md bg-black/70 px-1.5 py-0.5 text-[10px] font-medium tabular-nums text-white">{Math.floor(item.track.duration / 60)}:{String(Math.floor(item.track.duration % 60)).padStart(2, '0')}</span>}
+      {item.downloaded && <span className="absolute bottom-2 left-2 rounded-md bg-black/70 px-1.5 py-0.5 text-[10px] uppercase tracking-wider text-white">Downloaded</span>}
+      {playing && <span className="absolute left-2 top-2 inline-flex items-center gap-1 rounded-md bg-accent px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-[rgb(var(--bg-rgb))]"><Play size={9} fill="currentColor" />Playing</span>}
+      {selected && <span className="absolute right-2 top-2 flex h-5 w-5 items-center justify-center rounded-full bg-accent text-[rgb(var(--bg-rgb))]"><Check size={13} strokeWidth={3} /></span>}
     </button>
     <div className="flex gap-2 items-center mt-3">
       <div className="min-w-0 flex-1"><button onClick={onSelect} className="block truncate w-full text-left text-sm font-medium text-white hover:text-accent">{item.track.title}</button><p className="truncate text-xs text-muted mt-0.5">{item.track.artist}</p></div>
@@ -61,6 +65,11 @@ export default function Videos() {
   const busy = useRef(false)
   const loadRevision = useRef(0)
   const jobs = useDownloads(s => s.jobs)
+  const currentId = usePlayerStore(s => s.currentTrack?.id)
+  // Finding the music videos of every library song (it only looks them up:
+  // nothing is downloaded). They join this page as they're found.
+  const [indexing, setIndexing] = useState(null)
+  const indexFound = useRef(0)
   const menu = useContextMenu()
   usePageReady(loaded)
   const load = useCallback(() => {
@@ -77,6 +86,19 @@ export default function Videos() {
     window.addEventListener('lokal:music-video-found', load)
     return () => { loadRevision.current++; window.removeEventListener('lokal:refresh', load); window.removeEventListener('lokal:music-video-found', load) }
   }, [load])
+  useEffect(() => api.onMusicVideoIndexProgress(progress => {
+    if (!progress) return
+    setIndexing(progress.running ? progress : null)
+    if (progress.found !== indexFound.current || !progress.running) { indexFound.current = progress.found; load() }
+    if (!progress.running && !progress.cancelled) showToast(`Found ${progress.found} music video${progress.found === 1 ? '' : 's'} for ${progress.total} song${progress.total === 1 ? '' : 's'}.`)
+  }), [load])
+  const startIndex = async () => {
+    indexFound.current = 0
+    setIndexing({ running: true, done: 0, total: 0, found: 0 })
+    const result = await api.indexAllMusicVideos().catch(error => ({ error: error.message }))
+    if (result?.error) { setIndexing(null); showToast(result.error) }
+    else if (!result) setIndexing(null)
+  }
   const completedVideos = jobs.filter(j => j.kind === 'music-video' && j.status === 'done').length
   useEffect(() => { load() }, [completedVideos, load])
   const visible = useMemo(() => items.filter(item => {
@@ -141,7 +163,10 @@ export default function Videos() {
   return <div className="p-6 space-y-6 max-w-7xl mx-auto pb-10">
     <header className="flex flex-wrap items-end justify-between gap-4">
       <div><p className="text-xs uppercase tracking-[0.2em] text-muted mb-2">Your music, in motion</p><h1 className="text-3xl font-display text-white">Videos</h1><p className="text-sm text-muted mt-2">{items.length} music videos · Save your favorites and play them from your Videos folder.</p></div>
-      <div className="flex gap-2">
+      <div className="flex flex-wrap gap-2">
+        {api.isElectron && (indexing
+          ? <button onClick={() => api.cancelMusicVideoIndex()} title="Stop finding videos" className="inline-flex items-center gap-2 rounded-full border border-border px-4 py-2 text-sm text-text hover:border-accent/40"><Loader2 size={15} className="animate-spin text-accent" /><span className="tabular-nums">{indexing.total ? `Finding videos ${indexing.done}/${indexing.total} · ${indexing.found} found` : 'Finding videos…'}</span><X size={14} className="text-muted" /></button>
+          : <button onClick={startIndex} title="Look up the music video of every song in your library. Videos are only found, not downloaded." className="inline-flex items-center gap-2 rounded-full border border-border px-4 py-2 text-sm text-text hover:border-accent/40"><ScanSearch size={15} />Find videos for my library</button>)}
         <button disabled={!visible.length} onClick={() => play(visible[0])} className="inline-flex items-center gap-2 rounded-full px-4 py-2 bg-accent text-base disabled:opacity-40"><Play size={15} fill="currentColor" />Play</button>
         <button disabled={!visible.length} onClick={() => play(visible[Math.floor(Math.random() * visible.length)], true)} className="inline-flex items-center gap-2 rounded-full px-4 py-2 border border-border text-text disabled:opacity-40"><Shuffle size={15} />Shuffle</button>
       </div>
@@ -154,9 +179,9 @@ export default function Videos() {
     </div>
     {error && <p role="alert" className="text-sm text-red-400">{error}</p>}
     <div className="grid grid-cols-1 @sm:grid-cols-2 @lg:grid-cols-3 @2xl:grid-cols-4 gap-x-5 gap-y-7">
-      {visible.map(item => <VideoCard key={item.track.id} item={item} selected={selection.has(item.track.id)} onSelect={event => selection.click(item.track.id, event) || play(item)} onToggleSelection={() => selection.click(item.track.id, { ctrlKey: true })} onSave={() => save(item)} saving={!!saving} onMenu={event => openMenu(event, item)} preview={item.downloaded && item.video.file ? api.fileURL(item.video.file) : null} />)}
+      {visible.map(item => <VideoCard key={item.track.id} item={item} selected={selection.has(item.track.id)} playing={currentId === item.track.id} onSelect={event => selection.click(item.track.id, event) || play(item)} onSave={() => save(item)} saving={!!saving} onMenu={event => openMenu(event, item)} preview={item.downloaded && item.video.file ? api.fileURL(item.video.file) : null} />)}
     </div>
-    {loaded && !visible.length && <div className="text-center py-16 text-muted"><Clapperboard size={40} className="mx-auto mb-4 opacity-40" /><p>{items.length ? 'No videos match this view.' : 'Your discovered music videos will appear here.'}</p><p className="text-xs mt-2">Play songs to discover videos, or download one from its actions.</p></div>}
+    {loaded && !visible.length && <div className="text-center py-16 text-muted"><Clapperboard size={40} className="mx-auto mb-4 opacity-40" /><p>{items.length ? 'No videos match this view.' : 'Your discovered music videos will appear here.'}</p><p className="text-xs mt-2">Play songs to discover videos, or use “Find videos for my library” above.</p></div>}
     <SelectionBar open={selection.count > 0} label={`${selection.count} selected`} onClear={selection.clear} actions={[
       { label: 'Play videos', icon: Play, onClick: () => play(selectedItems[0], false, selectedItems) },
       { label: 'Play next', icon: Clock, onClick: () => playNextMany(selectedItems.map(row => row.track)) },

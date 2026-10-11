@@ -1291,6 +1291,13 @@ activeCategory === 'data' ? usersTried
             {settings.clean_download_metadata !== '0' ? 'On' : 'Off'}
           </button>
         </Row>
+        {api.isElectron && <Row label="Sync Linked Playlists at Launch" desc="Playlists linked to one on Spotify, Tidal, Apple Music or Qobuz get the songs added there since the last sync each time Lokal starts, downloaded through your sources. Otherwise use Sync on the playlist.">
+          <button
+            onClick={() => set('playlist_sync_on_launch', settings.playlist_sync_on_launch === '1' ? '0' : '1')}
+            className={`px-4 py-1.5 rounded-lg text-xs font-display uppercase tracking-wider border transition-colors ${settings.playlist_sync_on_launch === '1' ? 'bg-accent/20 border-accent/50 text-accent' : 'border-border text-muted hover:text-white'}`}>
+            {settings.playlist_sync_on_launch === '1' ? 'On' : 'Off'}
+          </button>
+        </Row>}
         <Row label="Add Right Away" desc="When downloading a playlist or album, add each song to your library as soon as it's done, not all at the end.">
           <button
             onClick={() => set('index_while_downloading', settings.index_while_downloading === '1' ? '0' : '1')}

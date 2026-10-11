@@ -63,7 +63,7 @@ router.get('/providers', (req, res) => {
   res.json([
     { id: 'yt', label: 'YouTube Music' },
     { id: 'sc', label: 'SoundCloud' },
-    ...sources.addons.searchable(getDB()).map(a => ({ id: a.provider, label: a.name, icon: a.icon, addon: true, package: a.kind === 'spotiflac', filters: a.searchFilters, album: a.resources.includes('album'), artist: a.resources.includes('artist') })),
+    ...sources.addons.searchable(getDB()).map(a => ({ id: a.provider, label: a.name, icon: a.icon, addon: true, package: a.kind === 'spotiflac', needsSetup: a.kind === 'spotiflac' && !!a.access && !a.access.ready, filters: a.searchFilters, album: a.resources.includes('album'), artist: a.resources.includes('artist') })),
   ])
 })
 

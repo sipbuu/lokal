@@ -1,15 +1,32 @@
 // "Get it in lossless" for a library track: where to buy it in FLAC (exact
 // store pages from MusicBrainz when known, plus store searches), a Soulseek
 // search whose pick replaces the file in place, and, for a lossless file,
-// the spectrum check that tells a real one from a converted MP3.
+// the spectrum check that tells a real one from a converted MP3, and a search
+// of your addon sources for a higher-quality copy that replaces the file.
 // Opened from anywhere with openLossless(track) (src/quality.js).
 
 import React, { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { ExternalLink, Search, Activity, ShoppingBag, Gift, Loader2, BookOpen } from 'lucide-react'
+import { ExternalLink, Search, Activity, ShoppingBag, Gift, Loader2, BookOpen, Blocks, Download, Check } from 'lucide-react'
 import Modal from './Modal'
 import { api } from '../api'
 import { TIERS, tierOf, isSuspect, formatLabel, verdictText, storeSearches } from '../quality'
+import { downloadGhostResult, differentDuration } from '../ghostDownloads'
+import AddonSetupNotice from './AddonSetupNotice'
+
+const LOSSLESS_HINT = /lossless|flac|hi-?res|24[ -]?bit|alac|wav|cd quality|16[ -]?bit/i
+const fmtTime = s => `${Math.floor((s || 0) / 60)}:${String(Math.floor((s || 0) % 60)).padStart(2, '0')}`
+const plainText = value => String(value || '').normalize('NFKD').replace(/\p{M}/gu, '').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim()
+
+/** Closest to the song first: same title and artist, near its length, marked lossless. */
+export function rankReplacements(track, items) {
+  const title = plainText(track.title), artist = plainText(String(track.artist || '').split(/\s*,\s*/)[0])
+  const score = item => (plainText(item.title) === title ? 4 : plainText(item.title).includes(title) ? 2 : 0)
+    + (plainText(item.artist).includes(artist) ? 3 : 0)
+    + (!differentDuration(track, item) ? 2 : 0)
+    + (LOSSLESS_HINT.test(String(item.quality || '')) ? 1 : 0)
+  return items.filter(item => !item.preview && score(item) >= 5).sort((a, b) => score(b) - score(a))
+}
 
 function LinkRow({ link }) {
   const Icon = link.kind === 'free' ? Gift : link.kind === 'search' ? Search : link.kind === 'info' ? BookOpen : ShoppingBag
@@ -53,6 +70,46 @@ export default function LosslessModal() {
       .catch(e => { if (alive) setLinks({ error: e.message, exact: [], searches: [] }) })
     return () => { alive = false }
   }, [track?.id])
+
+  // Addon sources only (no YouTube / SoundCloud): their best matches.
+  const [online, setOnline] = useState(null) // null: loading; [{ source, items, error }]
+  const [setup, setSetup] = useState([])
+  const [replacing, setReplacing] = useState('')
+  const [replaced, setReplaced] = useState('')
+  useEffect(() => {
+    if (!track?.id) return undefined
+    let alive = true
+    setOnline(null); setSetup([]); setReplaced(''); setReplacing('')
+    ;(async () => {
+      const providers = await Promise.resolve(api.onlineProviders?.()).catch(() => null)
+      const addons = (Array.isArray(providers) ? providers : []).filter(p => p.addon)
+      if (alive) setSetup(addons.filter(p => p.needsSetup))
+      const usable = addons.filter(p => !p.needsSetup)
+      const query = [String(track.artist || '').split(/\s*,\s*/)[0], track.title].filter(Boolean).join(' ')
+      const groups = await Promise.all(usable.map(async source => {
+        try {
+          const response = await api.onlineSearch(query, source.id)
+          if (response?.error) throw new Error(response.error)
+          const rows = Array.isArray(response) ? response : response?.results || []
+          return { source, items: rankReplacements(track, rows.map(item => ({ ...item, provider: item.provider || source.id }))).slice(0, 3) }
+        } catch (error) { return { source, items: [], error: error.message } }
+      }))
+      if (alive) setOnline(groups)
+    })()
+    return () => { alive = false }
+  }, [track?.id])
+
+  const replaceWith = async (item, source) => {
+    const key = `${item.provider}:${item.id}`
+    setReplacing(key)
+    const result = await downloadGhostResult({ ...track, missing: true }, item, {
+      confirmDuration: (song, found) => window.confirm(`"${found.title}" on ${source.label} is ${fmtTime(found.duration)} long; yours is ${fmtTime(song.duration)}. Replace it anyway?`),
+    }).catch(error => ({ error: error.message }))
+    setReplacing('')
+    if (result?.cancelled) return
+    if (result?.error) { setOnline(groups => groups.map(group => group.source.id === source.id ? { ...group, error: result.error } : group)); return }
+    setReplaced(key)
+  }
 
   const close = () => setTrack(null)
   if (!track) return <Modal open={false} onClose={close} />
@@ -113,6 +170,36 @@ export default function LosslessModal() {
               {links.identified ? 'MusicBrainz knows this recording but lists no lossless store for it.' : "MusicBrainz doesn't list a store for this song."}
             </p>
           )}
+        </div>
+
+        <div className="space-y-2">
+          <p className="text-[11px] font-display uppercase tracking-widest text-muted">From your addon sources</p>
+          {setup.map(source => <AddonSetupNotice key={source.id} source={source} />)}
+          {online === null && <p className="flex items-center gap-2 text-[11px] text-muted"><Loader2 size={11} className="animate-spin" /> Searching your addon sources…</p>}
+          {online?.length === 0 && !setup.length && <p className="text-[11px] text-muted">No addon sources installed. Add one in Settings → Addons to download a lossless copy from it.</p>}
+          {online?.map(({ source, items, error }) => (
+            <div key={source.id} className="space-y-1.5">
+              {items.map(item => {
+                const key = `${item.provider}:${item.id}`
+                return (
+                  <div key={key} className="flex items-center gap-3 rounded-xl border border-border bg-card/60 px-3 py-2">
+                    {source.icon ? <img src={source.icon} alt="" className="h-4 w-4 flex-shrink-0 rounded-sm object-cover" referrerPolicy="no-referrer" /> : <Blocks size={14} className="flex-shrink-0 text-accent" />}
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-sm text-white">{item.title}<span className="text-muted"> · {item.artist}</span></span>
+                      <span className="block truncate text-[11px] text-muted">{[source.label, item.album, item.quality, item.duration ? fmtTime(item.duration) : ''].filter(Boolean).join(' · ')}</span>
+                    </span>
+                    {replaced === key
+                      ? <span className="inline-flex flex-shrink-0 items-center gap-1 text-[11px] text-accent"><Check size={12} />Downloading</span>
+                      : <button onClick={() => replaceWith(item, source)} disabled={!!replacing || !!replaced} title="Download this copy; it replaces your file, keeping its playlists, likes and plays"
+                          className="inline-flex flex-shrink-0 items-center gap-1 rounded-lg border border-border px-2.5 py-1 text-[11px] text-text hover:border-accent/40 disabled:opacity-40">
+                          {replacing === key ? <Loader2 size={11} className="animate-spin" /> : <Download size={11} />}Replace
+                        </button>}
+                  </div>
+                )
+              })}
+              {!items.length && <p className="text-[11px] text-muted">{source.label}: {error || 'no close match.'}</p>}
+            </div>
+          ))}
         </div>
 
         <div className="space-y-2">

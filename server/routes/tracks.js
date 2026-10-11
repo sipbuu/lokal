@@ -542,7 +542,7 @@ router.get('/missing', (req, res) => {
 
 router.get('/', (req, res) => {
   const db = getDB()
-  const { sort = 'added_at DESC', limit = 500, offset = 0, id, artistName, album, albumArtist, source, genre, quality, includeGhosts } = req.query
+  const { sort = 'added_at DESC', limit = 500, offset = 0, id, artistName, album, albumArtist, source, genre, quality, includeGhosts, problems } = req.query
   if (album) {
     const params = [album]
     let sql = "SELECT * FROM tracks WHERE album = ? AND file_path NOT LIKE 'ghost://%'"
@@ -554,9 +554,8 @@ router.get('/', (req, res) => {
     res.json(normalizeAlbumTracks(tracks).map(track => ({ ...track, missing: !fs.existsSync(track.file_path) })))
     return
   }
-  let sql = 'SELECT * FROM tracks'
   const params = []
-  const files = require('../../electron/libraryTracks').trackFileFilter(includeGhosts)
+  const files = problems ? null : require('../../electron/libraryTracks').trackFileFilter(includeGhosts)
   const where = files ? [files] : []
   if (id) { where.push('id = ?'); params.push(id) }
   if (artistName) { where.push('artist = ?'); params.push(artistName) }
@@ -566,10 +565,11 @@ router.get('/', (req, res) => {
   if (genreWhere) { where.push(genreWhere.sql); params.push(...genreWhere.params) }
   const qualityWhere = typeof quality === 'string' && quality ? require('../../electron/quality').tierFilter(db, quality) : null
   if (qualityWhere) { where.push(qualityWhere.sql); params.push(...qualityWhere.params) }
-  if (where.length) sql += ' WHERE ' + where.join(' AND ')
-  sql += ` ORDER BY ${sort} LIMIT ${parseInt(limit)} OFFSET ${parseInt(offset)}`
-  res.json(db.prepare(sql).all(...params).map(track => ({ ...track, missing: require('../../electron/libraryTracks').missingTrackFile(track, fs.existsSync) })))
+  res.json(require('../../electron/trackErrors').listTracks(db, { sort, limit, offset, problems }, { where, params, exists: fs.existsSync }))
 })
+
+router.post('/:id/error', (req, res) => res.json({ ok: require('../../electron/trackErrors').recordTrackError(getDB(), req.params.id, req.body?.message) }))
+router.delete('/:id/error', (req, res) => res.json({ ok: require('../../electron/trackErrors').clearTrackError(getDB(), req.params.id) }))
 
 // Settings > Library > Fill In Genres (see electron/online/genres.js).
 router.post('/fetch-missing-genres', (req, res) => {

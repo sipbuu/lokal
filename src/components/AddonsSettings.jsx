@@ -1,7 +1,8 @@
 // Settings → Addons: SpotiFLAC repositories/packages and HTTP sources.
 
 import React, { useEffect, useRef, useState } from 'react'
-import { AlertTriangle, Blocks, Loader2, Trash2, RefreshCw, Upload } from 'lucide-react'
+import { useLocation } from 'react-router-dom'
+import { AlertTriangle, Blocks, CheckCircle2, Loader2, ShieldAlert, Trash2, RefreshCw, Upload } from 'lucide-react'
 import { api } from '../api'
 import { peekCache, usePageReady, writeCache } from '../pageCache'
 
@@ -49,17 +50,28 @@ function SettingField({ field, value, onChange, onAction }) {
 }
 
 /** An installed addon: header, on/off, remove, and its settings. */
-function AddonCard({ addon, onChanged }) {
-  const [open, setOpen] = useState(false)
+function AddonCard({ addon, onChanged, focused = false }) {
+  const [open, setOpen] = useState(focused)
+  const cardRef = useRef(null)
   const [values, setValues] = useState(addon.settings || {})
   const [busy, setBusy] = useState(false)
   const [confirmRemove, setConfirmRemove] = useState(false)
   const [message, setMessage] = useState('')
   const [auth, setAuth] = useState(null)
-  const [callbackUrl, setCallbackUrl] = useState('')
   const [form, setForm] = useState(null)
   const [formInput, setFormInput] = useState({})
   useEffect(() => { setValues(addon.settings || {}) }, [addon.settings])
+  // Opened from a "finish setting up" link: this card, opened and in view.
+  useEffect(() => { if (focused) { setOpen(true); cardRef.current?.scrollIntoView({ block: 'center', behavior: 'smooth' }) } }, [focused])
+  // The login / verification window closed: its access was checked again.
+  useEffect(() => api.onAddonAuthChanged(status => {
+    if (status?.key !== addon.key) return
+    setAuth(status)
+    setMessage(status.authenticated ? 'Access verified. This source can now stream and download.' : status.error || "Verification wasn't completed. Try again when you're ready.")
+    onChanged()
+  }), [addon.key]) // eslint-disable-line react-hooks/exhaustive-deps
+  const needsSetup = addon.enabled && addon.access && !addon.access.ready
+  const verified = auth ? !!auth.authenticated : !!addon.access?.verified
 
   const update = (key, value) => setValues(current => ({ ...current, [key]: value }))
   const run = async work => {
@@ -79,22 +91,33 @@ function AddonCard({ addon, onChanged }) {
     const result = await api.addonsPackages({ action: 'package.action', key: addon.key, id, input, token })
     const schema = result?.action_form || result?.byoa_form
     setForm(schema ? { ...schema, token: result.formToken } : null); setFormInput({})
-    if (result?.open_auth_url && /^https:\/\//i.test(result.open_auth_url)) setAuth({ open_auth_url: result.open_auth_url })
+    if (result?.open_auth_url && /^https:\/\//i.test(result.open_auth_url)) {
+      // A login page: the desktop app opens it in its own window and checks
+      // access when it closes (no callback link to copy back).
+      if (api.isElectron) await api.addonsPackages({ action: 'package.openAuth', key: addon.key }).catch(() => null)
+      else setAuth({ open_auth_url: result.open_auth_url })
+    }
     if (result?.message) setMessage(result.message)
     return result
   })
-  const verify = () => run(async () => { const result = await api.addonsPackages({ action: 'package.verify', key: addon.key }); setAuth(result); return result })
-  const complete = () => run(async () => { const result = await api.addonsPackages({ action: 'package.callback', key: addon.key, url: callbackUrl }); if (!result?.error) { setCallbackUrl(''); setAuth(await api.addonsPackages({ action: 'package.auth', key: addon.key })); changed() } return result })
+  const verify = () => run(async () => {
+    const result = await api.addonsPackages({ action: 'package.verify', key: addon.key })
+    setAuth(result)
+    if (result?.opened) setMessage('Complete the verification in the window that opened. Access is checked when it closes.')
+    else if (result?.authenticated) { setMessage('Access verified.'); onChanged() }
+    return result
+  })
 
   return (
-    <div className={`rounded-xl border border-border bg-card/60 p-4 ${addon.enabled ? '' : 'opacity-70'}`}>
+    <div ref={cardRef} className={`rounded-xl border bg-card/60 p-4 ${needsSetup ? 'border-yellow-500/30' : 'border-border'} ${addon.enabled ? '' : 'opacity-70'}`}>
       <div className="flex items-start gap-3">
         <div className="h-10 w-10 flex-shrink-0 overflow-hidden rounded-lg bg-elevated">
           {addon.icon ? <img src={addon.icon} alt="" className="h-full w-full object-cover" referrerPolicy="no-referrer" /> : <div className="flex h-full w-full items-center justify-center text-muted"><Blocks size={16} /></div>}
         </div>
         <div className="min-w-0 flex-1">
           <p className="text-sm font-medium text-text">{addon.name} <span className="text-xs font-normal text-muted">v{addon.version}</span></p>
-          <p className="text-[11px] text-muted">{addon.host}</p>
+          <p className="text-[11px] text-muted">{addon.linksOnly ? 'SpotiFLAC package · reads playlist links for playlist sync' : addon.host}</p>
+          {needsSetup && <p className="mt-1 inline-flex items-center gap-1 rounded-full bg-yellow-500/15 px-2 py-0.5 text-[10px] text-yellow-300"><ShieldAlert size={11} />{addon.access.missing?.length ? `Needs ${addon.access.missing.join(', ')}` : addon.access.kind === 'login' ? 'Needs login' : 'Needs verification'}</p>}
           {addon.description && <p className="mt-1 text-xs leading-relaxed text-muted">{addon.description}</p>}
         </div>
         <div className="flex flex-shrink-0 items-center gap-2">
@@ -121,16 +144,16 @@ function AddonCard({ addon, onChanged }) {
               {(addon.qualityOptions || []).map(quality => (quality.settings || []).map(field => <SettingField key={`${quality.id}:${field.key}`} field={{ ...field, label: `${quality.label}: ${field.label}`, help: field.description, type: field.type === 'boolean' ? 'toggle' : field.type, options: field.options?.map(o => typeof o === 'object' ? o : { value: o, label: o }) }} value={values.qualitySettings?.[quality.id]?.[field.key] ?? field.default} onChange={v => update('qualitySettings', { ...values.qualitySettings, [quality.id]: { ...values.qualitySettings?.[quality.id], [field.key]: v } })} />))}
               <button disabled={busy} onClick={save} className="rounded-lg bg-accent/20 px-3 py-2 text-xs text-accent disabled:opacity-40">Save settings</button>
               {(addon.actions || []).map(item => <button key={item.action} disabled={busy} onClick={() => action(item.action)} className="ml-2 rounded-lg border border-border px-3 py-2 text-xs text-text">{item.label || item.action}</button>)}
-              {addon.signedSession && <div className="space-y-2 border-t border-border pt-3">
-                <p className="text-xs text-muted">{auth?.authenticated ? 'Verified access is active.' : 'This source may require browser verification before downloads.'}</p>
-                <button disabled={busy || !addon.enabled} onClick={verify} className="rounded-lg border border-border px-3 py-2 text-xs text-accent">Verify access</button>
-                {auth?.authenticated && <button disabled={busy} onClick={() => run(async () => { const result = await api.addonsPackages({ action: 'package.logout', key: addon.key }); setAuth(null); return result })} className="ml-2 text-xs text-muted">Disconnect</button>}
+              {(addon.signedSession || addon.access?.kind === 'login') && <div className="space-y-2 border-t border-border pt-3">
+                <p className="flex items-center gap-1.5 text-xs text-muted">{verified
+                  ? <><CheckCircle2 size={13} className="text-accent" />Verified access is active.</>
+                  : addon.signedSession
+                    ? 'This source needs a one-time browser verification before it can stream or download. A window opens; access is checked automatically when it closes.'
+                    : 'Log in with the button above to stream and download from this source. Access is checked automatically when the login window closes.'}</p>
+                {addon.signedSession && !verified && <button disabled={busy || !addon.enabled} onClick={verify} className="rounded-lg bg-accent/20 px-3 py-2 text-xs text-accent disabled:opacity-40">Verify access</button>}
+                {verified && <button disabled={busy} onClick={() => run(async () => { const result = await api.addonsPackages({ action: 'package.logout', key: addon.key }); setAuth({ authenticated: false }); onChanged(); return result })} className="text-xs text-muted hover:text-text">Disconnect</button>}
               </div>}
-              {auth?.open_auth_url && /^https:\/\//i.test(auth.open_auth_url) && <div className="space-y-2">
-                <button onClick={() => api.isElectron ? run(() => api.addonsPackages({ action: 'package.openAuth', key: addon.key })) : api.openExternal(auth.open_auth_url)} className="text-xs text-accent underline">Open verification / login page</button>
-                <p className="text-[11px] text-muted">After completing it, copy the callback link into this field.</p>
-                <div className="flex gap-2"><input aria-label="Authentication callback URL" value={callbackUrl} onChange={e => setCallbackUrl(e.target.value)} placeholder="spotiflac://session-grant?…" className="min-w-0 flex-1 rounded-lg border border-border bg-card px-3 py-2 text-xs text-text" /><button disabled={busy || !callbackUrl} onClick={complete} className="text-xs text-accent">Complete</button></div>
-              </div>}
+              {!api.isElectron && auth?.open_auth_url && /^https:\/\//i.test(auth.open_auth_url) && <button onClick={() => api.openExternal(auth.open_auth_url)} className="text-xs text-accent underline">Open verification / login page</button>}
               {form && <form onSubmit={e => { e.preventDefault(); action(form.submit_action, formInput, form.token) }} className="space-y-3 rounded-lg border border-border p-3">
                 <p className="text-sm text-text">{form.title || 'Account details'}</p>{form.description && <p className="text-xs text-muted">{form.description}</p>}
                 {form.fields.map(field => <SettingField key={field.key} field={{ ...field, secret: ['password', 'otp'].includes(field.type), options: field.options?.map(o => ({ value: o, label: o })) }} value={formInput[field.key] ?? field.default} onChange={v => setFormInput(current => ({ ...current, [field.key]: v }))} />)}
@@ -180,13 +203,14 @@ function RepositoryBrowser({ onChanged }) {
     <div className="flex gap-2"><input aria-label="Repository registry URL" value={url} onChange={e => setUrl(e.target.value)} placeholder="https://…/registry.json" className="min-w-0 flex-1 rounded-lg border border-border bg-card px-3 py-2 text-xs text-text" /><button disabled={busy || !url.trim()} onClick={() => run(() => request({ action: 'repository.add', url: url.trim() }))} className="rounded-lg bg-accent/20 px-3 py-2 text-xs text-accent disabled:opacity-40">Add repository</button></div>
     <label className={`inline-flex cursor-pointer items-center gap-2 rounded-lg border border-border px-3 py-2 text-xs text-muted ${busy ? 'pointer-events-none opacity-40' : ''}`}><Upload size={13} />Install package file<input type="file" accept=".sflx,.spotiflac-ext" disabled={busy} onChange={upload} className="hidden" /></label>
     {repos.map(repo => <div key={repo.id} className="flex items-start gap-3 rounded-lg border border-border p-3"><div className="min-w-0 flex-1"><p className="break-all text-xs text-text">{repo.url}</p><p className="mt-1 text-[11px] text-muted">{repo.error || (repo.refreshed_at ? `Refreshed ${new Date(repo.refreshed_at).toLocaleString()}` : 'Not refreshed')}</p></div><button disabled={busy} title="Refresh repository" aria-label="Refresh repository" onClick={() => run(() => request({ action: 'repository.refresh', id: repo.id }))} className="text-muted hover:text-accent"><RefreshCw size={14} /></button><button disabled={busy} title="Remove repository" aria-label="Remove repository" onClick={() => run(() => request({ action: 'repository.remove', id: repo.id }))} className="text-muted hover:text-red"><Trash2 size={14} /></button></div>)}
-    {entries.length > 0 && <div className="grid gap-3 sm:grid-cols-2">{entries.map(entry => <div key={`${entry.repositoryId}:${entry.id}`} className="rounded-xl border border-border bg-card/60 p-3"><div className="flex items-start justify-between gap-2"><p className="text-sm text-text">{entry.display_name || entry.id}<span className="ml-2 text-[11px] text-muted">v{entry.version}</span></p><button disabled={busy || !entry.compatible || entry.installed && !entry.updateAvailable} onClick={() => run(() => request({ action: 'package.install', repositoryId: entry.repositoryId, id: entry.id }))} className="rounded-lg bg-accent/20 px-3 py-1 text-xs text-accent disabled:opacity-40">{entry.updateAvailable ? 'Update' : entry.installed ? 'Installed' : 'Install'}</button></div><p className="mt-2 text-[11px] leading-relaxed text-muted">{entry.description}</p>{!entry.compatible && <p className="mt-1 text-xs text-muted">Requires SpotiFLAC compatibility {entry.min_app_version}</p>}</div>)}</div>}
+    {entries.length > 0 && <div className="grid gap-3 sm:grid-cols-2">{entries.map(entry => <div key={`${entry.repositoryId}:${entry.id}`} className="rounded-xl border border-border bg-card/60 p-3"><div className="flex items-start justify-between gap-2"><p className="text-sm text-text">{entry.display_name || entry.id}<span className="ml-2 text-[11px] text-muted">v{entry.version}</span></p><button disabled={busy || !entry.compatible || entry.installed && !entry.updateAvailable} onClick={() => run(() => request({ action: 'package.install', repositoryId: entry.repositoryId, id: entry.id }))} className="rounded-lg bg-accent/20 px-3 py-1 text-xs text-accent disabled:opacity-40">{entry.updateAvailable ? 'Update' : entry.installed ? 'Installed' : 'Install'}</button></div>{entry.category === 'integration' && <p className="mt-1 text-[10px] uppercase tracking-wider text-accent/80">Reads playlist links · for playlist sync</p>}<p className="mt-2 text-[11px] leading-relaxed text-muted">{entry.description}</p>{!entry.compatible && <p className="mt-1 text-xs text-muted">Requires SpotiFLAC compatibility {entry.min_app_version}</p>}</div>)}</div>}
     {busy && <p className="flex items-center gap-2 text-xs text-muted"><Loader2 size={13} className="animate-spin" />Working…</p>}{message && <p role="alert" className="text-xs text-red">{message}</p>}
   </div>
 }
 
 /** The Addons section. */
 export default function AddonsSettings() {
+  const focusKey = useLocation().state?.addon || null
   // Last visit's list shows at once; the Settings category fades in once
   // the list is in (it used to appear empty for a frame first).
   const [addons, setAddons] = useState(() => peekCache('settings:addons') ?? null)
@@ -250,7 +274,7 @@ export default function AddonsSettings() {
         <p className="text-xs text-muted">No addons installed.</p>
       ) : (
         <div className="space-y-3">
-          {addons.map(addon => <AddonCard key={addon.key} addon={addon} onChanged={onChanged} />)}
+          {addons.map(addon => <AddonCard key={addon.key} addon={addon} onChanged={onChanged} focused={addon.key === focusKey} />)}
         </div>
       )}
     </div>
