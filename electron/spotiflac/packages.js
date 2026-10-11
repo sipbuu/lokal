@@ -150,6 +150,9 @@ class PackageService {
       })
       if(new Set(entries.map(e=>e.id)).size!==entries.length)throw new Error('Duplicate registry package IDs')
       this.db.prepare('UPDATE spotiflac_repositories SET index_json=?,refreshed_at=?,error=NULL WHERE id=?').run(JSON.stringify(entries),Date.now(),id)
+      // A registry that names itself gets that name (the official one keeps its own).
+      const title=typeof index.name==='string'?index.name.replace(/[\u0000-\u001f]/g,'').trim().slice(0,80):''
+      if(title&&repo.url!==REGISTRY)this.db.prepare('UPDATE spotiflac_repositories SET name=? WHERE id=?').run(title,id)
     }catch(error){this.db.prepare('UPDATE spotiflac_repositories SET error=? WHERE id=?').run(error.message,id);throw error}
     return this.catalogue(id)
   }

@@ -168,6 +168,23 @@ function AddonCard({ addon, onChanged, focused = false }) {
   )
 }
 
+/**
+ * A repository's name for people: the registry's own name, else where it
+ * lives ("spotiflacapp/SpotiFLAC-Extension" for a GitHub link), not the raw
+ * registry.json URL.
+ */
+export function repositoryLabel(repo) {
+  let url
+  try { url = new URL(repo?.url || '') } catch { return repo?.name || repo?.url || 'Repository' }
+  const name = String(repo?.name || '').trim()
+  if (name && name.toLowerCase() !== url.hostname.toLowerCase()) return name
+  const parts = url.pathname.split('/').filter(Boolean)
+  if (/^(raw\.githubusercontent\.com|github\.com)$/i.test(url.hostname) && parts.length >= 2) return `${parts[0]}/${parts[1]}`
+  if (/\.github\.io$/i.test(url.hostname)) return `${url.hostname.split('.')[0]}${parts[0] && !/\.json$/i.test(parts[0]) ? `/${parts[0]}` : ''}`
+  const folders = parts.filter(part => !/\.json$/i.test(part))
+  return [url.hostname.replace(/^www\./, ''), ...folders.slice(0, 2)].join('/')
+}
+
 function RepositoryBrowser({ onChanged }) {
   // Empty: the official repository is already listed below.
   const [url, setUrl] = useState('')
@@ -202,7 +219,7 @@ function RepositoryBrowser({ onChanged }) {
     <p className="text-xs leading-relaxed text-muted">Add a repository to browse its downloadable sources, or install a .sflx / .spotiflac-ext package. Installed sources appear in search and can play or save songs to your library.</p>
     <div className="flex gap-2"><input aria-label="Repository registry URL" value={url} onChange={e => setUrl(e.target.value)} placeholder="https://…/registry.json" className="min-w-0 flex-1 rounded-lg border border-border bg-card px-3 py-2 text-xs text-text" /><button disabled={busy || !url.trim()} onClick={() => run(async () => { const result = await request({ action: 'repository.add', url: url.trim() }); if (!result?.error) setUrl(''); return result })} className="rounded-lg bg-accent/20 px-3 py-2 text-xs text-accent disabled:opacity-40">Add repository</button></div>
     <label className={`inline-flex cursor-pointer items-center gap-2 rounded-lg border border-border px-3 py-2 text-xs text-muted ${busy ? 'pointer-events-none opacity-40' : ''}`}><Upload size={13} />Install package file<input type="file" accept=".sflx,.spotiflac-ext" disabled={busy} onChange={upload} className="hidden" /></label>
-    {repos.map(repo => <div key={repo.id} className="flex items-start gap-3 rounded-lg border border-border p-3"><div className="min-w-0 flex-1"><p className="break-all text-xs text-text">{repo.url}</p><p className="mt-1 text-[11px] text-muted">{repo.error || (repo.refreshed_at ? `Refreshed ${new Date(repo.refreshed_at).toLocaleString()}` : 'Not refreshed')}</p></div><button disabled={busy} title="Refresh repository" aria-label="Refresh repository" onClick={() => run(() => request({ action: 'repository.refresh', id: repo.id }))} className="text-muted hover:text-accent"><RefreshCw size={14} /></button><button disabled={busy} title="Remove repository" aria-label="Remove repository" onClick={() => run(() => request({ action: 'repository.remove', id: repo.id }))} className="text-muted hover:text-red"><Trash2 size={14} /></button></div>)}
+    {repos.map(repo => <div key={repo.id} className="flex items-start gap-3 rounded-lg border border-border p-3"><div className="min-w-0 flex-1"><p className="truncate text-sm text-text" title={repo.url}>{repositoryLabel(repo)}</p><p className="mt-0.5 truncate text-[10px] text-muted/70" title={repo.url}>{repo.url}</p><p className="mt-1 text-[11px] text-muted">{repo.error || (repo.refreshed_at ? `Refreshed ${new Date(repo.refreshed_at).toLocaleString()}` : 'Not refreshed')}</p></div><button disabled={busy} title="Refresh repository" aria-label="Refresh repository" onClick={() => run(() => request({ action: 'repository.refresh', id: repo.id }))} className="text-muted hover:text-accent"><RefreshCw size={14} /></button><button disabled={busy} title="Remove repository" aria-label="Remove repository" onClick={() => run(() => request({ action: 'repository.remove', id: repo.id }))} className="text-muted hover:text-red"><Trash2 size={14} /></button></div>)}
     {entries.length > 0 && <div className="grid gap-3 sm:grid-cols-2">{entries.map(entry => <div key={`${entry.repositoryId}:${entry.id}`} className="rounded-xl border border-border bg-card/60 p-3"><div className="flex items-start justify-between gap-2"><p className="text-sm text-text">{entry.display_name || entry.id}<span className="ml-2 text-[11px] text-muted">v{entry.version}</span></p><button disabled={busy || !entry.compatible || entry.installed && !entry.updateAvailable} onClick={() => run(() => request({ action: 'package.install', repositoryId: entry.repositoryId, id: entry.id }))} className="rounded-lg bg-accent/20 px-3 py-1 text-xs text-accent disabled:opacity-40">{entry.updateAvailable ? 'Update' : entry.installed ? 'Installed' : 'Install'}</button></div>{entry.category === 'integration' && <p className="mt-1 text-[10px] uppercase tracking-wider text-accent/80">Reads playlist links · for playlist sync</p>}<p className="mt-2 text-[11px] leading-relaxed text-muted">{entry.description}</p>{!entry.compatible && <p className="mt-1 text-xs text-muted">Requires SpotiFLAC compatibility {entry.min_app_version}</p>}</div>)}</div>}
     {busy && <p className="flex items-center gap-2 text-xs text-muted"><Loader2 size={13} className="animate-spin" />Working…</p>}{message && <p role="alert" className="text-xs text-red">{message}</p>}
   </div>
