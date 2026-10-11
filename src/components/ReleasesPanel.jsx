@@ -23,6 +23,9 @@ function ago(time) {
 
 function dateLabel(release) {
   const date = String(release.release_date || release.releaseDate || '')
+  // A plain date ("2026-09-30") is that calendar day everywhere: read as UTC
+  // and shown in UTC, it can't slip to the day before west of Greenwich.
+  if (/^\d{4}-\d{2}-\d{2}$/.test(date)) return new Date(`${date}T00:00:00Z`).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric', timeZone: 'UTC' })
   if (date.length > 4 && Number.isFinite(Date.parse(date))) return new Date(date).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })
   return String(release.year || date.slice(0, 4) || '')
 }

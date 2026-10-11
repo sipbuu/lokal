@@ -390,6 +390,8 @@ jobs:
 
             See [README.md](./README.md) for full setup instructions.
 
+            ${{ secrets.CSC_LINK == '' && '**macOS:** this build is ad-hoc signed, not notarized (no Developer ID certificate is configured). The first time, right-click Lokal in Applications and choose Open, or run `xattr -dr com.apple.quarantine /Applications/Lokal.app`.' || '' }}
+
             ---
 
             ### Binary Checksums (SHA-256)

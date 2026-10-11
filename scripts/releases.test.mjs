@@ -30,3 +30,17 @@ test('a check covers every artist, saves the result and marks what is new since 
   assert.deepEqual(second.items.map(item => [item.title, item.isNew]), [['Gamma', true], ['Alpha', false], ['Beta', false]])
   assert.equal(savedReleases(storage).items.length, 3)
 })
+
+test('an empty saved check still counts, and failed artists keep their releases from the last check', async () => {
+  const storage = memory()
+  const artists = [{ name: 'One' }, { name: 'Two' }]
+  const empty = await checkReleases(artists, async () => [], { storage, now: new Date('2026-01-01') })
+  assert.equal(empty.items.length, 0)
+  const found = await checkReleases(artists, async name => name === 'One' ? [{ title: 'Alpha', year: 2026 }] : [{ title: 'Beta', year: 2025 }], { storage, now: new Date('2026-02-01') })
+  assert.deepEqual(found.items.map(item => [item.title, item.isNew]), [['Alpha', true], ['Beta', true]])
+  const partial = await checkReleases(artists, async name => { if (name === 'Two') throw new Error('Offline'); return [{ title: 'Alpha', year: 2026 }] }, { storage, now: new Date('2026-03-01') })
+  assert.deepEqual(partial.items.map(item => [item.title, item.isNew]), [['Alpha', false], ['Beta', false]])
+  const offline = await checkReleases(artists, async () => { throw new Error('Offline') }, { storage, now: new Date('2026-04-01') })
+  assert.equal(offline.failures, 2)
+  assert.deepEqual(savedReleases(storage).items.map(item => item.title), ['Alpha', 'Beta'])
+})

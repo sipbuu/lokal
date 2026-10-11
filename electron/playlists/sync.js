@@ -68,6 +68,21 @@ function linked(db) {
 
 const plain = value => String(value || '').normalize('NFKD').replace(/\p{M}/gu, '').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim()
 const songKey = (title, artist) => `${plain(title)}\0${plain(String(artist || '').split(/\s*,\s*/)[0])}`
+const artistNames = value => String(value || '').split(/\s*(?:,|;|&|\/|\bfeat\.?|\bft\.?|\bwith\b|\bx\b)\s*/i).map(plain).filter(Boolean)
+const textOf = value => typeof value === 'string' ? value : value && typeof value === 'object' ? String(value.name || value.title || '') || null : null
+
+/**
+ * A library copy only when its artists include the song's main artist as a
+ * whole name: findTrack also accepts a partial match ("Ann" in "Joanne"),
+ * which an automatic sync must not trust.
+ */
+function libraryCopy(db, helpers, entry) {
+  const found = helpers.findTrack(db, entry)
+  if (!found?.id) return null
+  const row = db.prepare('SELECT artist FROM tracks WHERE id = ?').get(found.id)
+  const wanted = artistNames(entry.artist)[0]
+  return !wanted || artistNames(row?.artist).includes(wanted) ? found : null
+}
 
 /**
  * Sync one linked playlist. `packages`: the SpotiFLAC PackageService.
@@ -92,7 +107,17 @@ async function sync(db, playlistId, { packages, helpers, userId = 'guest' }) {
   const remote = (result?.playlist?.tracks || result?.tracks || []).filter(track => track && (track.name || track.title))
   if (!remote.length) return fail('The playlist is empty, or the addon could not read its songs.')
   const seen = new Set(JSON.parse(row.seen_json || '[]'))
-  const existing = new Set(db.prepare('SELECT t.title, t.artist FROM playlist_tracks pt JOIN tracks t ON t.id = pt.track_id WHERE pt.playlist_id = ?').all(playlistId).map(track => songKey(track.title, track.artist)))
+  // Linking a playlist that already has songs: the first sync doesn't add
+  // them twice (one remote entry per song already here). After that, the
+  // remote ids alone decide what's new, so a second recording or a repeated
+  // entry with the same title and artist still arrives.
+  const existing = new Map()
+  if (!row.synced_at) {
+    for (const track of db.prepare('SELECT t.title, t.artist FROM playlist_tracks pt JOIN tracks t ON t.id = pt.track_id WHERE pt.playlist_id = ?').all(playlistId)) {
+      const key = songKey(track.title, track.artist)
+      existing.set(key, (existing.get(key) || 0) + 1)
+    }
+  }
   const insert = db.prepare('INSERT INTO playlist_tracks (playlist_id, track_id, position, added_by, added_at) VALUES (?, ?, ?, ?, ?)')
   let position = Number(db.prepare('SELECT MAX(position) AS m FROM playlist_tracks WHERE playlist_id = ?').get(playlistId)?.m) || 0
   const ghosts = []
@@ -103,10 +128,10 @@ async function sync(db, playlistId, { packages, helpers, userId = 'guest' }) {
     const key = `${row.platform}:${track.id || songKey(title, artist)}`
     if (seen.has(key)) continue
     seen.add(key)
-    if (existing.has(songKey(title, artist))) continue
-    existing.add(songKey(title, artist))
-    const entry = { title, artist, album: track.album_name || track.album || null, duration: Number(track.duration_ms) > 0 ? Math.round(Number(track.duration_ms) / 1000) : null, isrc: track.isrc || null, year: Number(String(track.release_date || '').slice(0, 4)) || null }
-    let found = helpers.findTrack(db, entry)
+    const already = existing.get(songKey(title, artist)) || 0
+    if (already) { existing.set(songKey(title, artist), already - 1); continue }
+    const entry = { title, artist, album: textOf(track.album_name) || textOf(track.album), duration: Number(track.duration_ms) > 0 ? Math.round(Number(track.duration_ms) / 1000) : null, isrc: track.isrc || null, year: Number(String(track.release_date || '').slice(0, 4)) || null }
+    let found = libraryCopy(db, helpers, entry)
     if (found) matched++
     else { found = helpers.createGhostTrack(db, entry, row.platform, playlistId); ghosts.push(found) }
     insert.run(playlistId, found.id, ++position, userId, Date.now())

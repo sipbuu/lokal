@@ -144,7 +144,7 @@ class PackageService {
       // Download sources must all be well formed; metadata ("integration")
       // entries are only offered as playlist-link readers, and skipped when
       // incomplete (installing one still checks it reads links).
-      const entries=index.extensions.filter(e=>e.category==='download'||e.category==='integration'&&valid(e)).map(e=>{
+      const entries=index.extensions.filter(e=>e.category==='download'||(e.category==='integration'&&valid(e))).map(e=>{
         if(!valid(e))throw new Error('Invalid registry package entry')
         return {...e,id:e.id || e.name}
       })
@@ -185,7 +185,7 @@ class PackageService {
         runtime=this.createRuntime(candidate,code,{root:path.join(staged,'validation-data')})
         await runtime.ready
         if(manifest.type.includes('download_provider')&&!runtime.methods.includes('download'))throw new Error('Download provider has no registered download() method')
-        if(!manifest.type.includes('download_provider')&&!runtime.methods.includes('handleUrl'))throw new Error('Playlist-link addon has no registered handleUrl() method')
+        if((manifest.urlHandler?.enabled||!manifest.type.includes('download_provider'))&&!runtime.methods.includes('handleUrl'))throw new Error('Playlist-link addon has no registered handleUrl() method')
         const methods=runtime.methods
         runtime.close();runtime=null
         await fsp.rm(path.join(staged,'validation-data'),{recursive:true,force:true})
@@ -237,7 +237,10 @@ class PackageService {
     if(now)return write()
     network.persistTimer=setTimeout(write,250);network.persistTimer.unref?.()
   }
-  forgetConnection(key) {const network=this.networks.get(key);if(network){clearTimeout(network.persistTimer);network.persistTimer=null;for(const field of Object.keys(network.auth || {}))delete network.auth[field];network.cookies=new CookieJar()}try{this.storage.write(key,'connection',{})}catch{}}
+  // Disconnect: the login, its cookies and what the addon stored as its
+  // account credentials. The generation makes a token exchange still in
+  // flight drop its result instead of writing it back afterwards.
+  forgetConnection(key) {const network=this.networks.get(key);if(network){network.generation=(network.generation || 0)+1;clearTimeout(network.persistTimer);network.persistTimer=null;for(const field of Object.keys(network.auth || {}))delete network.auth[field];network.cookies=new CookieJar()}try{this.storage.write(key,'connection',{})}catch{}try{this.storage.write(key,'credentials',{})}catch{}}
   retire(key) {const network=this.networks.get(key);if(network?.persistTimer)this.saveConnection(key,network,{now:true});this.runtimes.get(key)?.close();this.runtimes.delete(key);for(const op of this.operations.values())if(op.key===key)op.controller.abort();this.networks.delete(key);if(process.versions.electron)require('./authWindow').closeAuthWindow(key)}
   shutdown() { for(const [key,network] of this.networks)if(network.persistTimer)this.saveConnection(key,network,{now:true}); for(const key of [...this.runtimes.keys()]) this.retire(key); for(const op of this.operations.values()) op.controller.abort(); this.operations.clear() }
   async remove(key) {

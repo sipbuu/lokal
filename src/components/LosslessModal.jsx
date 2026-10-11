@@ -15,6 +15,8 @@ import { downloadGhostResult, differentDuration } from '../ghostDownloads'
 import AddonSetupNotice from './AddonSetupNotice'
 
 const LOSSLESS_HINT = /lossless|flac|hi-?res|24[ -]?bit|alac|wav|cd quality|16[ -]?bit/i
+// A result an addon labels lossy is no upgrade, however well it matches.
+const LOSSY_HINT = /\b(mp3|aac|ogg|opus|vorbis|m4a|\d{2,3}\s?k(?:bps)?|low|normal|high quality)\b/i
 const fmtTime = s => `${Math.floor((s || 0) / 60)}:${String(Math.floor((s || 0) % 60)).padStart(2, '0')}`
 const plainText = value => String(value || '').normalize('NFKD').replace(/\p{M}/gu, '').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim()
 
@@ -25,7 +27,8 @@ export function rankReplacements(track, items) {
     + (plainText(item.artist).includes(artist) ? 3 : 0)
     + (!differentDuration(track, item) ? 2 : 0)
     + (LOSSLESS_HINT.test(String(item.quality || '')) ? 1 : 0)
-  return items.filter(item => !item.preview && score(item) >= 5).sort((a, b) => score(b) - score(a))
+  const lossy = item => { const quality = String(item.quality || ''); return !!quality && LOSSY_HINT.test(quality) && !LOSSLESS_HINT.test(quality) }
+  return items.filter(item => !item.preview && !lossy(item) && score(item) >= 5).sort((a, b) => score(b) - score(a))
 }
 
 function LinkRow({ link }) {

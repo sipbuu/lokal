@@ -14,10 +14,12 @@ export async function syncPlaylist(playlistId, { userId, client = api, download 
   if (typeof window !== 'undefined' && added) window.dispatchEvent(new Event('lokal:refresh'))
   if (!added) return { ...result, message: `Up to date with ${result.title || 'the linked playlist'}: no new songs.` }
   const ghosts = Array.isArray(result.ghosts) ? result.ghosts : []
-  const downloads = ghosts.length ? await download(ghosts, { client, onProgress }) : null
+  // The songs are already in the playlist: a failed download start is
+  // reported with the sync, not thrown (launch sync carries on too).
+  const downloads = ghosts.length ? await download(ghosts, { client, onProgress }).catch(error => ({ started: 0, existing: 0, notFound: 0, failed: ghosts.length, error: error?.message })) : null
   const parts = [`Added ${plural(added, 'new song')}`]
   if (result.matched) parts.push(`${result.matched} from your library`)
-  if (downloads) parts.push(ghostDownloadMessage(downloads))
+  if (downloads) parts.push(downloads.error ? `downloads couldn't start: ${downloads.error}` : ghostDownloadMessage(downloads))
   return { ...result, downloads, message: parts.join('; ') }
 }
 

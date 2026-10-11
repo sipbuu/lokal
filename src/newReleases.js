@@ -65,7 +65,8 @@ export function latestReleases(releases, { now = new Date(), limit = RELEASE_LIM
 export async function checkReleases(artists, loadAlbums, { isCurrent = () => true, onProgress = () => {}, concurrency = 4, now = new Date(), storage = globalThis.localStorage, previous = savedReleases(storage) } = {}) {
   const names = [...new Map(artists.filter(artist => artist?.name).map(artist => [artistKey(artist.name), artist.name])).values()]
   const known = new Set((previous?.items || []).map(releaseKey))
-  const firstCheck = !previous?.items?.length
+  // A saved check, even one that found nothing, is what "new" is measured against.
+  const firstCheck = !previous || !Array.isArray(previous.items)
   const found = []
   let done = 0
   let failures = 0
@@ -77,12 +78,19 @@ export async function checkReleases(artists, loadAlbums, { isCurrent = () => tru
       try {
         const albums = await loadAlbums(name)
         ;(albums || []).forEach((album, rank) => found.push({ ...album, artist: album.artist || name, seedArtist: name, rank }))
-      } catch { failures++ }
+      } catch {
+        failures++
+        // Its releases from the last check stay, so a failed lookup doesn't
+        // drop them (or make them look new next time).
+        for (const release of previous?.items || []) if (artistKey(release.seedArtist || release.artist) === artistKey(name)) found.push(release)
+      }
       done++
       if (isCurrent()) onProgress({ done, total: names.length, items: current() })
     }
   }))
   const result = { items: current(), checkedAt: now.getTime(), artists: names.length, failures }
+  // Nothing could be checked (offline): keep the last check as it was.
+  if (names.length && failures === names.length && previous) return { ...previous, failures }
   if (isCurrent()) saveReleases(result, storage)
   return result
 }

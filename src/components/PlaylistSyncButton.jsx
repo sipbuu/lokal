@@ -30,11 +30,19 @@ export default function PlaylistSyncButton({ playlistId, userId, className = '' 
   const sync = async () => {
     setBusy(true); setError('')
     const toast = showLoadingToast(`Syncing with ${status.platformLabel}…`)
-    const result = await syncPlaylist(playlistId, { userId, onProgress: message => toast.update(message) })
-    toast.close(result.error || result.message)
-    if (result.error) setError(result.error)
-    setBusy(false)
-    refresh()
+    let message = ''
+    try {
+      const result = await syncPlaylist(playlistId, { userId, onProgress: text => toast.update(text) })
+      message = result.error || result.message
+      if (result.error) setError(result.error)
+    } catch (e) {
+      message = e?.message || 'Sync failed'
+      setError(message)
+    } finally {
+      toast.close(message)
+      setBusy(false)
+      refresh()
+    }
   }
   const link = async () => {
     setBusy(true); setError('')

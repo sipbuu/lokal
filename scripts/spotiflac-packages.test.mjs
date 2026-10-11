@@ -98,7 +98,11 @@ test('an addon login (tokens and verification cookies) survives a restart, and D
   const again=await restarted.runtime(installed.key)
   assert.equal(await again.host.call('auth.getTokens',[]).then(tokens=>tokens.access_token),'token-1')
   assert.match(again.host.network.cookies.getCookieStringSync('https://example.com/'),/cf_clearance=abc/)
+  restarted.storage.write(installed.key,'credentials',{account:'saved-by-addon'})
+  const generation=again.host.network.generation || 0
   restarted.forgetConnection(installed.key);again.host.session?.clear()
+  assert.equal(again.host.network.generation,generation+1)
+  assert.deepEqual(Object.keys(restarted.storage.read(installed.key,'credentials')),[])
   await again.host.call('auth.clearAuth',[])
   restarted.shutdown()
   const fresh=new PackageService(db,{root,tools:()=>({})});t.after(()=>{for(const r of fresh.runtimes.values())r.close()})

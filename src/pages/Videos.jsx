@@ -97,6 +97,9 @@ export default function Videos() {
     setIndexing({ running: true, done: 0, total: 0, found: 0 })
     const result = await api.indexAllMusicVideos().catch(error => ({ error: error.message }))
     if (result?.error) { setIndexing(null); showToast(result.error) }
+    // Already running (started before this page opened): its progress events
+    // take over the button; until then it says it's finding videos.
+    else if (result?.running) setIndexing(current => current?.total ? current : { running: true, done: 0, total: 0, found: indexFound.current })
     else if (!result) setIndexing(null)
   }
   const completedVideos = jobs.filter(j => j.kind === 'music-video' && j.status === 'done').length

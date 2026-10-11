@@ -280,7 +280,13 @@ export default function MiniPlayer({ windowed = false }) {
           <MusicVideoPlayer compact />
           {lyricLine && <p className={`pointer-events-none absolute inset-x-3 bottom-2.5 text-center text-[13px] font-medium leading-snug text-white [text-shadow:0_1px_3px_rgba(0,0,0,0.9)] transition-transform duration-200 group-hover/video:-translate-y-[4.25rem] group-focus-within/video:-translate-y-[4.25rem] ${isPlaying ? '' : '-translate-y-[4.25rem]'}`}>{lyricLine}</p>}
           <div className={`absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/85 via-black/55 to-transparent px-3 pb-2 pt-6 transition-opacity duration-200 group-hover/video:opacity-100 focus-within:opacity-100 ${isPlaying ? 'opacity-0' : 'opacity-100'}`}>
-            <div className="h-1 cursor-pointer rounded-full bg-white/25" onClick={handleScrub} role="slider" aria-label="Seek" aria-valuemin={0} aria-valuemax={Math.round(duration || 0)} aria-valuenow={Math.round(progress || 0)}>
+            <div className="h-1 cursor-pointer rounded-full bg-white/25 outline-none focus-visible:ring-2 focus-visible:ring-accent/70" onClick={handleScrub} role="slider" tabIndex={0} aria-label="Seek" aria-valuemin={0} aria-valuemax={Math.round(duration || 0)} aria-valuenow={Math.round(progress || 0)} aria-valuetext={`${fmt(progress)} of ${fmt(duration)}`}
+              onKeyDown={event => {
+                // Arrows step five seconds, like the main player's keys.
+                if (!duration || (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight')) return
+                event.preventDefault()
+                setProgressWithAudioUpdate(Math.min(duration, Math.max(0, (progress || 0) + (event.key === 'ArrowRight' ? 5 : -5))))
+              }}>
               <div className="h-full rounded-full bg-accent" style={{ width: `${duration ? (progress / duration) * 100 : 0}%` }} />
             </div>
             <div className="mt-1.5 flex items-center justify-between">

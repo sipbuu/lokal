@@ -50,3 +50,28 @@ test('a link no installed addon reads says which addon to install', async () => 
   const result = await sync.sync(db, 'p1', { packages: { list: () => [], find: () => null }, helpers })
   assert.match(result.error, /install the Tidal addon/)
 })
+
+test('after the first sync, a new remote id is added even when its title and artist match a song already here', async () => {
+  const remote = { list: [{ id: 'a', name: 'Owned', artists: 'Band' }] }
+  const { db, packages, helpers } = setup(remote)
+  sync.link(db, 'p1', 'https://open.spotify.com/playlist/xyz')
+  await sync.sync(db, 'p1', { packages, helpers })
+  remote.list = [{ id: 'a', name: 'Owned', artists: 'Band' }, { id: 'a-live', name: 'Owned', artists: 'Band' }]
+  const second = await sync.sync(db, 'p1', { packages, helpers })
+  assert.equal(second.added, 1)
+  assert.deepEqual(songs(db), ['Owned', 'Owned'])
+})
+
+test('a partial artist match is not taken as the library copy, and album objects are stored as their title', async () => {
+  const remote = { list: [{ id: 'x', name: 'Owned', artists: 'Ban', album: { name: 'Record' } }] }
+  const { db, packages, helpers } = setup(remote)
+  // findTrack here matches on title alone, like the real one's partial artist match.
+  const entries = []
+  const create = helpers.createGhostTrack
+  helpers.createGhostTrack = (database, entry, ...rest) => { entries.push(entry); return create(database, entry, ...rest) }
+  sync.link(db, 'p1', 'https://open.spotify.com/playlist/xyz')
+  const result = await sync.sync(db, 'p1', { packages, helpers })
+  assert.equal(result.matched, 0)
+  assert.equal(result.ghosts.length, 1)
+  assert.equal(entries[0].album, 'Record')
+})

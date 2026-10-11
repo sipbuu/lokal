@@ -1170,7 +1170,7 @@ function registerScannerHandlers(ipcMain) {
     const db = getDB()
     const where = []; const params = []
     // Songs with errors include streamed ones whose playback failed.
-    const files = opts.problems ? null : require('../libraryTracks').trackFileFilter(opts.includeGhosts)
+    const files = require('../trackErrors').truthy(opts.problems) ? null : require('../libraryTracks').trackFileFilter(opts.includeGhosts)
     if (files) where.push(files)
     if (opts.id) { where.push('id = ?'); params.push(opts.id) }
     if (opts.artistName) { where.push('artist = ?'); params.push(opts.artistName) }

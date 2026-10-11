@@ -28,20 +28,27 @@ function trackErrors(db) {
  * can't be played, each with why (missing / playback_error); ordering and
  * paging then happen after the file check.
  */
+// Sorts the library asks for; anything else falls back to the default
+// rather than reaching ORDER BY (the web route passes the query string).
+const SORT = /^(id|added_at|title|artist|album|album_artist|play_count|duration|year|last_modified|bitrate|track_num)(\s+(ASC|DESC))?$/i
+const safeSort = value => SORT.test(String(value || '').trim()) ? String(value).trim() : 'added_at DESC'
+const truthy = value => value === true || value === 'true' || value === '1' || value === 1
+
 function listTracks(db, opts, { where, params, exists }) {
   const { missingTrackFile } = require('./libraryTracks')
-  const limit = Math.max(1, Math.min(500, parseInt(opts.limit, 10) || 500))
+  // "Add songs" asks for up to 5,000 at once.
+  const limit = Math.max(1, Math.min(5000, parseInt(opts.limit, 10) || 500))
   const offset = Math.max(0, parseInt(opts.offset, 10) || 0)
   const errors = trackErrors(db)
   const decorate = track => ({ ...track, missing: missingTrackFile(track, exists), ...(errors.has(String(track.id)) ? { playback_error: errors.get(String(track.id)) } : {}) })
-  const problems = opts.problems === true || opts.problems === 'true' || opts.problems === '1'
+  const problems = truthy(opts.problems)
   const clauses = [...where]
   if (problems) clauses.push("(file_path NOT LIKE 'ghost://%' OR id IN (SELECT track_id FROM track_errors))")
   let sql = 'SELECT * FROM tracks'
   if (clauses.length) sql += ' WHERE ' + clauses.join(' AND ')
-  sql += ` ORDER BY ${opts.sort || 'added_at DESC'}`
+  sql += ` ORDER BY ${safeSort(opts.sort)}`
   if (!problems) return db.prepare(`${sql} LIMIT ${limit} OFFSET ${offset}`).all(...params).map(decorate)
   return db.prepare(sql).all(...params).map(decorate).filter(track => track.missing || track.playback_error).slice(offset, offset + limit)
 }
 
-module.exports = { recordTrackError, clearTrackError, trackErrors, listTracks }
+module.exports = { recordTrackError, clearTrackError, trackErrors, listTracks, truthy, safeSort }
