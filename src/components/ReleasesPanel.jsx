@@ -2,7 +2,9 @@
 // first, as a list of albums with their details. Checked when you refresh
 // (every artist's catalogue); the last check is kept for the next visit.
 
-import React, { useEffect, useRef, useState } from 'react'
+import React from 'react'
+import { create } from 'zustand'
+import { useShallow } from 'zustand/react/shallow'
 import { CalendarDays, Disc3, Loader2, MoreHorizontal, Play, RefreshCw, X } from 'lucide-react'
 import DiscoveryImage from './DiscoveryImage'
 import { checkReleases, loadArtistReleases, savedReleases } from '../newReleases'
@@ -51,32 +53,38 @@ function ReleaseRow({ release, index, onPlay, onOpen, onMenu, onArtist }) {
         </p>
       </div>
       <div className="flex items-center gap-1">
-        <button type="button" onClick={() => onPlay(release)} title={`Play ${release.title}`} aria-label={`Play ${release.title}`} className="flex h-9 w-9 items-center justify-center rounded-full bg-accent text-[rgb(var(--bg-rgb))] opacity-90 transition hover:scale-105 hover:opacity-100"><Play size={15} fill="currentColor" className="translate-x-px" /></button>
+        <button type="button" onClick={() => onPlay(release)} title={`Play ${release.title}`} aria-label={`Play ${release.title}`} className="flex h-9 w-9 items-center justify-center text-white/80 transition hover:scale-110 hover:text-accent"><Play size={20} fill="currentColor" strokeWidth={0} /></button>
         <button type="button" onClick={event => onMenu?.(event, release)} title="More" aria-label={`More for ${release.title}`} className="rounded-full p-2 text-muted opacity-0 transition-opacity hover:text-white group-hover:opacity-100 focus:opacity-100"><MoreHorizontal size={16} /></button>
       </div>
     </div>
   )
 }
 
-export default function ReleasesPanel({ artists, onPlay, onOpen, onMenu, onArtist }) {
-  const [saved, setSaved] = useState(() => savedReleases())
-  const [checking, setChecking] = useState(null) // { done, total }
-  const run = useRef(0)
-  useEffect(() => () => { run.current++ }, [])
-
-  const refresh = async () => {
-    const id = ++run.current
-    const isCurrent = () => run.current === id
-    setChecking({ done: 0, total: artists.length })
+// The check lives outside the page: leaving Home (or the tab) doesn't stop
+// it or lose what it found, and coming back shows its progress.
+export const useReleaseCheck = create((set, get) => ({
+  saved: savedReleases(),
+  checking: null, // { done, total }
+  run: 0,
+  start: async artists => {
+    if (get().checking) return
+    const id = get().run + 1
+    const isCurrent = () => get().run === id
+    set({ run: id, checking: { done: 0, total: artists.length } })
     try {
       const result = await checkReleases(artists, name => loadArtistReleases(name, api), {
         isCurrent,
-        onProgress: ({ done, total, items }) => { setChecking({ done, total }); setSaved(previous => ({ ...previous, items })) },
+        onProgress: ({ done, total, items }) => { if (isCurrent()) set(state => ({ checking: { done, total }, saved: { ...state.saved, items } })) },
       })
-      if (isCurrent()) setSaved(result)
-    } finally { if (isCurrent()) setChecking(null) }
-  }
-  const stop = () => { run.current++; setChecking(null); setSaved(savedReleases()) }
+      if (isCurrent()) set({ saved: result })
+    } finally { if (isCurrent()) set({ checking: null }) }
+  },
+  stop: () => set(state => ({ run: state.run + 1, checking: null, saved: savedReleases() })),
+}))
+
+export default function ReleasesPanel({ artists, onPlay, onOpen, onMenu, onArtist }) {
+  const { saved, checking, start, stop } = useReleaseCheck(useShallow(state => ({ saved: state.saved, checking: state.checking, start: state.start, stop: state.stop })))
+  const refresh = () => start(artists)
 
   const items = saved?.items || []
   const newCount = items.filter(release => release.isNew).length
