@@ -14,9 +14,20 @@ function invoke(name, args) {
 }
 // Only this worker blocks. The application thread remains asynchronous, including
 // nested guest callbacks which can make their own independent host calls.
+// One reply buffer per nesting depth, reused: a call made from a progress
+// callback (inside another call) gets the next one. A fresh 32 MB buffer for
+// every call (thousands during a download) is freed only once both threads
+// collect it, and could exhaust the worker's memory mid-download.
+const buffers = []
+let depth = 0
 function bridge(method, json) {
-  const buffer = new SharedArrayBuffer(32 * 1024 * 1024 + 16)
+  const buffer = buffers[depth] ||= new SharedArrayBuffer(32 * 1024 * 1024 + 16)
   const state = new Int32Array(buffer, 0, 4)
+  Atomics.store(state, 0, 0); Atomics.store(state, 1, 0)
+  depth++
+  try { return exchange(buffer, state, method, json) } finally { depth-- }
+}
+function exchange(buffer, state, method, json) {
   parentPort.postMessage({ type: 'host', method, json, buffer })
   for (;;) {
     while (Atomics.load(state, 0) === 0) {

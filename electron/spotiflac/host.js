@@ -228,12 +228,14 @@ class ExtensionHost {
         const pkce=await this.authCall('generatePKCE',[64])
         for(const [key,v]of Object.entries({client_id:config.clientId,redirect_uri:config.redirectUri,response_type:'code',scope:config.scope || (config.scopes || []).join(' '),code_challenge:pkce.challenge,code_challenge_method:'S256',...config.extraParams}))if(v!=null)url.searchParams.set(key,String(v))
       }
-      this.auth.pending={url:url.href,state,createdAt:Date.now(),callback:config.redirectUri || ''};return {success:true,open_auth_url:url.href,message:'Open the login page and paste its callback URL into Addons.'}
+      this.auth.pending={url:url.href,state,createdAt:Date.now(),callback:config.redirectUri || ''};return {success:true,open_auth_url:url.href,message:'Log in on the page Lokal opens; access is checked when it closes.'}
     }
     if(name==='exchangeCodeWithPKCE'){
       const config=value || {},body=new URLSearchParams({grant_type:'authorization_code',client_id:config.clientId,code:config.code || this.auth.code || '',code_verifier:this.auth.pkce?.verifier || '',...(config.redirectUri?{redirect_uri:config.redirectUri}:{}),...config.extraParams})
+      const generation=this.network.generation || 0
       const result=await this.network.jsonResponse(config.tokenUrl,{method:'POST',body:body.toString(),headers:{'Content-Type':'application/x-www-form-urlencoded'},signal:this.signal})
       if(!result.ok)throw new Error(`OAuth exchange returned HTTP ${result.status}`)
+      if((this.network.generation || 0)!==generation)return {success:false,error:'Disconnected'}
       const tokens=JSON.parse(result.body);Object.assign(this.auth,tokens,{expires_at:Date.now()+Number(tokens.expires_in || 3600)*1000});return {success:true,...tokens}
     }
     throw new Error('Unknown auth API')
@@ -263,7 +265,14 @@ class ExtensionHost {
       if(action==='completeGrant')return this.session.completeGrant(args[0],this.signal)
       if(action==='status'||action==='clear')return this.session[action]()
     }
-    if(name==='auth')return this.authCall(action,args)
+    if(name==='auth'){
+      const generation=this.network.generation || 0
+      const result=await this.authCall(action,args)
+      // Disconnected meanwhile: don't save what this call left behind.
+      if((this.network.generation || 0)!==generation)return {success:false,error:'Disconnected'}
+      if(!['getAuthCode','getTokens','isAuthenticated','getPKCE'].includes(action))this.network.persist?.()
+      return result
+    }
     if(name==='ffmpeg'){
       try {
         if(action==='getInfo')return await mediaInfo(this.file(args[0]),this.tools,this.signal)

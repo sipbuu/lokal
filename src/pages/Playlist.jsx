@@ -1,11 +1,10 @@
 import React, { useEffect, useMemo, useState, useCallback, useRef } from 'react'
 import { useParams, useNavigate, useLocation } from 'react-router-dom'
 import { motion } from 'framer-motion'
-import { Heart, Music, Play, Shuffle, Trash2, Edit2, Check, X, RefreshCw, Plus, Image as ImageIcon, AlertCircle, Search, Download, Sparkles, SlidersHorizontal, Share2 } from 'lucide-react'
+import { Heart, Music, Play, Shuffle, Trash2, Edit2, Check, X, RefreshCw, Image as ImageIcon, AlertCircle, Search, Download, Sparkles, SlidersHorizontal, Share2 } from 'lucide-react'
 import { usePlayerStore, useAppStore } from '../store/player'
 import TrackList from '../components/TrackList'
 import PlaylistCover from '../components/PlaylistCover'
-import AddTracksToPlaylistModal from '../components/AddTracksToPlaylistModal'
 import Modal from '../components/Modal'
 import { api } from '../api'
 import { describeRules, openSmartPlaylistEditor } from '../smartPlaylists'
@@ -17,6 +16,7 @@ import { downloadGhostSongs, ghostDownloadMessage, downloadGhostResult as queueG
 import { showLoadingToast } from '../components/Toaster'
 import { useCachedState, usePageReady } from '../pageCache'
 import HoverScrollTitle from '../components/HoverScrollTitle'
+import PlaylistSyncButton from '../components/PlaylistSyncButton'
 import { useGhostDownloadSources } from '../components/useGhostDownloadSources'
 import { useGhostDurationConfirmation } from '../components/useGhostDurationConfirmation'
 import { usePlaylistSortStore, playlistSortPreference } from '../store/playlistSort'
@@ -54,7 +54,6 @@ export default function Playlist() {
   const [playlistSearch, setPlaylistSearch] = useState('')
   const playlistSearchRef = useRef(null)
   const visibleTracks = useMemo(() => filterPlaylistTracks(sortedTracks, playlistSearch), [sortedTracks, playlistSearch])
-  const [showAddSongs, setShowAddSongs] = useState(false)
   const [showResolveGhosts, setShowResolveGhosts] = useState(false)
   const { confirmDuration, durationChoice, isCurrent: ghostResolverOpen } = useGhostDurationConfirmation(showResolveGhosts)
   const { source: ghostSource, sourceChoice } = useGhostDownloadSources(showResolveGhosts)
@@ -246,7 +245,7 @@ export default function Playlist() {
     }
   }, [tracks.length, isLiked, smart, recommendations.length, fetchRecommendations])
 
-  // A recommended song that's now in the playlist (added from Add Songs, say)
+  // A recommended song that's now in the playlist
   // leaves the recommendations, cached ones included; an emptied list is
   // refilled by the effect above.
   useEffect(() => {
@@ -300,11 +299,6 @@ export default function Playlist() {
     if (isLiked) return
     const updated = await api.updatePlaylist(id, { clearCover: true })
     if (updated?.id) setPlaylist(updated)
-    window.dispatchEvent(new CustomEvent('lokal:playlist-updated', { detail: { playlistId: id } }))
-  }
-
-  const handleTrackAdded = () => {
-    load()
     window.dispatchEvent(new CustomEvent('lokal:playlist-updated', { detail: { playlistId: id } }))
   }
 
@@ -529,19 +523,13 @@ export default function Playlist() {
                 <AlertCircle size={15} /> Ghost Songs ({ghostTracks.length})
               </button>
             )}
-            {smart ? (
+            {!smart && playlist?.id && <PlaylistSyncButton playlistId={playlist.id} userId={user?.id} />}
+            {smart && (
               <button
                 onClick={() => openSmartPlaylistEditor(playlist)}
                 className="flex items-center gap-2 px-5 py-2.5 bg-elevated border border-border text-white/80 rounded-full font-medium text-sm hover:text-white hover:border-accent/30 transition-colors"
               >
                 <SlidersHorizontal size={15} /> Edit Rules
-              </button>
-            ) : (
-              <button
-                onClick={() => setShowAddSongs(true)}
-                className="flex items-center gap-2 px-5 py-2.5 bg-elevated border border-border text-white/80 rounded-full font-medium text-sm hover:text-white hover:border-accent/30 transition-colors"
-              >
-                <Plus size={15} /> Add Songs
               </button>
             )}
 
@@ -639,18 +627,8 @@ export default function Playlist() {
       {loaded && !tracks.length && (
         <div className="text-center py-20 text-muted">
           <Music size={40} className="mx-auto mb-3 opacity-20" />
-          <p className="text-sm">{isLiked ? 'Like some tracks to see them here.' : smart ? 'No songs match these rules yet. Use Edit Rules to change them.' : 'This playlist is empty. Use Add Songs to build it.'}</p>
+          <p className="text-sm">{isLiked ? 'Like some tracks to see them here.' : smart ? 'No songs match these rules yet. Use Edit Rules to change them.' : 'This playlist is empty. Add songs to it with “Add to playlist” from any song’s menu.'}</p>
         </div>
-      )}
-
-      {!isLiked && (
-        <AddTracksToPlaylistModal
-          open={showAddSongs}
-          onClose={() => setShowAddSongs(false)}
-          playlistId={id}
-          existingTrackIds={tracks.map(track => track.id)}
-          onAdded={handleTrackAdded}
-        />
       )}
 
       {!isLiked && (

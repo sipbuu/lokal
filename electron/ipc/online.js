@@ -60,7 +60,7 @@ function providers() {
   return [
     { id: 'yt', label: 'YouTube Music' },
     { id: 'sc', label: 'SoundCloud' },
-    ...sources.addons.searchable(getDB()).map(a => ({ id: a.provider, label: a.name, icon: a.icon, addon: true, package: a.kind === 'spotiflac', filters: a.searchFilters, album: a.resources.includes('album'), artist: a.resources.includes('artist') })),
+    ...sources.addons.searchable(getDB()).map(a => ({ id: a.provider, label: a.name, icon: a.icon, addon: true, package: a.kind === 'spotiflac', needsSetup: a.kind === 'spotiflac' && !!a.access && !a.access.ready, filters: a.searchFilters, album: a.resources.includes('album'), artist: a.resources.includes('artist') })),
   ]
 }
 
@@ -91,7 +91,11 @@ function registerOnlineHandlers(ipcMain) {
   ipcMain.handle('online:signIn', (event, options) => accountSession.signIn({ mode: options?.mode || 'embedded', onProgress: status => { if (!event.sender.isDestroyed()) event.sender.send('online:signInStatus', status) } }))
   ipcMain.handle('online:cancelSignIn', () => accountSession.cancelSignIn())
   ipcMain.handle('online:disconnect', () => accountSession.disconnect())
-  ipcMain.handle('online:catalogue', (_, options) => accountRequest(({ cookies, fetchImpl }) => youtube.fetchCatalogue(options, cookies, fetchImpl)).catch(e => ({ error: e.message })))
+  ipcMain.handle('online:catalogue', (_, options) => {
+    const viaYouTube = () => accountRequest(({ cookies, fetchImpl }) => youtube.fetchCatalogue(options, cookies, fetchImpl))
+    // Releases carry their exact date when Deezer has the artist.
+    return (options?.type === 'releases' ? require('../online/releaseDates').releaseCatalogue(options, viaYouTube) : viaYouTube()).catch(e => ({ error: e.message }))
+  })
   ipcMain.handle('online:account', (_, force = false) => accountRequest(auth => youtube.fetchAccountData({ ...auth, force: !!force })).catch(e => ({ error: e.message, authenticated: false })))
   ipcMain.handle('online:accountPlaylist', (_, playlistId) => accountRequest(({ cookies, fetchImpl }) => youtube.fetchAccountPlaylist(playlistId, cookies, fetchImpl)).catch(e => ({ error: e.message })))
   ipcMain.handle('online:radio', (_, videoId) => accountRequest(auth => youtube.fetchRadio(videoId, auth)).catch(() => []))

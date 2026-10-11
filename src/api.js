@@ -162,6 +162,9 @@ export const api = {
   streamURL: (t) => `${BASE}/stream/${encodeURIComponent(t.id)}`,
   avatarURL: (id) => `${BASE}/avatar/${id}`,
   getTracks: (o = {}) => isE() ? el().getTracks(o) : apiFetch(`/tracks?${new URLSearchParams(o)}`),
+  // A song that couldn't be played (Library → Songs with errors), or played again fine.
+  reportTrackError: (id, message) => isE() ? el().reportTrackError(id, message) : apiFetch(`/tracks/${encodeURIComponent(id)}/error`, { method: 'POST', body: { message } }),
+  clearTrackError: (id) => isE() ? el().clearTrackError(id) : apiFetch(`/tracks/${encodeURIComponent(id)}/error`, { method: 'DELETE' }),
   getMissingTracks: () => isE() ? el().getMissingTracks() : apiFetch('/tracks/missing'),
   searchTracks: (q) => isE() ? el().searchTracks(q) : apiFetch(`/tracks/search?q=${encodeURIComponent(q)}`),
   // The library's files in short: [[artist, title, source_ref], ...] (see libraryIndex.js).
@@ -257,6 +260,12 @@ export const api = {
   importExternalTrackMetadata: (payload) => isE() ? el().importExternalTrackMetadata(payload) : apiFetch('/playlists/external-import-metadata', { method:'POST', body:payload }),
   previewLinkPlaylist: (payload) => isE() ? el().previewLinkPlaylist(payload) : apiFetch('/playlists/link-preview', { method:'POST', body:payload }),
   importLinkPlaylist: (payload) => isE() ? el().importLinkPlaylist(payload) : apiFetch('/playlists/link-import', { method:'POST', body:payload }),
+  // A playlist linked to one on Spotify / Tidal / Apple Music / Qobuz (desktop).
+  playlistSyncStatus: (id) => isE() ? el().playlistSyncStatus(id) : Promise.resolve({ linked: false, unsupported: true }),
+  playlistSyncLink: (id, url) => isE() ? el().playlistSyncLink(id, url) : Promise.resolve({ error: 'Playlist sync works in the desktop app.' }),
+  playlistSyncUnlink: (id) => isE() ? el().playlistSyncUnlink(id) : Promise.resolve({ ok: true }),
+  playlistSyncLinked: () => isE() ? el().playlistSyncLinked() : Promise.resolve([]),
+  playlistSync: (id, userId) => isE() ? el().playlistSync(id, userId) : Promise.resolve({ error: 'Playlist sync works in the desktop app.' }),
   resolveGhostTrack: (ghostTrackId, targetTrackId, options = {}) => isE() ? el().resolveGhostTrack(ghostTrackId, targetTrackId, options) : apiFetch('/playlists/resolve-ghost', { method:'POST', body:{ ghostTrackId, targetTrackId, options } }),
   reorderPlaylist: (pl, trackIds) => isE() ? el().reorderPlaylist(pl, trackIds) : apiFetch(`/playlists/${pl}/reorder`, { method:'PUT', body:{trackIds} }),
   deduplicatePlaylist: pl => isE() ? el().deduplicatePlaylist(pl) : apiFetch(`/playlists/${pl}/deduplicate`, { method:'POST' }),
@@ -383,6 +392,8 @@ export const api = {
   addonsSetEnabled: (key, enabled) => isE() ? el().addonsSetEnabled(key, enabled) : apiFetch(`/online/addons/${encodeURIComponent(key)}/enabled`, { method:'PUT', body:{ enabled } }),
   addonsSetSettings: (key, values) => isE() ? el().addonsSetSettings(key, values) : apiFetch(`/online/addons/${encodeURIComponent(key)}/settings`, { method:'PUT', body:{ values } }),
   addonsPackages: request => isE() ? el().addonsPackages(request) : apiFetch('/online/addons/packages', { method:'POST', body:request }),
+  // An addon's access was checked again (its login window closed). Desktop only.
+  onAddonAuthChanged: fn => isE() && el().onAddonAuthChanged ? el().onAddonAuthChanged(fn) : () => {},
   onlineStreamURL: (provider, id) => isE() ? `lokal-stream://${provider}/${encodeURIComponent(id)}` : `${BASE}/online/stream/${encodeURIComponent(provider)}/${encodeURIComponent(id)}`,
   downloadPlaylist: (url, o) => isE() ? el().downloadPlaylist(url, o) : apiFetch('/download/playlist', { method:'POST', body:{url,...o} }),
   getDownloadedPlaylists: () => isE() ? el().getDownloadedPlaylists() : apiFetch('/download/playlists'),

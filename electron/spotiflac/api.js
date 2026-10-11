@@ -15,13 +15,19 @@ async function dispatch(db, request = {}) {
     }
     case 'package.action': return packages.invokeAction(key,id,input,token)
     case 'package.auth': return packages.authStatus(key)
-    case 'package.verify': { const runtime=await packages.runtime(key);if(runtime.host.session)await runtime.host.session.bootstrap(runtime.host.signal);return packages.authStatus(key) }
+    case 'package.verify': {
+      const runtime=await packages.runtime(key);if(runtime.host.session)await runtime.host.session.bootstrap(runtime.host.signal)
+      const status=await packages.authStatus(key)
+      // The verification page opens straight away; its window reports back when it closes.
+      if(status.open_auth_url&&process.versions.electron){await require('./authWindow').openAuthWindow(packages,key);return {...status,opened:true}}
+      return status
+    }
     case 'package.openAuth': {
       if(process.versions.electron)return require('./authWindow').openAuthWindow(packages,key)
       return packages.authStatus(key)
     }
     case 'package.callback': return packages.authCallback(key,url)
-    case 'package.logout': { const runtime=await packages.runtime(key);runtime.host.session?.clear();await runtime.host.authCall('clearAuth',[]);return {ok:true} }
+    case 'package.logout': { const runtime=await packages.runtime(key);runtime.host.session?.clear();await runtime.host.authCall('clearAuth',[]);packages.forgetConnection(key);if(process.versions.electron)await require('./authWindow').clearAuthSession(key);return {ok:true} }
     case 'package.home': return (await packages.runtime(key)).invoke('getHomeFeed')
     case 'package.browse': return (await packages.runtime(key)).invoke('getBrowseCategories')
     case 'package.playlist': return packages.album(key,id,true)

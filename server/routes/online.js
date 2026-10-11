@@ -63,13 +63,16 @@ router.get('/providers', (req, res) => {
   res.json([
     { id: 'yt', label: 'YouTube Music' },
     { id: 'sc', label: 'SoundCloud' },
-    ...sources.addons.searchable(getDB()).map(a => ({ id: a.provider, label: a.name, icon: a.icon, addon: true, package: a.kind === 'spotiflac', filters: a.searchFilters, album: a.resources.includes('album'), artist: a.resources.includes('artist') })),
+    ...sources.addons.searchable(getDB()).map(a => ({ id: a.provider, label: a.name, icon: a.icon, addon: true, package: a.kind === 'spotiflac', needsSetup: a.kind === 'spotiflac' && !!a.access && !a.access.ready, filters: a.searchFilters, album: a.resources.includes('album'), artist: a.resources.includes('artist') })),
   ])
 })
 
 router.get('/account', async (req, res) => res.json(await youtube.fetchAccountData({ cookies: accountCookies(), force: req.query?.force === '1' }).catch(e => ({ error: e.message }))))
 router.post('/artwork', async (req, res) => res.json(await discoveryArtwork(req.body?.items).catch(e => ({ error: e.message }))))
-router.post('/catalogue', async (req, res) => res.json(await youtube.fetchCatalogue(req.body, accountCookies()).catch(e => ({ error: e.message }))))
+router.post('/catalogue', async (req, res) => {
+  const viaYouTube = () => youtube.fetchCatalogue(req.body, accountCookies())
+  res.json(await (req.body?.type === 'releases' ? require('../../electron/online/releaseDates').releaseCatalogue(req.body, viaYouTube) : viaYouTube()).catch(e => ({ error: e.message })))
+})
 router.get('/account-playlist/:id', async (req, res) => res.json(await youtube.fetchAccountPlaylist(req.params.id, accountCookies()).catch(e => ({ error: e.message }))))
 router.get('/radio/:videoId', async (req, res) => res.json(await youtube.fetchRadio(req.params.videoId, { cookies: accountCookies() }).catch(() => [])))
 router.post('/account-liked', async (req, res) => res.json(await youtube.setAccountLiked(req.body?.videoId, !!req.body?.liked, accountCookies()).catch(e => ({ error: e.message }))))

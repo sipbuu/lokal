@@ -431,7 +431,7 @@ async function resolveStream(db, key, id, { fetchImpl, force = false } = {}) {
 module.exports = {
   addonKey, providerFor, keyOfProvider, checkUrl, getJson, fetchChecked,
   list: db => [...list(db), ...(optionalPackages(db)?.list() || [])],
-  searchable: db => [...searchable(db), ...(optionalPackages(db)?.list() || []).filter(a => a.enabled && a.resources.includes('search'))],
+  searchable: db => [...searchable(db), ...(optionalPackages(db)?.list() || []).filter(a => a.enabled && !a.linksOnly && a.resources.includes('search'))],
   install: (db, url, options) => /\.(sflx|spotiflac-ext)(?:[?#]|$)/i.test(String(url)) ? packageService(db).install({ url }) : install(db, url, options),
   remove: (db, key) => optionalPackages(db)?.find(key) ? packageService(db).remove(key) : remove(db, key),
   setEnabled: (db, key, enabled) => optionalPackages(db)?.find(key) ? packageService(db).setEnabled(key, enabled) : setEnabled(db, key, enabled),

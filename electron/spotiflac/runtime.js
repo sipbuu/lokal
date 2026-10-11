@@ -7,7 +7,7 @@ class ExtensionRuntime {
     this.pending = new Map()
     this.nextId = 0
     this.queue = Promise.resolve()
-    this.worker = new Worker(path.join(__dirname, 'worker.js'), { workerData: { code, config }, resourceLimits: { maxOldGenerationSizeMb: 128 } })
+    this.worker = new Worker(path.join(__dirname, 'worker.js'), { workerData: { code, config }, resourceLimits: { maxOldGenerationSizeMb: config.heapMb || 128 } })
     this.ready = new Promise((resolve, reject) => { this.readyResolve = resolve; this.readyReject = reject })
     this.startTimer = setTimeout(() => this.close(new Error('Extension loading timed out')), 30000)
     this.worker.on('message', message => {

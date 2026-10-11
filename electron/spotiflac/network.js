@@ -47,7 +47,10 @@ class ExtensionNetwork {
         if (body && method !== 'GET' && method !== 'HEAD') req.write(body)
         req.end()
       })
-      if (!directMedia) for (const cookie of response.headers['set-cookie'] || []) { try { this.cookies.setCookieSync(cookie, url.href) } catch {} }
+      if (!directMedia && response.headers['set-cookie']?.length) {
+        for (const cookie of response.headers['set-cookie']) { try { this.cookies.setCookieSync(cookie, url.href) } catch {} }
+        this.persist?.()
+      }
       const status = response.statusCode || 0
       if (REDIRECTS.has(status) && response.headers.location) {
         response.destroy()

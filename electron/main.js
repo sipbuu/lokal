@@ -468,6 +468,16 @@ app.whenReady().then(() => {
   try { registerCacheHandlers(ipcMain) } catch (e) { console.error('registerCacheHandlers:', e.message) }
   try { registerOnlineHandlers(ipcMain) } catch (e) { console.error('registerOnlineHandlers:', e.message) }
   try { registerStreamProtocol(protocol, net) } catch (e) { console.error('registerStreamProtocol:', e.message) }
+  // SpotiFLAC repositories are refreshed at every launch (in the background,
+  // once the window has had time to open), so updates and new sources show
+  // without visiting Settings first.
+  setTimeout(() => {
+    try {
+      const packages = require('./spotiflac/packages').service(getDB())
+      // Only for people using SpotiFLAC sources: nothing is fetched otherwise.
+      if (packages.list().length || packages.repos().length > 1) packages.refreshDue(0).catch(e => console.error('SpotiFLAC repository refresh:', e.message))
+    } catch (e) { console.error('SpotiFLAC repository refresh:', e.message) }
+  }, 8000).unref?.()
 
 
   ipcMain.on('relaunch-app', () => {
